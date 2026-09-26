@@ -21,7 +21,8 @@ export type AppErrorCode =
   | 'USER_BANNED'
   | 'NOT_FOUND'
   | 'DOWNLOAD_FORBIDDEN'
-  | 'FORBIDDEN';
+  | 'FORBIDDEN'
+  | 'ACCOUNT_DELETED';
 
 export class AppError extends Error {
   constructor(

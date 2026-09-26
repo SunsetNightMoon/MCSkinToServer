@@ -5,12 +5,14 @@ import type { IdentityService } from '../../auth/identity.js';
 import type {
   AssetRepository,
   AssetKind,
+  ReviewStatus,
 } from '../../repositories/assetRepository.js';
 import { requireAdmin, requireAuth } from '../middleware.js';
 import { AppError } from '../../errors.js';
 
 /**
  * 管理员 HTTP 适配层（蓝图 P3/P4）：
+ * - GET   /api/admin/assets?kind=&status=&search=  全量素材（含私有/待审）
  * - GET   /api/admin/reviews?kind=     待审核列表
  * - GET   /api/admin/assets/:id/reviews  审核历史
  * - POST  /api/admin/assets/:id/review   审批（approved/rejected + reason）
@@ -28,12 +30,51 @@ export interface AdminRouteDependencies {
 }
 
 const REVIEW_STATUSES: ReadonlySet<string> = new Set(['approved', 'rejected']);
+/** 管理端列表的审核状态过滤（含 pending，管理员要看得到待审内容） */
+const REVIEW_FILTERS: ReadonlySet<string> = new Set([
+  'pending',
+  'approved',
+  'rejected',
+]);
 
 export function createAdminRouter(deps: AdminRouteDependencies): Router {
   const router = Router();
   // requireAuth 写入 req.context，requireAdmin 再做角色门槛 —— 两个都要挂
   const auth = requireAuth(deps.tokenService);
   const admin = requireAdmin;
+
+  /**
+   * 全量素材列表（含 private / pending / rejected），供管理后台总览与编辑入口。
+   * 与公开库的差别见 AssetRepository.listAllForAdmin。
+   */
+  router.get('/api/admin/assets', auth, admin, async (req, res) => {
+    const q = req.query as Record<string, unknown>;
+    const kind =
+      typeof q['kind'] === 'string' && (q['kind'] === 'skin' || q['kind'] === 'cape')
+        ? (q['kind'] as AssetKind)
+        : undefined;
+    const reviewStatus =
+      typeof q['status'] === 'string' && REVIEW_FILTERS.has(q['status'])
+        ? (q['status'] as ReviewStatus)
+        : undefined;
+    const page = Math.max(Number(q['page'] ?? 1) || 1, 1);
+    const pageSize = Math.min(
+      Math.max(Number(q['pageSize'] ?? 20) || 20, 1),
+      100,
+    );
+    const search =
+      typeof q['search'] === 'string' && q['search'].trim() !== ''
+        ? q['search'].trim()
+        : undefined;
+    const result = await deps.assets.listAllForAdmin({
+      kind,
+      reviewStatus,
+      search,
+      page,
+      pageSize,
+    });
+    res.json({ ...result, page, pageSize });
+  });
 
   router.get('/api/admin/reviews', auth, admin, async (req, res) => {
     const q = req.query as Record<string, unknown>;
@@ -89,6 +130,22 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
           body['aiGenerated'] === undefined
             ? undefined
             : Boolean(body['aiGenerated']),
+        // 管理员可直接编辑他人素材的元数据（不需归属校验，管理员身份即授权）
+        name: body['name'] === undefined ? undefined : String(body['name']),
+        description:
+          body['description'] === undefined
+            ? undefined
+            : String(body['description']),
+        license:
+          body['license'] === undefined ? undefined : String(body['license']),
+        visibility:
+          body['visibility'] === undefined
+            ? undefined
+            : (String(body['visibility']) as 'private' | 'public'),
+        downloadPolicy:
+          body['downloadPolicy'] === undefined
+            ? undefined
+            : (String(body['downloadPolicy']) as 'owner_only' | 'public'),
       },
     );
     res.status(204).end();

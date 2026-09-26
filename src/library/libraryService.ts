@@ -256,12 +256,44 @@ export class LibraryService {
   async moderate(
     moderator: RequestContext,
     assetId: string,
-    fields: { adminWarning?: string | null; aiGenerated?: boolean },
+    fields: {
+      adminWarning?: string | null;
+      aiGenerated?: boolean;
+      name?: string;
+      description?: string;
+      license?: string;
+      visibility?: 'private' | 'public';
+      downloadPolicy?: 'owner_only' | 'public';
+    },
   ): Promise<void> {
     void moderator;
     const asset = await this.assets.findById(assetId);
     if (!asset) {
       throw new AppError('NOT_FOUND', '素材不存在');
+    }
+    // 管理员编辑走这里，取值域与 owner 侧 updateOwnerFields 保持一致
+    if (
+      fields.visibility !== undefined &&
+      fields.visibility !== 'private' &&
+      fields.visibility !== 'public'
+    ) {
+      throw new AppError('VALIDATION_ERROR', 'visibility 必须为 private 或 public');
+    }
+    if (
+      fields.downloadPolicy !== undefined &&
+      fields.downloadPolicy !== 'owner_only' &&
+      fields.downloadPolicy !== 'public'
+    ) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'downloadPolicy 必须为 owner_only 或 public',
+      );
+    }
+    if (
+      fields.name !== undefined &&
+      (fields.name.trim() === '' || fields.name.length > 64)
+    ) {
+      throw new AppError('VALIDATION_ERROR', '素材名称必填且不超过 64 字符');
     }
     await this.assets.updateModerationFields(assetId, fields, this.now());
   }

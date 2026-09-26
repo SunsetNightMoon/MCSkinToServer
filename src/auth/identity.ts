@@ -30,6 +30,8 @@ const NAME_COOLDOWN_MS = 30 * 24 * 3600 * 1000;
 const BCRYPT_COST = 10;
 export const MAX_PROFILES_PER_USER = 3;
 const MINECRAFT_SESSION_TTL_MS = 30 * 1000;
+/** 注销后的账号恢复宽限期（15 天）；到期由 purgeExpiredAccounts 清除个人数据 */
+export const ACCOUNT_DELETE_GRACE_MS = 15 * 24 * 3600 * 1000;
 
 export interface PublicUser {
   id: string;
@@ -170,6 +172,10 @@ export class IdentityService {
     ) {
       throw forbiddenOperation('Invalid credentials');
     }
+    // 已注销账号不再具备 Yggdrasil 登录能力（宽限期内可先恢复）
+    if (user.deletedAt) {
+      throw forbiddenOperation('Account deleted');
+    }
     return user;
   }
 
@@ -230,6 +236,8 @@ export class IdentityService {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       lastLoginAt: null,
+      deletedAt: null,
+      purgedAt: null,
     };
     const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });
     const profile = (await this.profiles.findById(created.profileId))!;
@@ -242,6 +250,8 @@ export class IdentityService {
   }): Promise<RegisterResult> {
     const user = await this.loadUserForAuth(input.email);
     await this.assertPassword(user, input.password);
+    // 先验密码再报注销/封禁状态，避免向未持密码者泄露账号状态
+    this.assertNotDeleted(user);
     if (!user.isActive) {
       throw new AppError('USER_DISABLED', '账号已被停用');
     }
@@ -503,6 +513,102 @@ export class IdentityService {
       throw new AppError('VALIDATION_ERROR', '至少保留一个角色');
     }
     await this.profiles.delete(profileId);
+  }
+
+  // ---- 账号生命周期（改密 / 注销 / 恢复）----
+
+  /** 已注销账号：宽限期内提示可恢复，超期提示已不可恢复 */
+  private assertNotDeleted(user: UserRow): void {
+    if (!user.deletedAt) return;
+    const elapsed = this.now().getTime() - new Date(user.deletedAt).getTime();
+    if (elapsed < ACCOUNT_DELETE_GRACE_MS) {
+      const days = Math.ceil((ACCOUNT_DELETE_GRACE_MS - elapsed) / 86400000);
+      throw new AppError(
+        'ACCOUNT_DELETED',
+        `该账号已注销，还可在 ${days} 天内恢复`,
+      );
+    }
+    throw new AppError('ACCOUNT_DELETED', '该账号已注销且已超过恢复期限');
+  }
+
+  /**
+   * 修改密码：需提供旧密码；成功后吊销该用户**全部**会话
+   * （前端收到成功即清登录态并跳登录页，因此整体吊销不会打断流程）。
+   */
+  async changePassword(input: {
+    userId: string;
+    oldPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const user = await this.users.findById(input.userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    await this.assertPassword(user, input.oldPassword);
+    this.assertValidPassword(input.newPassword);
+
+    const hash = await bcrypt.hash(input.newPassword, BCRYPT_COST);
+    const now = this.now();
+    await this.users.updatePassword(user.id, hash, now);
+    // 改密即失效全部令牌：Web 与 Yggdrasil 会话一并作废
+    await this.tokens.revokeAllForUser(user.id);
+  }
+
+  /**
+   * 注销账号：需密码确认，随后进入 15 天可恢复宽限期。
+   * 个人数据此时不清除（宽限期内要能恢复），到期由 purgeExpiredAccounts 清除。
+   */
+  async deleteAccount(input: {
+    userId: string;
+    password: string;
+  }): Promise<{ recoverableUntil: string }> {
+    const user = await this.users.findById(input.userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    await this.assertPassword(user, input.password);
+
+    const now = this.now();
+    if (!user.deletedAt) {
+      await this.users.markDeleted(user.id, now);
+    }
+    await this.tokens.revokeAllForUser(user.id);
+
+    const base = user.deletedAt
+      ? new Date(user.deletedAt).getTime()
+      : now.getTime();
+    return {
+      recoverableUntil: new Date(base + ACCOUNT_DELETE_GRACE_MS).toISOString(),
+    };
+  }
+
+  /** 恢复已注销账号：仅限宽限期内；成功后直接建立登录会话 */
+  async restoreAccount(input: {
+    email: string;
+    password: string;
+  }): Promise<RegisterResult> {
+    const user = await this.loadUserForAuth(input.email);
+    await this.assertPassword(user, input.password);
+    if (!user.deletedAt) {
+      throw new AppError('VALIDATION_ERROR', '该账号未处于注销状态');
+    }
+    const elapsed = this.now().getTime() - new Date(user.deletedAt).getTime();
+    if (elapsed >= ACCOUNT_DELETE_GRACE_MS) {
+      throw new AppError('ACCOUNT_DELETED', '已超过 15 天恢复期限，账号无法恢复');
+    }
+
+    const now = this.now();
+    await this.users.clearDeleted(user.id, now);
+    const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });
+    const profile = await this.profiles.findFirstByUserId(user.id);
+    return {
+      user: toPublicUser(user),
+      profile: profile ?? {
+        id: '',
+        userId: user.id,
+        name: '',
+        nameChangedAt: '',
+        createdAt: '',
+        updatedAt: '',
+      },
+      token,
+    };
   }
 
   // ---- Web 头像 / 管理员用户管理 ----

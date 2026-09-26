@@ -94,29 +94,45 @@ export const useSiteStore = create<SiteState>()(
       setTheme: (theme) => set({ theme }),
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
-      // 背景图字段保留但恒为空串（无后端支持）
-      setLightBgImage: () => set({ lightBgImage: '' }),
-      setDarkBgImage: () => set({ darkBgImage: '' }),
-      setLoginBgImage: () => set({ loginBgImage: '' }),
-      setLoginEmbedImage: () => set({ loginEmbedImage: '' }),
+      setLightBgImage: (url) => set({ lightBgImage: url }),
+      setDarkBgImage: (url) => set({ darkBgImage: url }),
+      setLoginBgImage: (url) => set({ loginBgImage: url }),
+      setLoginEmbedImage: (url) => set({ loginEmbedImage: url }),
       setVideoMuted: (muted) => set({ videoMuted: muted }),
       setLightBgOverlayOpacity: (opacity) => set({ lightBgOverlayOpacity: opacity }),
       setDarkBgOverlayOpacity: (opacity) => set({ darkBgOverlayOpacity: opacity }),
       setCopyrightText: (text) => set({ copyrightText: text }),
       setCopyrightBeian: (beian) => set({ copyrightBeian: beian }),
       setCopyrightProject: (project) => set({ copyrightProject: project }),
-      // MSCTS 无 /api/settings/public：直接回落到本地默认值
+      // 从 MSCTS 的 /api/settings/public 拉取站点外观（键名沿用旧版 SCREAMING_SNAKE_CASE）。
+      // 后端只返回「已显式设置过」的键，因此未设置的项保持本地默认；
+      // THEME 也只在后端有值时覆盖，避免把用户的本地主题选择冲掉。
       loadSettings: async () => {
-        set({
-          title: SITE_DEFAULTS.title,
-          description: SITE_DEFAULTS.description,
-          lightBgImage: '',
-          darkBgImage: '',
-          loginBgImage: '',
-          loginEmbedImage: '',
-          copyrightText: SITE_DEFAULTS.copyrightText,
-          copyrightProject: SITE_DEFAULTS.copyrightProject,
-        })
+        try {
+          const res = await fetch('/api/settings/public')
+          if (!res.ok) return
+          const data = await res.json()
+          set({
+            title: data.SITE_TITLE || SITE_DEFAULTS.title,
+            description: data.SITE_DESCRIPTION || SITE_DEFAULTS.description,
+            ...(data.THEME
+              ? { theme: data.THEME === 'light' ? 'light' : 'dark' }
+              : {}),
+            lightBgImage: data.LIGHT_BG_IMAGE || '',
+            darkBgImage: data.DARK_BG_IMAGE || '',
+            loginBgImage: data.LOGIN_BG_IMAGE || '',
+            loginEmbedImage: data.LOGIN_EMBED_IMAGE || '',
+            videoMuted: String(data.VIDEO_MUTED ?? 'true').toLowerCase() === 'true',
+            lightBgOverlayOpacity: Number(data.LIGHT_BG_OVERLAY_OPACITY) || 30,
+            darkBgOverlayOpacity: Number(data.DARK_BG_OVERLAY_OPACITY) || 30,
+            copyrightText: data.COPYRIGHT_TEXT || SITE_DEFAULTS.copyrightText,
+            copyrightBeian: data.COPYRIGHT_BEIAN || '',
+            copyrightProject:
+              data.COPYRIGHT_PROJECT || SITE_DEFAULTS.copyrightProject,
+          })
+        } catch {
+          // 网络异常时保持本地默认值，不打断渲染
+        }
       },
     }),
     {

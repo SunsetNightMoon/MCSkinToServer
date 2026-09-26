@@ -175,21 +175,8 @@ export async function compatFetch(
 
   const json = (data: unknown) => jsonResponse(data)
 
-  // ── 站点设置：MSCTS 无设置端点，返回本地默认（标题/描述由 siteStore 决定） ──
-  if (path === '/api/settings/public') {
-    return json({
-      SITE_TITLE: 'MSCTS',
-      SITE_DESCRIPTION: 'MINECRAFT SKIN SERVER',
-      SITE_FAVICON: '/favicon.svg',
-      VIDEO_MUTED: 'true',
-      LIGHT_BG_IMAGE: '',
-      DARK_BG_IMAGE: '',
-      LOGIN_BG_IMAGE: '',
-      LOGIN_EMBED_IMAGE: '',
-      LIGHT_BG_OVERLAY_OPACITY: '30',
-      DARK_BG_OVERLAY_OPACITY: '30',
-    })
-  }
+  // ── 站点设置：MSCTS 已实现 /api/settings/public（system_settings 表），
+  //    形状与旧站一致，走下方 fallback 原样透传，不再本地伪造默认值 ──
 
   let m: RegExpMatchArray | null
 
@@ -427,24 +414,58 @@ export async function compatFetch(
     return new Response(null, { status: res.status })
   }
 
-  // ── 管理后台：全量素材列表（MSCTS 公开库只暴露 approved+public） ──
+  // ── 管理后台：全量素材列表（含 private / pending / rejected） ──
   if ((m = path.match(/^\/api\/admin\/(skins|capes)$/))) {
     const kind = m[1] === 'skins' ? 'skin' : 'cape'
     const page = query.get('page') || '1'
-    const pageSize = query.get('limit') || '20'
-    const res = await rawFetch(`/api/library?kind=${kind}&page=${page}&pageSize=${pageSize}`, {
-      headers,
-    })
+    const pageSize = query.get('limit') || query.get('pageSize') || '20'
+    const target = new URLSearchParams({ kind, page, pageSize })
+    const search = query.get('search')
+    if (search) target.set('search', search)
+    const status = query.get('status') || query.get('approval_status')
+    if (status) target.set('status', status)
+    const res = await rawFetch(`/api/admin/assets?${target}`, { headers })
     if (!res.ok) return passthroughError(res)
     const body = await res.json()
-    const items = (body.items ?? []).map((it: any) => toLegacyAsset(it))
-    return json({ skins: items, capes: items, items, total: body.total ?? 0 })
+    // 管理端列表同样需要缩略图：补一次详情拿 previewUrl
+    const enriched = await withPreviewUrl<any>(body.items ?? [], headers)
+    const mapped = enriched.map((it) => toLegacyAsset(it))
+    return json({
+      skins: mapped,
+      capes: mapped,
+      items: mapped,
+      total: body.total ?? 0,
+      page: body.page ?? Number(page),
+      pageSize: body.pageSize ?? Number(pageSize),
+    })
   }
 
-  // ── 管理后台：素材改名/权限（MSCTS 管理员端只支持 adminWarning/aiGenerated） ──
+  // ── 管理后台：素材编辑 / 删除（管理员可改他人素材） ──
   if ((m = path.match(/^\/api\/admin\/(skins|capes)\/([^/]+)$/))) {
     if (method === 'DELETE') {
       const res = await rawFetch(`/api/assets/${m[2]}`, { method: 'DELETE', headers })
+      if (!res.ok) return passthroughError(res)
+      return new Response(null, { status: res.status })
+    }
+    if (method === 'PUT' || method === 'PATCH') {
+      const body = init.body ? JSON.parse(String(init.body)) : {}
+      const payload: Record<string, unknown> = {}
+      if (body.name !== undefined) payload.name = body.name
+      if (body.description !== undefined) payload.description = body.description
+      // 旧版表单用 license_type，MSCTS 列名是 license
+      if (body.license_type !== undefined) payload.license = body.license_type
+      if (body.permission_level !== undefined) {
+        const { visibility, downloadPolicy } = toPolicy(String(body.permission_level))
+        payload.visibility = visibility
+        payload.downloadPolicy = downloadPolicy
+      }
+      if (body.is_ai_generated !== undefined) payload.aiGenerated = !!body.is_ai_generated
+      if (body.admin_warning !== undefined) payload.adminWarning = body.admin_warning
+      const res = await rawFetch(`/api/admin/assets/${m[2]}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       if (!res.ok) return passthroughError(res)
       return new Response(null, { status: res.status })
     }
@@ -522,11 +543,8 @@ export async function compatFetch(
     return notSupported()
   }
 
-  // ── 管理后台：站点设置（无后端支持） ──
-  if (path.startsWith('/api/admin/settings') && method === 'GET') {
-    return json({})
-  }
-  if (path.startsWith('/api/admin/')) {
+  // ── 站点设置已有 MSCTS 端点（GET/PUT /api/admin/settings），不在此拦截 ──
+  if (path.startsWith('/api/admin/') && !path.startsWith('/api/admin/settings')) {
     return notSupported()
   }
 
@@ -541,10 +559,12 @@ export async function compatFetch(
     return json({ github: false, microsoft: false })
   }
 
-  // ── 账号安全（改密/邮箱验证/注销）：无后端支持 ──
+  // ── 账号安全 ──
+  // 改密码 / 注销账号 / 恢复账号 已有 MSCTS 端点，走下方 fallback 原样透传；
+  // 依赖 SMTP 的邮箱验证与密码重置仍无后端，返回「敬请期待」。
   if (
     path.match(
-      /^\/api\/auth\/(send-verification|delete-account|change-password|send-reset-email|reset-password|verify-email)$/,
+      /^\/api\/auth\/(send-verification|send-reset-email|reset-password|verify-email)$/,
     )
   ) {
     return notSupported()

@@ -330,10 +330,19 @@ test('http: 错误映射 YggdrasilError / AppError / 未知错误', async (t) =>
 
   const token = await fetch(`${base}/boom-token`);
   assert.equal(token.status, 401);
-  assert.equal(((await token.json()) as { error: string }).error, 'TOKEN_EXPIRED');
+  const tokenBody = (await token.json()) as {
+    error: string;
+    message: string;
+    errorMessage: string;
+  };
+  assert.equal(tokenBody.error, 'TOKEN_EXPIRED');
+  // 旧版（plan3）错误体用 errorMessage，移植过来的前端 20+ 处按它取文案
+  assert.equal(tokenBody.errorMessage, tokenBody.message);
+  assert.equal(tokenBody.errorMessage, '令牌已过期');
 
   const unknown = await fetch(`${base}/boom-unknown`);
   assert.equal(unknown.status, 500);
-  const body = (await unknown.json()) as { message: string };
+  const body = (await unknown.json()) as { message: string; errorMessage: string };
   assert.equal(body.message, '内部错误'); // 不泄露内部细节
+  assert.equal(body.errorMessage, '内部错误');
 });

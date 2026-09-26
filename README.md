@@ -117,6 +117,40 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - 前端：`apiCompat` 上传映射把 `permission_level` 经 `toPolicy()` 翻译为 `visibility` + `downloadPolicy` 后传给上传接口。
   - 注意领域规则未变：上传即可设为公开，但 `review_status` 仍是 `pending`，**公开 ≠ 自动通过审核**，仍需管理员审核后才进公开库。
   - 验收：上传 `visibility=public&downloadPolicy=public` 实测数据库落地为 `('PermProbe','public','public','pending')`（并命中 sha256 去重 `deduped=true`）；非法值 `visibility=weird` 被拒（`VALIDATION_ERROR: visibility 必须为 private 或 public`）；探查数据已清理；`npm test` 31 pass / 0 fail；前端 build 零错误。
+- 2026-09-24 P4 第七批：账号生命周期 + 管理后台补齐 + 站点设置持久化 + 打包优化。
+  - **账号功能**（此前是「即将上线」占位，本轮补齐）
+    - 改密码 `POST /api/auth/change-password`：需旧密码（bcrypt 校验），成功后 `tokens.revokeAllForUser` 吊销该用户**全部**会话（含 Yggdrasil）；前端收到成功即 `clearAuth()` 并跳登录页，因此整体吊销不打断流程。
+    - 注销 `POST /api/auth/delete-account`：需密码确认，返回 `recoverableUntil`（= 注销时刻 + 15 天）。注销后 `loginWeb` 抛 `ACCOUNT_DELETED`（HTTP 403），前端 `Login.tsx` 据此**改弹恢复 Modal** 而非错误提示。
+    - 恢复 `POST /api/auth/restore-account`（免认证，邮箱+密码）：仅限宽限期内，成功后清 `deleted_at` 并直接下发新会话；对未注销账号调用返回 `VALIDATION_ERROR`。
+    - **UID 不复用的关键设计**：到期清除 `purgeExpiredAccounts` 只清个人数据（素材、角色），**保留 users 行**并写 `purged_at`——因为 SQLite 侧 `user_uid` 由应用层 `MAX(user_uid)+1` 分配，物理删行会让 UID 被后续注册复用。清除同时把邮箱改为墓碑值 `deleted-uid<N>@invalid.local`、密码清空、`is_active=0`，于是原邮箱被释放但 UID 被占住。
+    - 迁移 `0002_account_lifecycle.sql`（双方言）：`users` 增 `deleted_at` / `purged_at` + `users_deleted_idx`。
+    - 清除入口：服务启动时调用一次（不引入定时器/Redis，符合不加重型依赖的约定）；失败不阻塞启动。
+    - `errorHandler` 新增 `ACCOUNT_DELETED → 403`。
+  - **管理后台补齐**
+    - `GET /api/admin/assets`：全量素材列表（含 private/pending/rejected），支持 `kind` / `status` / `search` / 分页。此前管理页只能借公开库接口，**看不见私有与待审素材**。
+    - `PATCH /api/admin/assets/:id` 扩展为可编辑 `name` / `description` / `license` / `visibility` / `downloadPolicy`（管理员身份即授权，不做归属校验），保留原有 `adminWarning` / `aiGenerated`。
+    - `apiCompat`：`/api/admin/(skins|capes)` 从走公开库改为走新端点并补 `withPreviewUrl` 缩略图；`PUT/PATCH /api/admin/(skins|capes)/:id` 由「不支持」改为转发 `PATCH /api/admin/assets/:id`，并翻译 `license_type→license`、`permission_level→visibility+downloadPolicy`、`is_ai_generated→aiGenerated`、`admin_warning→adminWarning`。
+  - **站点设置持久化**（前端此前是纯本地默认值，管理端改完刷新即丢）
+    - `SettingRepository`：`system_settings` 表（0001 已存在，**无需新迁移**）；值统一按 JSON 文本读写，数字/布尔都能安全往返；upsert 用 `ON CONFLICT (key) DO UPDATE`。PG 侧 jsonb 列绑定需显式 `::jsonb` 转型，否则报 `column is of type jsonb but expression is text`。
+    - `PUBLIC_SETTING_KEYS` 白名单（站点外观/文案/开关，16 个键）——非白名单键不出现在公开端点，但管理端 `getAll` 可见。
+    - `GET /api/settings/public`（匿名）、`GET/PUT /api/admin/settings`（管理员）；`AppDependencies.settings` 设为可选，未注入时用空实现占位（既有测试不注入也能编译通过）。
+    - `siteStore.loadSettings` 改为真实 fetch；**THEME 仅在后端有值时覆盖**，避免冲掉用户本地主题选择。
+  - **前端打包优化**
+    - `manualChunks` 按库族分包：`vendor-three`(509KB) / `vendor-charts`(313KB) / `vendor-monaco` / `vendor-antd`(1.06MB) / `vendor-core`(399KB)。
+    - 注意坑：React 及其依赖族必须收进**同一个** chunk。最初把 `react` 单独拆出、其余落兜底 `vendor`，产生 `Circular chunk: vendor -> vendor-react -> vendor` 告警且存在 TDZ 运行时风险 → 改为单一 `vendor-core` 兜底后告警消失。
+    - 路由级懒加载：除入口页 `Landing` 外全部 `React.lazy`（此前 0 处懒加载，所有页面静态 import，分包不减少首屏下载量）。`Layout` 内 `<Outlet>` 外加局部 `Suspense`，切页时导航栏/页脚/背景不闪；外层再套一个 `Suspense` 覆盖不走 Layout 的 `/login`、`/register`。
+    - 效果：首屏 JS 由 **2652KB / gzip 778KB** 降至约 **1640KB / gzip 521KB**（-38% / -33%）；`three`(gzip 128KB) 与 `recharts`(gzip 85KB) 不进首屏，仅进对应页面时下载。
+    - `vite preview` 补上后端代理（默认不带），使生产构建可本地联调冒烟。
+  - **测试与验收**
+    - 新增 `tests/accountLifecycle.test.ts`（改密码/注销/恢复/到期清除+UID 不复用/幂等）与 `tests/adminSettings.test.ts`（设置白名单与 upsert、管理端全量列表含私有、管理员编辑、权限门槛）。`npm test` 纳入两者。
+    - `tests/migrations.smoke.test.ts` 原先硬编码 `applied === ['0001']`，新增迁移后失败；改为共用 `EXPECTED_MIGRATIONS` 常量，以后加迁移只改一处。
+    - **修正一处此前的测试错误**：公开库真实端点是 `/api/library`，此前冒烟脚本用的 `/api/library/assets` 是 404，那条断言实际空转（`items` 取不到恒为空数组）；已改正并断言私有/待审素材不出现在公开库。
+    - `npm test` **63 tests / 55 pass / 0 fail / 8 skipped**（skip 为未启用 PG 用例）；后端 `tsc --noEmit` 零错误；前端 `tsc --noEmit && vite build` 零错误。
+    - 无头浏览器对**生产构建**（`vite preview` :4173）截图复核：首页、登录、素材库、衣柜（3D 模型 + 绿色「已应用」标签）、管理后台（recharts 图例渲染，趋势图空白为 MSCTS 空序列的已知降级）均正常。
+  - **顺带修复：错误提示全部退化成通用文案**
+    - 旧版（plan3）Web 接口错误体是 `{ error, errorMessage }`，移植过来的前端有 20+ 处按 `data.errorMessage` 取文案；MSCTS 只返回 `{ error, message }` → 全部落到 `|| t('...操作失败')` 兜底，用户看不到「密码不正确」等真实原因。
+    - 修法选在**服务端**：`errorHandler` 的 `AppError` 与 500 分支冗余输出 `errorMessage: err.message`。纯增量（不影响既有 `error`/`message` 消费方），一次修好全部 20+ 处，且**不动任何页面 JSX**（符合「旧版界面一字未改」的约束）。
+    - 实测：`POST /api/auth/login` 错密码返回 `{"error":"INVALID_CREDENTIALS","message":"邮箱或密码不正确","errorMessage":"邮箱或密码不正确"}`。
 
 ## 结论摘要
 

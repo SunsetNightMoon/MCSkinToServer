@@ -44,6 +44,12 @@ function cleanupSqlite(t: { after: (fn: () => Promise<void>) => void }, db: Sqli
   });
 }
 
+/**
+ * schema/<dialect>/ 下真实存在的迁移版本清单。
+ * 新增迁移时只需在这里加一项（下方断言数处共用，避免漏改）。
+ */
+const EXPECTED_MIGRATIONS = ['0001', '0002'];
+
 test('sqlite: 空库执行全部迁移成功', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
   const db = new SqliteConnection(join(dir, 'test.db'));
@@ -51,8 +57,8 @@ test('sqlite: 空库执行全部迁移成功', async (t) => {
 
   const result = await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 
-  assert.deepEqual(result.applied, ['0001']);
-  assert.equal(result.total, 1);
+  assert.deepEqual(result.applied, EXPECTED_MIGRATIONS);
+  assert.equal(result.total, EXPECTED_MIGRATIONS.length);
 
   const tables = await db.query<{ name: string }>(
     "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -63,11 +69,15 @@ test('sqlite: 空库执行全部迁移成功', async (t) => {
   }
 
   const versions = await db.query<{ version: string; checksum: string }>(
-    'SELECT version, checksum FROM schema_migrations',
+    'SELECT version, checksum FROM schema_migrations ORDER BY version',
   );
-  assert.equal(versions.length, 1);
-  assert.equal(versions[0]?.version, '0001');
-  assert.match(versions[0]?.checksum ?? '', /^[0-9a-f]{64}$/);
+  assert.deepEqual(
+    versions.map((v) => v.version),
+    EXPECTED_MIGRATIONS,
+  );
+  for (const v of versions) {
+    assert.match(v.checksum, /^[0-9a-f]{64}$/);
+  }
 });
 
 test('sqlite: 重复执行迁移无副作用', async (t) => {
@@ -79,7 +89,7 @@ test('sqlite: 重复执行迁移无副作用', async (t) => {
   const second = await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 
   assert.deepEqual(second.applied, []);
-  assert.deepEqual(second.skipped, ['0001']);
+  assert.deepEqual(second.skipped, EXPECTED_MIGRATIONS);
 
   const count = await db.query<{ n: number }>(
     "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'",
@@ -90,7 +100,7 @@ test('sqlite: 重复执行迁移无副作用', async (t) => {
   const versions = await db.query<{ version: string }>(
     'SELECT version FROM schema_migrations',
   );
-  assert.equal(versions.length, 1);
+  assert.equal(versions.length, EXPECTED_MIGRATIONS.length);
 });
 
 test('sqlite: 已应用的迁移被修改后拒绝执行（checksum 漂移）', async (t) => {
@@ -183,7 +193,7 @@ test(
 
     // 阶段 1：空库全量迁移 + 幂等重跑 + checksum 漂移
     const result = await runMigrations(db, join(SCHEMA_DIR, 'postgresql'));
-    assert.deepEqual(result.applied, ['0001']);
+    assert.deepEqual(result.applied, EXPECTED_MIGRATIONS);
 
     const tables = await db.query<{ tablename: string }>(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
@@ -195,7 +205,7 @@ test(
 
     const second = await runMigrations(db, join(SCHEMA_DIR, 'postgresql'));
     assert.deepEqual(second.applied, []);
-    assert.deepEqual(second.skipped, ['0001']);
+    assert.deepEqual(second.skipped, EXPECTED_MIGRATIONS);
 
     await db.exec("UPDATE schema_migrations SET checksum = 'deadbeef'");
     await assert.rejects(

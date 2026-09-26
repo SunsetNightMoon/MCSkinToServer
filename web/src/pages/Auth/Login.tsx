@@ -1,12 +1,12 @@
 import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Form, Input, Button, message, AutoComplete, Divider, Dropdown } from 'antd'
+import { Form, Input, Button, message, AutoComplete, Divider, Dropdown, Modal } from 'antd'
 import { GlobalOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import type { SelectProps } from 'antd'
 import { authService } from '../../services/authService'
-import { useAuthStore } from '../../store/authStore'
+import { useAuthStore, roleToLevel } from '../../store/authStore'
 import { useSiteStore } from '../../store/siteStore'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { TurnstileWidget } from '../../components/TurnstileWidget/TurnstileWidget'
@@ -54,6 +54,9 @@ export function Login() {
   const [turnstileToken, setTurnstileToken] = useState<string>('')
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string>('')
   const [oauthProviders, setOauthProviders] = useState<{ github: boolean; microsoft: boolean }>({ github: false, microsoft: false })
+  // 账号处于注销宽限期时，登录会被拒（ACCOUNT_DELETED）；此处保留凭据用于一键恢复
+  const [deletedAccount, setDeletedAccount] = useState<{ email: string; password: string; message: string } | null>(null)
+  const [restoring, setRestoring] = useState(false)
 
   const handleEmailSearch = (value: string) => {
     if (!value || value.includes('@')) {
@@ -143,7 +146,18 @@ export function Login() {
       message.success(t('auth.loginSuccess'))
       navigate('/')
     } catch (error: any) {
-      message.error(error.response?.data?.errorMessage || t('auth.loginFailed'))
+      const code = error.response?.data?.error
+      const msg = error.response?.data?.errorMessage || t('auth.loginFailed')
+      if (code === 'ACCOUNT_DELETED') {
+        // 账号已注销但仍在 15 天宽限期内：不开错误提示，改为弹恢复入口
+        setDeletedAccount({
+          email: values.email,
+          password: values.password,
+          message: msg,
+        })
+      } else {
+        message.error(msg)
+      }
       if (captchaType === 'math') {
         loadCaptcha()
       } else {
@@ -151,6 +165,57 @@ export function Login() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 宽限期内恢复已注销账号：成功后直接建立会话
+  const handleRestoreAccount = async () => {
+    if (!deletedAccount) return
+    setRestoring(true)
+    try {
+      const response = await fetch('/api/auth/restore-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: deletedAccount.email,
+          password: deletedAccount.password,
+        }),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.errorMessage || t('auth.restoreFailed'))
+      }
+
+      const skin = await fetch('/api/me/skin', {
+        headers: { Authorization: `Bearer ${data.token}` },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+
+      setAuth(
+        data.token,
+        {
+          id: data.user.id,
+          user_uid: data.user.userUid,
+          email: data.user.email,
+          role: data.user.role,
+          level: roleToLevel(data.user.role),
+          is_active: true,
+          email_verified: data.user.emailVerified,
+          banned_until: null,
+        },
+        skin?.skinUrl ?? null,
+        skin?.profileName ?? data.profile?.name ?? null,
+        data.profile?.id ?? null,
+      )
+
+      message.success(t('auth.restoreSuccess'))
+      setDeletedAccount(null)
+      navigate('/')
+    } catch (err: any) {
+      message.error(err.message || t('auth.restoreFailed'))
+    } finally {
+      setRestoring(false)
     }
   }
 
@@ -351,6 +416,18 @@ export function Login() {
         </div>
       </div>
 
+      {/* 注销宽限期内的恢复入口 */}
+      <Modal
+        open={deletedAccount !== null}
+        title={t('auth.restoreAccount')}
+        okText={t('auth.restoreAccount')}
+        cancelText={t('common.cancel')}
+        confirmLoading={restoring}
+        onOk={handleRestoreAccount}
+        onCancel={() => setDeletedAccount(null)}
+      >
+        <p style={{ marginBottom: 0 }}>{deletedAccount?.message}</p>
+      </Modal>
     </div>
   )
 }

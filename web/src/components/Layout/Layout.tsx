@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Layout as AntLayout } from 'antd'
 import { useSiteStore } from '../../store/siteStore'
 import { TopNav } from '../TopNav/TopNav'
+import { PageLoading } from '../PageLoading/PageLoading'
 import './Layout.css'
 
 const { Content, Footer } = AntLayout
@@ -64,7 +65,10 @@ export function Layout() {
 
         <Content className="layout-content">
           <div className="layout-content__inner" key={location.pathname}>
-            <Outlet />
+            {/* 局部 Suspense：懒加载页面切换时只替换内容区，导航栏/页脚/背景不闪 */}
+            <Suspense fallback={<PageLoading />}>
+              <Outlet />
+            </Suspense>
           </div>
         </Content>
 

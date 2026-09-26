@@ -5,6 +5,7 @@ import { runMigrations } from '../migrate/runner.js';
 import { createStoragePort } from '../storage/index.js';
 import { TokenService } from '../auth/tokens.js';
 import { IdentityService } from '../auth/identity.js';
+import { purgeExpiredAccounts } from '../auth/accountLifecycle.js';
 import { TokenRepository } from '../repositories/tokenRepository.js';
 import { UserRepository } from '../repositories/userRepository.js';
 import { ProfileRepository } from '../repositories/profileRepository.js';
@@ -12,6 +13,7 @@ import { MinecraftSessionRepository } from '../repositories/minecraftSessionRepo
 import { BlobRepository } from '../repositories/blobRepository.js';
 import { AssetRepository } from '../repositories/assetRepository.js';
 import { FavoriteRepository } from '../repositories/favoriteRepository.js';
+import { SettingRepository } from '../repositories/settingRepository.js';
 import { TextureService } from '../textures/ingest.js';
 import { LibraryService } from '../library/libraryService.js';
 import { TextureProfileBuilder } from '../yggdrasil/textures.js';
@@ -75,6 +77,27 @@ async function main(): Promise<void> {
     users: userRepository,
     resolver: assetUrlResolver,
   });
+  const settingRepository = new SettingRepository(db);
+
+  // 账号宽限期到期清理（注销生命周期）：启动时执行一次，失败不阻塞启动
+  try {
+    const purgeResult = await purgeExpiredAccounts({
+      db,
+      users: userRepository,
+      profiles: profileRepository,
+      assets: assetRepository,
+    });
+    if (purgeResult.purged > 0) {
+      console.log(
+        `[mscts] purged ${purgeResult.purged} expired deleted account(s)`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      '[mscts] account purge failed (non-fatal):',
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   const app = createApp({
     config,
@@ -90,6 +113,7 @@ async function main(): Promise<void> {
     assetUrlResolver,
     textures: textureService,
     library: libraryService,
+    settings: settingRepository,
   });
   const port = Number(process.env['PORT'] ?? 3000);
   const server = app.listen(port, () => {

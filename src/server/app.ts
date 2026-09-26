@@ -12,12 +12,14 @@ import type { ProfileRepository } from '../repositories/profileRepository.js';
 import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { TextureService } from '../textures/ingest.js';
 import type { LibraryService } from '../library/libraryService.js';
+import type { SettingRepository } from '../repositories/settingRepository.js';
 import { buildMetadataDto } from '../yggdrasil/metadata.js';
 import { createYggdrasilRouter } from './routes/yggdrasil.js';
 import { createIdentityRouter } from './routes/identity.js';
 import { createAssetRouter } from './routes/assets.js';
 import { createLibraryRouter } from './routes/library.js';
 import { createAdminRouter } from './routes/admin.js';
+import { createSettingRouter } from './routes/settings.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
 
@@ -45,10 +47,23 @@ export interface AppDependencies {
   textures: TextureService;
   // ---- P3 公开库/收藏/审核 ----
   library: LibraryService;
+  /** 站点设置（可选：测试未注入时公开端点返回空对象、管理端点不挂载） */
+  settings?: SettingRepository;
 }
 
 const EMPTY_BYTES = new Uint8Array(0);
 const HEALTH_PROBE_KEY = '.health-probe';
+
+/**
+ * 未注入 SettingRepository 时的占位实现（测试场景）：
+ * 公开端点返回空对象（前端回落到自身默认值），写操作静默丢弃。
+ */
+const EMPTY_SETTINGS = {
+  getAll: async (): Promise<Record<string, unknown>> => ({}),
+  getPublic: async (): Promise<Record<string, unknown>> => ({}),
+  get: async (): Promise<unknown> => undefined,
+  setMany: async (): Promise<void> => undefined,
+} as unknown as SettingRepository;
 
 export function createApp(deps: AppDependencies): Express {
   const { config, database, storage, tokenService, rsaKeyPair } = deps;
@@ -141,6 +156,14 @@ export function createApp(deps: AppDependencies): Express {
       library: deps.library,
       assets: deps.assetRepository,
       identity: deps.identity,
+    }),
+  );
+
+  // ---- 站点设置（P4；可选依赖，未注入时公开端点返回空对象）----
+  app.use(
+    createSettingRouter({
+      tokenService,
+      settings: deps.settings ?? EMPTY_SETTINGS,
     }),
   );
 

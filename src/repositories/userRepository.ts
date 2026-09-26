@@ -25,6 +25,10 @@ export interface UserRow {
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
+  /** 非空 = 已注销，处于可恢复宽限期（见 0002_account_lifecycle.sql） */
+  deletedAt: string | null;
+  /** 非空 = 宽限期已过、个人数据已清除；行保留以占住 user_uid（UID 永不复用） */
+  purgedAt: string | null;
 }
 
 export interface NewUserRow {
@@ -39,7 +43,8 @@ export interface NewUserRow {
 
 const USER_COLUMNS =
   'id, user_uid, email, password_hash, role, is_active, email_verified, ' +
-  'banned_until, ban_permanent, ban_reason, created_at, updated_at, last_login_at';
+  'banned_until, ban_permanent, ban_reason, created_at, updated_at, last_login_at, ' +
+  'deleted_at, purged_at';
 
 function mapUserRow(raw: Record<string, unknown>): UserRow {
   return {
@@ -56,6 +61,8 @@ function mapUserRow(raw: Record<string, unknown>): UserRow {
     createdAt: toIso(raw['created_at'])!,
     updatedAt: toIso(raw['updated_at'])!,
     lastLoginAt: toIso(raw['last_login_at']),
+    deletedAt: toIso(raw['deleted_at']),
+    purgedAt: toIso(raw['purged_at']),
   };
 }
 
@@ -189,5 +196,75 @@ export class UserRepository {
       `UPDATE users SET ${sets.join(', ')} WHERE id = ${phAt(this.db.dialect, i++)}`,
       values,
     );
+  }
+
+  // ---- 账号生命周期（改密 / 注销 / 恢复 / 到期清除）----
+
+  async updatePassword(
+    userId: string,
+    passwordHash: string,
+    at: Date,
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET password_hash = ${phAt(this.db.dialect, 0)},
+         updated_at = ${phAt(this.db.dialect, 1)}
+       WHERE id = ${phAt(this.db.dialect, 2)}`,
+      [passwordHash, at.toISOString(), userId],
+    );
+  }
+
+  /** 注销：置 deleted_at，进入可恢复宽限期 */
+  async markDeleted(userId: string, at: Date): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET deleted_at = ${phAt(this.db.dialect, 0)},
+         updated_at = ${phAt(this.db.dialect, 1)}
+       WHERE id = ${phAt(this.db.dialect, 2)}`,
+      [at.toISOString(), at.toISOString(), userId],
+    );
+  }
+
+  /** 恢复：清 deleted_at，账号回到正常状态 */
+  async clearDeleted(userId: string, at: Date): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET deleted_at = NULL,
+         updated_at = ${phAt(this.db.dialect, 0)}
+       WHERE id = ${phAt(this.db.dialect, 1)}`,
+      [at.toISOString(), userId],
+    );
+  }
+
+  /**
+   * 宽限期到期清除：邮箱改墓碑值（释放原邮箱给新注册）、密码清空、停用，
+   * 并写 purged_at。**行本身保留**——SQLite 的 user_uid 由 MAX(uid)+1 分配，
+   * 删行会导致 UID 被后续注册复用，而 UID 要求永不复用。
+   */
+  async purgeUser(
+    userId: string,
+    tombstoneEmail: string,
+    at: Date,
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET email = ${phAt(this.db.dialect, 0)},
+         password_hash = '',
+         is_active = ${this.db.dialect === 'postgres' ? 'FALSE' : '0'},
+         deleted_at = NULL,
+         purged_at = ${phAt(this.db.dialect, 1)},
+         updated_at = ${phAt(this.db.dialect, 2)}
+       WHERE id = ${phAt(this.db.dialect, 3)}`,
+      [tombstoneEmail, at.toISOString(), at.toISOString(), userId],
+    );
+  }
+
+  /** 宽限期已过、尚未清除的账号（启动清理用） */
+  async findExpiredDeleted(cutoff: Date): Promise<UserRow[]> {
+    const rows = await this.db.query<Record<string, unknown>>(
+      `SELECT ${USER_COLUMNS} FROM users
+       WHERE deleted_at IS NOT NULL
+         AND purged_at IS NULL
+         AND deleted_at <= ${phAt(this.db.dialect, 0)}
+       ORDER BY deleted_at ASC`,
+      [cutoff.toISOString()],
+    );
+    return rows.map(mapUserRow);
   }
 }

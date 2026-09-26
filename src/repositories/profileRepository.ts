@@ -145,6 +145,14 @@ export class ProfileRepository {
     );
   }
 
+  /** 删除某用户全部角色（账号宽限期到期清除用）；profile_assets 由外键级联清理 */
+  async deleteByUserId(userId: string): Promise<void> {
+    await this.db.run(
+      `DELETE FROM profiles WHERE user_id = ${phAt(this.db.dialect, 0)}`,
+      [userId],
+    );
+  }
+
   // ---- 纹理链路（P0）----
 
   async findTextureState(profileId: string): Promise<ProfileTextureState | null> {
