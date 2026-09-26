@@ -180,6 +180,97 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - `src/server/main.ts`：`createCacheLayer({ redisUrl: config.redisUrl })` → `new SettingRepository(db, cacheLayer.cache, config.settingsCacheTtlMs)` → `createApp` 传 `rateLimiter` / `rateLimitSettings: resolveRateLimit(config)` / `cache` / `settingsCacheTtlMs` → `shutdown` 里 `cacheLayer.close()`（Redis 持有 socket，不显式 quit 会让进程多撑到 3s 超时兜底）。
   - 配置项：`REDIS_URL`、`RATE_LIMIT_DISABLED`、`AUTH_RATE_LIMIT_MAX`（默认 5）、`AUTH_RATE_LIMIT_WINDOW_MS`（默认 300000）、`SETTINGS_CACHE_TTL_MS`（默认 30000）、`TRUST_PROXY`；已全部写入 `.env.example`。
   - `INDEV/run-tests.cmd`：先 `redis-cli ping` 探测，**只在 Redis 真的应答时才设 `TEST_REDIS_URL`** —— 否则 Redis 没起时门控用例会 FAIL 而不是 SKIP，属于假警报。
+- 2026-09-24 P5 第一批修正：个人中心展示的「认证服务器地址」指向了前端开发服务器端口，且在生产不可用。
+  - **现象**：`/profile` 的「添加 Yggdrasil 认证服务器」卡片显示 `http://localhost:5173` —— 那是**前端 dev server 端口**。
+  - **根因**：`web/src/pages/Profile/UserProfile.tsx` 取 `VITE_API_URL || window.location.origin`，而 `web/` 下**没有任何 `.env` 文件** → 本地恒为 origin（5173）。
+  - **实测确认这不只是"误导"，而是真的用不了**。启动器拿到地址后第一件事是 `GET <地址>` 取元数据 JSON：
+
+    | 填法 | `GET <地址>` | `POST <地址>/authenticate` |
+    |---|---|---|
+    | `http://localhost:5173`（**旧显示值**） | 200 但 `content-type: text/html`（SPA 页面）✗ | **404** ✗ |
+    | `http://localhost:3000` | 200 `application/json`（元数据）✓ | 200 ✓ |
+    | `http://localhost:3000/api/yggdrasil`（**新显示值**） | 200 `application/json` ✓ | 200 ✓ |
+
+    5173 之所以看着"能连"，只是因为 `vite.config.ts` 代理了 `/authserver`、`/sessionserver` 等固定前缀；而启动器拼的是规范相对路径 `/authenticate`，不在代理范围内 → 404。
+  - **生产同样不成立**：站点根路径 `/` 必须留给 SPA（HashRouter 的文档入口就是 `/`），`GET /` 返回 index.html，启动器判定「这不是认证服务器」。所以**裸域名在任何部署形态下都不是合法的认证服务器地址**。
+  - **修复（三处）**：
+    1. 展示值改为 `<API 根>/api/yggdrasil`（`API 根` = `VITE_API_URL` 或站点 origin），并加防重拼保护（若 `VITE_API_URL` 已含 `/api/yggdrasil` 则不再追加）。该路径既能返回元数据，又落在反代必然转发的 `/api` 前缀内，两种部署形态都成立。
+    2. `src/server/app.ts` 增加别名挂载 `app.use('/api/yggdrasil/authserver', yggRouter)`：不同启动器拼法不同（有的拼 `/authenticate`，有的拼 `/authserver/authenticate`），多挂一个前缀让两种都命中，避免"填了官方给的地址还是连不上"。实测两者都返回真 accessToken。
+    3. 新增 `web/.env.development`（`VITE_API_URL=http://localhost:3000`，只影响 `vite dev`）+ `web/.env.example` 文档化各环境取值 + `web/src/vite-env.d.ts` 声明 `VITE_API_URL`（顺带去掉原来的 `(import.meta as any)` 强转）。
+  - **说明文案**（i18n 四语言各 3 条）：地址含义（是 `/api/yggdrasil` 元数据入口、不是页面地址，启动器会先取元数据再拼认证请求）、**线上部署前提**（域名下必须转发 `/api`；站点根被前端占用时勿用裸域名）、以及仅本地开发可见的提示。
+  - **验收**：四语言 `profile` 段键集完全一致（各 115 键，零缺零多）；后端与前端 `tsc --noEmit` 均零错误；`npm run build` 通过；**生产构建内不含 `localhost:3000`**（`UserProfile` chunk 只剩 `window.location.origin`），dev server 注入 `VITE_API_URL: "http://localhost:3000"`；`GET /api/yggdrasil` 200 JSON、`POST /api/yggdrasil/{authenticate,authserver/authenticate}` 均返回 43 位 accessToken、`validate` 403（无效 token 的预期）、`hasJoined` 204、`/api/profiles/minecraft` 200；`npm test` 全开 **94 pass / 0 fail / 0 skipped**；无头截图（dev :5173，简中/英/日）确认地址与三行说明正常渲染。
+  - **待处理（本轮未动）**：管理端 `SystemSettings.tsx` 有「站点 URL」字段（`base_url`，默认值硬编码 `http://localhost:3000`），但后端**从不读 `BASE_URL`** —— 该字段目前是死字段（存进 `system_settings` 无人消费）。要么接上（让它成为生成验证链接与认证服务器地址的权威来源），要么移除，需单独决策。
+
+## 生产部署（域名类型）
+
+前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。
+
+### 反向代理必须转发的路径
+
+| 路径前缀 | 用途 | 必填 |
+|---|---|---|
+| `/api` | 业务接口 **以及全部 Yggdrasil 认证端点**（页面展示的认证服务器地址就在 `/api/yggdrasil` 之下） | **必需** |
+| `/uploads` | 皮肤/披风纹理静态资源 | **必需**（否则皮肤不显示） |
+| `/authserver`、`/sessionserver` | Yggdrasil 的兼容前缀。页面已不再展示带这些前缀的地址，保留转发只为兼容**已按旧地址添加过账号**的启动器 | 建议 |
+
+Nginx / OpenResty 参考写法（**未在本仓库实测**，按你实际的反代改）：
+
+```nginx
+# 前端：托管 web/dist；HashRouter 的文档入口是 /，SPA 需回落到 index.html
+root /path/to/MSCTS/web/dist;
+location / {
+    try_files $uri $uri/ /index.html;
+}
+
+# 后端：业务接口 + Yggdrasil 认证 + 纹理（务必带 XFF，否则限流按 IP 的端点会失真）
+location ~ ^/(api|uploads)/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+### 与服务端环境变量相关的两个注意点
+
+1. **`TRUST_PROXY`**：上面的配置带了 `X-Forwarded-For`，后端要设 `TRUST_PROXY=1`（或反代层数）才会采信，否则 `req.ip` 拿到的是**反代自身地址** → 按 IP 限流的注册端点会把所有用户算进同一个桶。反过来，**没有可信反代却开了 `TRUST_PROXY`**，客户端就能伪造 XFF 绕过限流。两者都要避免。
+2. **`PUBLIC_BASE_URL` 与 `YGGDRASIL_SKIN_DOMAINS`**：`PUBLIC_BASE_URL` 决定纹理对外 URL 的前缀（本地默认 `http://localhost:3000/uploads`，生产必须改成 `https://<你的域名>/uploads`）；`YGGDRASIL_SKIN_DOMAINS` 留空时回落到 `PUBLIC_BASE_URL` 的 hostname。这两个都是**环境变量**，不是后台设置项。
+
+### 「认证服务器地址」是怎么算出来的（个人中心那张卡片）
+
+代码在 `web/src/pages/Profile/UserProfile.tsx`：
+
+```
+显示值 = (VITE_API_URL || window.location.origin) + '/api/yggdrasil'
+```
+
+**为什么一定要带 `/api/yggdrasil` 这一段**：启动器拿到地址后先 `GET <地址>` 取元数据 JSON。生产部署里站点根路径 `/` 被 SPA 占用（HashRouter 的文档入口就是 `/`），`GET /` 返回 `index.html`，启动器会判定"这不是认证服务器"。而 `/api/yggdrasil` 既能返回元数据，又落在反代必然转发的 `/api` 前缀内 —— 所以**裸域名不能当认证服务器地址**（本地之所以看起来能用，是因为本地没有 SPA 占用根路径）。
+
+| 部署形态 | `VITE_API_URL` | 页面显示 |
+|---|---|---|
+| **同域部署（推荐）** | 留空 | `https://<域名>/api/yggdrasil` |
+| **前后端分域 / 前端只做静态托管** | `https://<后端可达地址>` | `https://<后端>/api/yggdrasil` |
+| **本地开发** | `web/.env.development` 已设为 `http://localhost:3000` | `http://localhost:3000/api/yggdrasil` |
+
+> ⚠️ 不要用前端开发服务器端口（5173）当认证服务器地址：实测 `GET /` 返回 HTML、`POST /authenticate` 404，启动器无法识别；且启动器按地址区分账号，同一后端用 5173 与 3000 添加会被视为两台不同服务器。
+
+### 构建与启动
+
+```bash
+# 前端
+cd web && npm ci && npm run build        # 产物在 web/dist，交给反代静态托管
+
+# 后端
+npm ci
+npm run migrate                            # 迁移失败会拒绝启动（蓝图 §5.1）
+DB_TYPE=postgres DATABASE_URL=... node --import tsx src/server/main.ts
+```
+
+- 数据库：生产用 `DB_TYPE=postgres` + `DATABASE_URL`（SQLite 仅适合单机小规模）
+- 健康检查：`/health/live`（进程存活）、`/health/ready`（数据库 + 存储探针）
+- **可选依赖全部关闭可用**：不配 `REDIS_URL` 时限流与缓存降级为进程内存实现、进程照常启动；但**多实例部署必须配 Redis**，否则限流退化为「每实例各限一份」（放行量 = 阈值 × 实例数）
+- 环境变量完整清单见仓库根 `.env.example`，前端变量见 `web/.env.example`
 
 ## 结论摘要
 

@@ -109,9 +109,32 @@ export function UserProfile() {
   const currentGameName = primaryProfile?.name || profileName || ''
   const nameChangedAt = primaryProfile?.name_changed_at ?? undefined
 
-  // Yggdrasil API 根地址：优先使用环境变量中的后端地址
-  const apiBaseUrl = (import.meta as any).env.VITE_API_URL || window.location.origin
-  const yggUrl = apiBaseUrl
+  /**
+   * Yggdrasil 认证服务器地址（展示给用户，并作为可拖拽的 authlib-injector 地址）。
+   *
+   * 取值 = `<API 根>` + `/api/yggdrasil`，其中 API 根是：
+   *  1. VITE_API_URL —— 显式指定。本地开发由 web/.env.development 指向后端端口 3000；
+   *     前后端分域或独立 API 域名时也用它。
+   *  2. window.location.origin —— 生产部署默认值（站点自身域名）。
+   *
+   * 为什么必须带 `/api/yggdrasil` 这一段路径，而不是直接给裸域名：
+   *  启动器拿到这个地址后第一件事是 `GET <地址>` 取元数据 JSON。生产部署里站点根路径
+   *  `/` 必须留给 SPA（HashRouter 的文档入口就是 `/`），`GET /` 返回的是 index.html，
+   *  启动器会判定「这不是认证服务器」。`/api/yggdrasil` 既能返回元数据，又落在反代
+   *  必然转发给后端的 `/api` 前缀内，因此两种部署形态下都成立。
+   *  （实测对照见 README「生产部署」：裸域名在本地可用、在生产不可用；带路径两者都可用。）
+   *
+   * ⚠️ 不要用开发服务器端口（5173）冒充认证服务器：vite 只代理了 `/authserver` 等固定
+   * 前缀，`POST /authenticate` 与 `GET /` 都不通（实测 404 / HTML）；且启动器按此地址
+   * 区分账号，同一后端用 5173 与 3000 添加会被视为两台不同服务器。
+   */
+  const apiBaseUrl = (
+    import.meta.env.VITE_API_URL || window.location.origin
+  ).replace(/\/+$/, '')
+  // 允许把 VITE_API_URL 直接写成完整元数据地址，避免拼成 .../api/yggdrasil/api/yggdrasil
+  const yggUrl = /\/api\/yggdrasil$/i.test(apiBaseUrl)
+    ? apiBaseUrl
+    : `${apiBaseUrl}/api/yggdrasil`
   const authlibUrl = `authlib-injector:yggdrasil-server:${encodeURIComponent(yggUrl)}`
 
   // 计算冷却
@@ -605,6 +628,13 @@ export function UserProfile() {
           <div>{t('profile.dragInstruction')}</div>
           <div>{t('profile.manualInstruction')}</div>
           <div>{t('profile.afterAdding')}</div>
+          <div style={{ marginTop: 8 }}>{t('profile.addressSourceNote')}</div>
+          <div>{t('profile.deployRequirement')}</div>
+          {import.meta.env.DEV ? (
+            <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>
+              {t('profile.devModeHint')}
+            </div>
+          ) : null}
         </div>
       </div>
 

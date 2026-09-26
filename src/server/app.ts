@@ -157,6 +157,17 @@ export function createApp(deps: AppDependencies): Express {
   app.use('/authserver', yggRouter);
   app.use('/api/yggdrasil', yggRouter);
   app.use('/', yggRouter);
+  /**
+   * `/api/yggdrasil/authserver/*` 别名。
+   *
+   * 背景：启动器会把端点路径**直接拼在所填地址后**，而不同启动器拼法不同 ——
+   * 有的拼规范相对路径 `/authenticate`，有的拼 `/authserver/authenticate`。
+   * 页面展示给用户的是 `<站点>/api/yggdrasil`（见 UserProfile.tsx 的说明），
+   * 只挂 `/api/yggdrasil` 时前者可用、后者 404，用户会看到「填了官方给的地址还是连不上」。
+   * 多挂一个别名让两种拼法都命中，代价只是多一层无冲突的路径前缀。
+   * （根挂载 `/` 已覆盖 `/<endpoint>` 与 `/authserver/<endpoint>` 两种裸域名填法。）
+   */
+  app.use('/api/yggdrasil/authserver', yggRouter);
 
   // ---- Web 身份端点（P1：注册/登录/登出 + 角色管理）----
   app.use(
