@@ -34,9 +34,18 @@ export function loadOrCreateKeyPair(privateKeyPath: string): RsaKeyPair {
   return { privateKeyPem: privateKey, publicKeyPem: publicKey };
 }
 
-/** SPKI PEM → DER 的 base64（authlib-injector metadata 的 signaturePublickey 字段） */
+/** SPKI PEM → DER 的 base64（签名验证向量等纯 DER 场景用） */
 export function publicKeyDerBase64(publicKeyPem: string): string {
   return publicKeyPem
     .replace(/-----[^-]+-----/g, '')
     .replace(/\s+/g, '');
+}
+
+/**
+ * SPKI PEM → 单行完整 PEM（保留 BEGIN/END 头尾、去换行）。
+ * authlib-injector 的 KeyUtils.decodePEMPublicKey 要求 signaturePublickey
+ * 必须带 "-----BEGIN PUBLIC KEY-----" 头尾，裸 base64 会报 Bad signature public key。
+ */
+export function publicKeyPemOneLine(publicKeyPem: string): string {
+  return publicKeyPem.replace(/\r?\n/g, '');
 }

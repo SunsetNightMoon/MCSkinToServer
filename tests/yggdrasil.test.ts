@@ -17,7 +17,7 @@ import {
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
 import { buildForProfile } from '../src/yggdrasil/buildForProfile.js';
 import { buildMetadataDto } from '../src/yggdrasil/metadata.js';
-import { loadOrCreateKeyPair, publicKeyDerBase64 } from '../src/yggdrasil/keys.js';
+import { loadOrCreateKeyPair, publicKeyDerBase64, publicKeyPemOneLine } from '../src/yggdrasil/keys.js';
 import {
   toCanonicalUuid,
   toShortUuid,
@@ -194,7 +194,7 @@ test('yggdrasil: metadata DTO', () => {
     baseUrl: 'https://skin.example.com',
     publicKeyPem: VECTOR.publicKeyPem,
   });
-  assert.equal(meta.signaturePublickey, publicKeyDerBase64(VECTOR.publicKeyPem));
+  assert.equal(meta.signaturePublickey, publicKeyPemOneLine(VECTOR.publicKeyPem));
   assert.deepEqual(meta.skinDomains, ['skin.example.com']);
   assert.equal(meta.meta.implementation.name, 'MSCTS');
 

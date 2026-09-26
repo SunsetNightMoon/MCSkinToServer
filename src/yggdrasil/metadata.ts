@@ -1,4 +1,4 @@
-import { publicKeyDerBase64 } from './keys.js';
+import { publicKeyPemOneLine } from './keys.js';
 
 /**
  * GET /api/yggdrasil 元数据 DTO（authlib-injector 规范的最小实现）。
@@ -14,6 +14,7 @@ export interface BuildMetadataInput {
 }
 
 export interface YggdrasilMetadataDto {
+  /** 单行完整 PEM（authlib-injector 要求带 BEGIN/END 头尾，裸 base64 会解析失败） */
   signaturePublickey: string;
   skinDomains: string[];
   meta: {
@@ -30,7 +31,7 @@ export function buildMetadataDto(input: BuildMetadataInput): YggdrasilMetadataDt
     defaultDomain = 'localhost';
   }
   return {
-    signaturePublickey: publicKeyDerBase64(input.publicKeyPem),
+    signaturePublickey: publicKeyPemOneLine(input.publicKeyPem),
     skinDomains: input.skinDomains?.length
       ? input.skinDomains
       : [defaultDomain],

@@ -23,7 +23,7 @@ import { AssetUrlResolver } from '../src/storage/assetUrl.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
 import { runMigrations } from '../src/migrate/runner.js';
 import { LocalDiskStorage } from '../src/storage/index.js';
-import { publicKeyDerBase64 } from '../src/yggdrasil/keys.js';
+import { publicKeyPemOneLine } from '../src/yggdrasil/keys.js';
 import { loadOrCreateKeyPair } from '../src/yggdrasil/keys.js';
 import { illegalArgument } from '../src/yggdrasil/errors.js';
 import { AppError } from '../src/errors.js';
@@ -191,7 +191,7 @@ test('http: /api/yggdrasil 返回元数据', async () => {
   const body = (await res.json()) as Record<string, unknown>;
   assert.equal(
     body['signaturePublickey'],
-    publicKeyDerBase64(ctx.deps.rsaKeyPair.publicKeyPem),
+    publicKeyPemOneLine(ctx.deps.rsaKeyPair.publicKeyPem),
   );
   assert.deepEqual(body['skinDomains'], ['localhost']);
   const meta = body['meta'] as { implementation: { name: string } };
