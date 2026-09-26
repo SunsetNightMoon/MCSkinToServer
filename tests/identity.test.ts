@@ -576,4 +576,35 @@ for (const c of cases) {
     const remaining = (await stillOne.json()) as { profiles: unknown[] };
     assert.equal(remaining.profiles.length, 1, '单用户名模式下角色数应恒为 1');
   });
+
+  test(`identity: 路径角色 id 非规范 UUID → 404（格式闸门，PG 不再 500）（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    await wipeAll(db);
+    const ctx = await startHttp(t, db);
+    const reg = await post(ctx, '/api/auth/register', {
+      email: EMAIL,
+      password: PASSWORD,
+      profileName: PROFILE_NAME,
+    });
+    const { token } = (await reg.json()) as { token: string };
+    const authHeaders = {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+    };
+
+    // 背景：PG 的 uuid 列收到非 UUID 字符串抛 22P02 → 兜底 500；闸门后与
+    // 「角色不存在」同响应 404，与 SQLite 行为一致。
+    const rename = await fetch(`${ctx.baseUrl}/api/profiles/not-a-uuid/name`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: `rnd_${Date.now().toString(36)}` }),
+    });
+    assert.equal(rename.status, 404);
+
+    const del = await fetch(`${ctx.baseUrl}/api/profiles/not-a-uuid`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+    assert.equal(del.status, 404);
+  });
 }

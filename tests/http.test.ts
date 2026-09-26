@@ -364,3 +364,27 @@ test('http: 错误映射 YggdrasilError / AppError / 未知错误', async (t) =>
   assert.equal(body.message, '内部错误'); // 不泄露内部细节
   assert.equal(body.errorMessage, '内部错误');
 });
+
+test('http: body-parser 错误映射（畸形 JSON → 400，超限 → 413，而不是兜底 500）', async () => {
+  // 畸形 JSON：body-parser 抛 SyntaxError(type=entity.parse.failed)
+  const bad = await fetch(`${ctx.baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{bad json',
+  });
+  assert.equal(bad.status, 400);
+  const badBody = (await bad.json()) as { error: string; message: string };
+  assert.equal(badBody.error, 'BAD_REQUEST');
+  assert.equal(badBody.message, '请求体格式错误（应为合法 JSON）');
+
+  // 超过 express.json 的 2mb 限制：entity.too.large → 413
+  const big = await fetch(`${ctx.baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: 'x'.repeat(3 * 1024 * 1024),
+  });
+  assert.equal(big.status, 413);
+  const bigBody = (await big.json()) as { error: string; message: string };
+  assert.equal(bigBody.error, 'PAYLOAD_TOO_LARGE');
+  assert.equal(bigBody.message, '请求体超过大小限制');
+});

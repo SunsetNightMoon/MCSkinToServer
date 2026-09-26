@@ -421,4 +421,70 @@ for (const c of cases) {
     assert.equal(reviews[0]!.status, 'rejected');
     assert.equal(reviews[1]!.status, 'approved');
   });
+
+  test(`library: 路径 id 非规范 UUID → 404（格式闸门，PG 不再 500）（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    await wipeAll(db);
+    const ctx = await startHttp(t, db);
+    const user = await register(ctx);
+
+    // 背景：PG 的 uuid 列收到 `not-a-uuid` 会抛 22P02，之前落到兜底 500；
+    // 闸门后与「格式正确但不存在」同响应 404，且与 SQLite 行为一致。
+    // 匿名可达端点
+    assert.equal((await fetch(`${ctx.baseUrl}/api/library/not-a-uuid`)).status, 404);
+    assert.equal((await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid`)).status, 404);
+    assert.equal((await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/download`)).status, 404);
+    // favorite-count 语义：目标不存在 → 404（与 getDetail 对齐）
+    assert.equal(
+      (await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/favorite-count`)).status,
+      404,
+    );
+
+    // 登录后可达端点
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/favorite`, {
+          method: 'POST',
+          headers: auth(user.token),
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/favorite`, {
+          method: 'DELETE',
+          headers: auth(user.token),
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/is-favorited`, {
+        headers: auth(user.token),
+      })).status,
+      404,
+    );
+
+    // 管理端审核入口同样走闸门（素材不存在文案）
+    const admin = await register(ctx, 'admin');
+    const review = await fetch(`${ctx.baseUrl}/api/admin/assets/not-a-uuid/review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(admin.token) },
+      body: JSON.stringify({ status: 'approved' }),
+    });
+    assert.equal(review.status, 404);
+    assert.equal(
+      (await fetch(`${ctx.baseUrl}/api/admin/assets/not-a-uuid/reviews`, {
+        headers: auth(admin.token),
+      })).status,
+      404,
+    );
+
+    // 顺带验证：合法但不存在的 UUID 仍是 404（既有行为不回归）
+    assert.equal(
+      (await fetch(`${ctx.baseUrl}/api/assets/00000000-0000-0000-0000-000000000000`)).status,
+      404,
+    );
+  });
 }

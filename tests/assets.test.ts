@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -356,5 +357,80 @@ for (const c of cases) {
       headers: { authorization: `Bearer ${other.token}` },
     });
     assert.equal(otherDel.status, 404);
+  });
+
+  test(`assets: 路径/请求体 id 非规范 UUID → 404（格式闸门，PG 不再 500）（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    await wipeAll(db);
+    const ctx = await startHttp(t, db);
+    const { token, profileId } = await registerAndGetToken(ctx, EMAIL);
+    const jsonHeaders = { 'content-type': 'application/json', authorization: `Bearer ${token}` };
+
+    // 背景：PG 的 uuid 列收到非 UUID 字符串抛 22P02 → 兜底 500；闸门后按
+    // 「资源不存在」404 处理，与 SQLite 行为一致。
+    // 素材路径 id
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/apply`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ profileId, slot: 'skin' }),
+        })
+      ).status,
+      404,
+    );
+    // remove 路由不读路径 :id（摘下动作只由 body 的 profileId+slot 决定），
+    // 畸形路径 id 到不了数据库 → 维持既有 204；真正要挡的是 body 里的 profileId（见下）
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid/remove`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ profileId, slot: 'skin' }),
+        })
+      ).status,
+      204,
+    );
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid`, {
+          method: 'PATCH',
+          headers: jsonHeaders,
+          body: JSON.stringify({ name: 'x' }),
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await fetch(`${ctx.baseUrl}/api/assets/not-a-uuid`, {
+        method: 'DELETE',
+        headers: jsonHeaders,
+      })).status,
+      404,
+    );
+
+    // 请求体里的 profileId（应用到不存在的角色；assetId 合法但不存在的
+    // 404 与「profileId 非法」的 404 同码，客户端无从区分两者）
+    const ghostAssetId = randomUUID();
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/${ghostAssetId}/apply`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ profileId: 'not-a-uuid', slot: 'skin' }),
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/${ghostAssetId}/remove`, {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ profileId: 'not-a-uuid', slot: 'skin' }),
+        })
+      ).status,
+      404,
+    );
   });
 }

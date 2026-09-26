@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseConnection } from '../types.js';
 import { AppError } from '../errors.js';
 import { sha256Hex } from '../util/crypto.js';
+import { requireCanonicalUuid } from '../util/uuid.js';
 import { blobStorageKey } from '../storage/keys.js';
 import type { StoragePort } from '../storage/types.js';
 import {
@@ -200,6 +201,9 @@ export class TextureService {
     profileId: string;
     slot: AssetKind;
   }): Promise<void> {
+    // 格式闸门：非规范 UUID 与资源不存在同响应，避免 PG uuid 列抛 22P02 → 兜底 500
+    requireCanonicalUuid(input.assetId, '素材不存在');
+    requireCanonicalUuid(input.profileId, '角色不存在');
     const asset = await this.assets.findById(input.assetId);
     if (!asset || asset.ownerUserId !== input.userId) {
       throw new AppError('NOT_FOUND', '素材不存在');
@@ -226,6 +230,7 @@ export class TextureService {
     profileId: string;
     slot: AssetKind;
   }): Promise<void> {
+    requireCanonicalUuid(input.profileId, '角色不存在');
     const profile = await this.profiles.findById(input.profileId);
     if (!profile || profile.userId !== input.userId) {
       throw new AppError('NOT_FOUND', '角色不存在');
@@ -244,6 +249,7 @@ export class TextureService {
       downloadPolicy?: 'owner_only' | 'public';
     },
   ): Promise<void> {
+    requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
     if (!asset || asset.ownerUserId !== userId) {
       throw new AppError('NOT_FOUND', '素材不存在');
@@ -279,6 +285,7 @@ export class TextureService {
    * 保证"删除不留下不可追踪的对象"（蓝图 P2 验收）。
    */
   async deleteAsset(userId: string, assetId: string): Promise<void> {
+    requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
     if (!asset || asset.ownerUserId !== userId) {
       throw new AppError('NOT_FOUND', '素材不存在');

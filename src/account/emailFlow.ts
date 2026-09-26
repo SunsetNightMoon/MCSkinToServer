@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { DatabaseConnection } from '../types.js';
 import { AppError } from '../errors.js';
 import { sha256Hex } from '../util/crypto.js';
+import { requireCanonicalUuid } from '../util/uuid.js';
 import type { IdentityService } from '../auth/identity.js';
 import type { TokenService } from '../auth/tokens.js';
 import type { UserRepository, UserRow } from '../repositories/userRepository.js';
@@ -158,6 +159,8 @@ export class EmailFlow {
     userId: string,
     requestOrigin?: string,
   ): Promise<SendVerificationResult> {
+    // 格式闸门：非规范 UUID 与「用户不存在」同响应（管理端把路径参数直传进来）
+    requireCanonicalUuid(userId, '用户不存在');
     const user = await this.users.findById(userId);
     if (!user || user.purgedAt !== null) {
       throw new AppError('NOT_FOUND', '用户不存在');
@@ -324,6 +327,7 @@ export class EmailFlow {
     userId: string,
     verified: boolean,
   ): Promise<AccountActionResult & { emailVerified: boolean }> {
+    requireCanonicalUuid(userId, '用户不存在');
     const user = await this.users.findById(userId);
     if (!user || user.purgedAt !== null) {
       throw new AppError('NOT_FOUND', '用户不存在');
