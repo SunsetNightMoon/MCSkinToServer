@@ -131,11 +131,13 @@ export class LibraryService {
     page: number;
     pageSize: number;
     sort: 'latest' | 'views' | 'downloads';
+    search?: string;
   }): Promise<LibraryPage> {
     const { items, total } = await this.assets.listPublic(input.kind, {
       page: input.page,
       pageSize: input.pageSize,
       sort: input.sort,
+      search: input.search,
     });
     const counts = await this.favorites.countByAssets(items.map((a) => a.id));
     const libItems: LibraryItem[] = [];

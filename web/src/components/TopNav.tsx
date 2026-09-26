@@ -136,7 +136,7 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
                 <SettingOutlined />
               </button>
             )}
-            <div className="top-nav__avatar" title="我的衣柜" onClick={() => navigate('/wardrobe')}>
+            <div className="top-nav__avatar" title="个人中心" onClick={() => navigate('/profile')}>
               <SkinAvatar skinUrl={skinUrl ?? undefined} size={34} />
             </div>
             <button

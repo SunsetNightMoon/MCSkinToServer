@@ -57,6 +57,7 @@ export function createLibraryRouter(deps: LibraryRouteDependencies): Router {
         typeof q['sort'] === 'string' && SORTS.has(q['sort'])
           ? (q['sort'] as 'latest' | 'views' | 'downloads')
           : 'latest',
+      search: typeof q['search'] === 'string' && q['search'].trim() !== '' ? q['search'].trim() : undefined,
     });
     res.json(result);
   });

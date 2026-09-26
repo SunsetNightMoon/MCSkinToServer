@@ -176,12 +176,19 @@ export class AssetRepository {
   /** 公开库分页列表：仅 approved + public；sort = latest | views | downloads */
   async listPublic(
     kind: AssetKind,
-    opts: { page: number; pageSize: number; sort: 'latest' | 'views' | 'downloads' },
+    opts: { page: number; pageSize: number; sort: 'latest' | 'views' | 'downloads'; search?: string },
   ): Promise<{ items: AssetRow[]; total: number }> {
-    const where = `kind = ${phAt(this.db.dialect, 0)} AND visibility = 'public' AND review_status = 'approved'`;
+    const searchClause =
+      opts.search && opts.search.trim() !== ''
+        ? ` AND lower(name) LIKE ${phAt(this.db.dialect, 3)}`
+        : '';
+    const searchLike =
+      opts.search && opts.search.trim() !== '' ? `%${opts.search.trim().toLowerCase()}%` : null;
+    const where = `kind = ${phAt(this.db.dialect, 0)} AND visibility = 'public' AND review_status = 'approved'${searchClause}`;
+    const baseArgs: unknown[] = searchLike ? [kind, searchLike] : [kind];
     const totalRows = await this.db.query<Record<string, unknown>>(
       `SELECT COUNT(*) AS n FROM assets WHERE ${where}`,
-      [kind],
+      baseArgs,
     );
     const order =
       opts.sort === 'views'
@@ -193,8 +200,8 @@ export class AssetRepository {
     const rows = await this.db.query<Record<string, unknown>>(
       `SELECT ${ASSET_COLUMNS} FROM assets WHERE ${where}
        ORDER BY ${order}
-       LIMIT ${phAt(this.db.dialect, 1)} OFFSET ${phAt(this.db.dialect, 2)}`,
-      [kind, opts.pageSize, offset],
+       LIMIT ${phAt(this.db.dialect, baseArgs.length)} OFFSET ${phAt(this.db.dialect, baseArgs.length + 1)}`,
+      [...baseArgs, opts.pageSize, offset],
     );
     return {
       items: rows.map(mapAssetRow),

@@ -9,6 +9,7 @@ import { RegisterPage } from './pages/Register';
 import { ProfilesPage } from './pages/Profiles';
 import { WardrobePage } from './pages/Wardrobe';
 import { LibraryPage } from './pages/Library';
+import { ProfilePage } from './pages/Profile';
 import AdminPage from './pages/Admin';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -73,6 +74,14 @@ export function App() {
             element={
               <RequireAuth>
                 <ProfilesPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <RequireAuth>
+                <ProfilePage />
               </RequireAuth>
             }
           />

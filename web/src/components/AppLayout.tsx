@@ -10,9 +10,10 @@ import { TopNav, type NavItem } from './TopNav';
 
 export const NAV_LINKS: NavItem[] = [
   { path: '/', label: '首页' },
-  { path: '/library', label: '公开库' },
+  { path: '/library', label: '素材库' },
   { path: '/wardrobe', label: '我的衣柜', auth: true },
   { path: '/profiles', label: '我的角色', auth: true },
+  { path: '/profile', label: '个人中心', auth: true },
   { path: '/admin', label: '管理后台', auth: true, admin: true },
 ];
 
