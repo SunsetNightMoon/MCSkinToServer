@@ -51,6 +51,19 @@ export interface ProfileTextureState {
 }
 
 /**
+ * 单个角色当前绑定的纹理，带素材 ID。
+ * 与 ProfileTextureState 的差别：多返回 assetId，供 Web 端做「已应用」高亮
+ * （前端用素材 ID 比对卡片），Yggdrasil 协议链路不需要 ID 所以走另一条查询。
+ */
+export interface ProfileTextureBinding {
+  profileId: string;
+  skinAssetId: string | null;
+  skin: ProfileTextureAsset | null;
+  capeAssetId: string | null;
+  cape: ProfileTextureAsset | null;
+}
+
+/**
  * 领域规则（对应蓝图 §7.2 待决策项，本实现采用的安全默认）：
  * 纹理输出跟随角色绑定，但 review_status = 'rejected' 的素材一律不渲染
  * —— 被拒绝的内容不应出现在任何协议响应中；仍绑定的素材应走下架流程解除绑定。
@@ -169,5 +182,48 @@ export class ProfileRepository {
         : null,
       cape: capeKey ? { storageKey: capeKey, modelType: null } : null,
     };
+  }
+
+  /**
+   * 用户全部角色的纹理绑定（一次查询，避免逐角色 N+1）。
+   * 未绑定的槽位由 LEFT JOIN 产出 null；rejected 素材不渲染（与 findTextureState 同一规则）。
+   */
+  async listTextureBindingsByUserId(
+    userId: string,
+  ): Promise<ProfileTextureBinding[]> {
+    const rows = await this.db.query<Record<string, unknown>>(
+      `SELECT p.id AS profile_id,
+              s.id AS skin_asset_id, s.model_type AS skin_model, sb.storage_key AS skin_key,
+              c.id AS cape_asset_id, cb.storage_key AS cape_key
+       FROM profiles p
+       LEFT JOIN profile_assets pa_s
+         ON pa_s.profile_id = p.id AND pa_s.slot = 'skin'
+       LEFT JOIN assets s
+         ON s.id = pa_s.asset_id AND s.review_status <> 'rejected'
+       LEFT JOIN blobs sb ON sb.id = s.blob_id
+       LEFT JOIN profile_assets pa_c
+         ON pa_c.profile_id = p.id AND pa_c.slot = 'cape'
+       LEFT JOIN assets c
+         ON c.id = pa_c.asset_id AND c.review_status <> 'rejected'
+       LEFT JOIN blobs cb ON cb.id = c.blob_id
+       WHERE p.user_id = ${phAt(this.db.dialect, 0)}
+       ORDER BY p.created_at ASC, p.id ASC`,
+      [userId],
+    );
+
+    return rows.map((row) => {
+      const skinKey = row['skin_key'] as string | null;
+      const capeKey = row['cape_key'] as string | null;
+      const skinModel = row['skin_model'] as 'default' | 'slim' | null;
+      return {
+        profileId: row['profile_id'] as string,
+        skinAssetId: (row['skin_asset_id'] as string | null) ?? null,
+        skin: skinKey
+          ? { storageKey: skinKey, modelType: skinModel ?? null }
+          : null,
+        capeAssetId: (row['cape_asset_id'] as string | null) ?? null,
+        cape: capeKey ? { storageKey: capeKey, modelType: null } : null,
+      };
+    });
   }
 }

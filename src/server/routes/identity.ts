@@ -8,7 +8,8 @@ import { requireAuth } from '../middleware.js';
  * - POST /api/auth/register  注册（成功即登录）
  * - POST /api/auth/login     登录
  * - POST /api/auth/logout    登出（吊销当前 token）
- * - GET  /api/me/profiles    角色列表
+ * - GET  /api/me/profiles    角色列表（含每个角色的当前皮肤/披风 ID 与 URL）
+ * - GET  /api/me/skin        当前默认角色的皮肤（顶栏头像）
  * - POST /api/profiles       新建角色
  * - POST /api/profiles/:id/name  改名（30 天冷却）
  * - DELETE /api/profiles/:id 删除角色
@@ -73,7 +74,7 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   const auth = requireAuth(deps.tokenService);
 
   router.get('/api/me/profiles', auth, async (req, res) => {
-    const list = await deps.identity.listProfiles(req.context!.userId);
+    const list = await deps.identity.listProfilesWithTextures(req.context!.userId);
     res.json({ profiles: list });
   });
 

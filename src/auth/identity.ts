@@ -414,6 +414,48 @@ export class IdentityService {
     return this.profiles.listByUserId(userId);
   }
 
+  /**
+   * 角色列表 + 每个角色当前绑定的皮肤/披风。
+   *
+   * Web 衣柜需要这些字段：`skinId` / `capeId` 用于卡片「已应用」高亮（前端按素材
+   * ID 比对），`skinUrl` / `capeUrl` 用于 3D 预览。Yggdrasil 协议链路不走这里
+   * （它用 findTextureState，不需要素材 ID）。
+   */
+  async listProfilesWithTextures(userId: string): Promise<
+    Array<
+      ProfileRow & {
+        skinId: string | null;
+        capeId: string | null;
+        skinUrl: string | null;
+        capeUrl: string | null;
+        model: 'default' | 'slim' | null;
+      }
+    >
+  > {
+    const [profiles, bindings] = await Promise.all([
+      this.profiles.listByUserId(userId),
+      this.profiles.listTextureBindingsByUserId(userId),
+    ]);
+    const bindingByProfile = new Map(
+      bindings.map((binding) => [binding.profileId, binding]),
+    );
+    const resolver = this.assetUrlResolver;
+
+    return profiles.map((profile) => {
+      const binding = bindingByProfile.get(profile.id);
+      const skin = binding?.skin ?? null;
+      const cape = binding?.cape ?? null;
+      return {
+        ...profile,
+        skinId: binding?.skinAssetId ?? null,
+        capeId: binding?.capeAssetId ?? null,
+        skinUrl: skin && resolver ? resolver.forBlob(skin) : null,
+        capeUrl: cape && resolver ? resolver.forBlob(cape) : null,
+        model: skin?.modelType ?? null,
+      };
+    });
+  }
+
   async createProfile(userId: string, name: string): Promise<ProfileRow> {
     this.assertValidProfileName(name);
     if (await this.profiles.findByName(name)) {

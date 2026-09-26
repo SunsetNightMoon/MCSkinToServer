@@ -6,7 +6,8 @@ import i18n from '../i18n'
  * 角色 / 衣柜服务（适配 MSCTS 端点）。
  *
  * MSCTS：
- *   GET    /api/me/profiles            → {profiles:[{id,userId,name,nameChangedAt,createdAt,updatedAt}]}
+ *   GET    /api/me/profiles            → {profiles:[{id,userId,name,nameChangedAt,createdAt,updatedAt,
+ *                                                     skinId,capeId,skinUrl,capeUrl,model}]}
  *   GET    /api/me/skin                → {profileId,profileName,skinUrl,model}
  *   POST   /api/profiles               {name}                新建角色（最多 3 个）
  *   POST   /api/profiles/:id/name      {name}                改名（30 天冷却 → 403 NAME_COOLDOWN）
@@ -26,6 +27,13 @@ interface MsctsProfileRow {
   nameChangedAt: string
   createdAt: string
   updatedAt: string
+  /** 当前绑定的皮肤/披风素材 ID（衣柜卡片「已应用」高亮用） */
+  skinId?: string | null
+  capeId?: string | null
+  /** 当前皮肤/披风的直链（3D 预览用） */
+  skinUrl?: string | null
+  capeUrl?: string | null
+  model?: 'default' | 'slim' | null
 }
 
 function toLegacyProfile(p: MsctsProfileRow): Record<string, any> {
@@ -36,6 +44,14 @@ function toLegacyProfile(p: MsctsProfileRow): Record<string, any> {
     name_changed_at: p.nameChangedAt,
     created_at: p.createdAt,
     updated_at: p.updatedAt,
+    // 旧页面（Wardrobe / UserProfile）直接读这几个字段：
+    //   currentProfile.skin_id === skin.id  → 卡片「已应用」标记
+    //   profile.skin_url                    → 预览兜底（列表里找不到该素材时）
+    skin_id: p.skinId ?? null,
+    cape_id: p.capeId ?? null,
+    skin_url: p.skinUrl ?? null,
+    cape_url: p.capeUrl ?? null,
+    model_type: p.model ?? 'default',
   }
 }
 
