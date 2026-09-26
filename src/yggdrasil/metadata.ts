@@ -36,7 +36,7 @@ export function buildMetadataDto(input: BuildMetadataInput): YggdrasilMetadataDt
       ? input.skinDomains
       : [defaultDomain],
     meta: {
-      implementation: { name: 'MCSTS', version: '2.3.2' },
+      implementation: { name: 'MCSTS', version: '2.3.3' },
       features: {},
     },
   };
