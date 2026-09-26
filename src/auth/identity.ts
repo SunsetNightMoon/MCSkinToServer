@@ -6,7 +6,11 @@ import { forbiddenOperation } from '../yggdrasil/errors.js';
 import { toShortUuid } from '../yggdrasil/uuid.js';
 import type { IssuedToken, TokenService } from './tokens.js';
 import type { UserRole } from '../repositories/tokenRepository.js';
-import type { UserRepository, UserRow } from '../repositories/userRepository.js';
+import type {
+  ProfileMode,
+  UserRepository,
+  UserRow,
+} from '../repositories/userRepository.js';
 import type {
   ProfileRepository,
   ProfileRow,
@@ -22,13 +26,20 @@ import type { AssetUrlResolver } from '../storage/assetUrl.js';
  * - 封禁语义：ban_permanent 或 banned_until 未到期 → USER_BANNED（临时封禁到期自动恢复）
  * - 改名冷却：30 天，基准 name_changed_at
  * - Yggdrasil 令牌：token_type='yggdrasil'，clientToken 原样存储回显
+ * - **用户名模式（0003）**：见下方「用户名模式」一节
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 const NAME_COOLDOWN_MS = 30 * 24 * 3600 * 1000;
 const BCRYPT_COST = 10;
-export const MAX_PROFILES_PER_USER = 3;
+/**
+ * 单账号角色总数上限（活跃 + 预留）。**仅多用户名模式受此约束** ——
+ * 单用户名模式更严：只能有 1 个 active，新建接口直接拒绝。
+ */
+export const MAX_PROFILES_PER_USER = 10;
+/** 单用户名模式下可用（active）角色的数量上限 */
+export const SINGLE_MODE_ACTIVE_LIMIT = 1;
 const MINECRAFT_SESSION_TTL_MS = 30 * 1000;
 /** 注销后的账号恢复宽限期（15 天）；到期由 purgeExpiredAccounts 清除个人数据 */
 export const ACCOUNT_DELETE_GRACE_MS = 15 * 24 * 3600 * 1000;
@@ -39,11 +50,45 @@ export interface PublicUser {
   email: string;
   role: UserRole;
   emailVerified: boolean;
+  /** 0003：当前用户名模式 */
+  profileMode: ProfileMode;
+  /**
+   * true = 存量多角色用户尚未选择保留哪个 ID。
+   * 放在登录/注册响应里（而不是只给一个单独接口）是因为前端必须在**拿到会话的那一刻**
+   * 就知道要不要弹选择框 —— 否则用户会先看到角色列表，再被一个迟到的弹窗打断。
+   */
+  modeChoiceRequired: boolean;
 }
 
 export interface ProfileSummary {
   id: string;
   name: string;
+}
+
+/**
+ * 用户名模式与角色状态快照（0003）。
+ *
+ * 刻意把「上限」也一并返回，而不是让前端硬编码 10 / 1：
+ * 上限是后端规则，前端只负责展示「3/10」这类计数，规则改动不该要求前端跟着发版。
+ */
+export interface ProfileModeState {
+  mode: ProfileMode;
+  /** true = 存量多角色用户尚未选择保留哪个 ID，前端必须弹窗且禁用相关写操作 */
+  decisionRequired: boolean;
+  decidedAt: string | null;
+  modeChangedAt: string | null;
+  /** 模式允许的角色总数上限（活跃 + 预留） */
+  maxProfiles: number;
+  /** 当前模式下可用（active）角色的数量上限：single=1，multi=10 */
+  activeLimit: number;
+  activeCount: number;
+  reservedCount: number;
+  /**
+   * 单用户名模式下「换 ID」（改名 / 启用预留角色）的冷却结束时刻；
+   * null = 当前无冷却（多用户名模式、从未改过名、或窗口已过）。
+   */
+  cooldownUntil: string | null;
+  cooldownDaysRemaining: number | null;
 }
 
 export interface RegisterResult {
@@ -88,6 +133,31 @@ function toPublicUser(user: UserRow): PublicUser {
     email: user.email,
     role: user.role,
     emailVerified: user.emailVerified,
+    profileMode: user.profileMode,
+    modeChoiceRequired: user.profileModeDecidedAt === null,
+  };
+}
+
+/**
+ * 缺失角色时的占位。
+ *
+ * 注册即建默认角色，所以理论上取不到；但登录/恢复账号这两条路径不该因此阻塞
+ * 用户的账号访问，于是用空角色放行。
+ *
+ * 抽成函数而不是就地写字面量：ProfileRow 每加一列就要改所有副本，
+ * 而这个占位出现在两处（loginWeb / restoreAccount），上一次加 status 时
+ * 就是这样漏掉一处的 —— 类型检查把它抓了出来。
+ */
+function emptyProfile(userId: string): ProfileRow {
+  return {
+    id: '',
+    userId,
+    name: '',
+    nameChangedAt: '',
+    createdAt: '',
+    updatedAt: '',
+    status: 'active',
+    statusChangedAt: null,
   };
 }
 
@@ -263,6 +333,13 @@ export class IdentityService {
       lastLoginAt: null,
       deletedAt: null,
       purgedAt: null,
+      // 新账号角色数为 0，视作已决定（库内 profile_mode_decided_at 同此口径）
+      profileMode: 'single',
+      profileModeDecidedAt: now.toISOString(),
+      modeChangedAt: null,
+      backupEmail: null,
+      backupEmailVerified: false,
+      backupEmailVerifiedAt: null,
     };
     const token =
       input.issueSession === false
@@ -304,18 +381,11 @@ export class IdentityService {
 
     await this.users.updateLastLogin(user.id, this.now());
     const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });
-    const profile = await this.profiles.findFirstByUserId(user.id);
+    const profile = await this.profiles.findFirstActiveByUserId(user.id);
     return {
       user: toPublicUser(user),
       // 兜底：理论上注册即建角色；缺失时登录仍放行（不阻塞账号访问）
-      profile: profile ?? {
-        id: '',
-        userId: user.id,
-        name: '',
-        nameChangedAt: '',
-        createdAt: '',
-        updatedAt: '',
-      },
+      profile: profile ?? emptyProfile(user.id),
       token,
     };
   }
@@ -328,7 +398,9 @@ export class IdentityService {
     clientToken: string,
     selectedProfileId: string | null,
   ): Promise<YggdrasilSession> {
-    const list = await this.profiles.listByUserId(user.id);
+    // 只列 active：预留口里的角色名字还被占着，但当前**不可用**，
+    // 出现在 availableProfiles 里会让启动器给出一个选了就 join 不进去的选项。
+    const list = await this.profiles.listActiveByUserId(user.id);
     const selected =
       selectedProfileId !== null
         ? (list.find((p) => p.id === selectedProfileId) ?? null)
@@ -359,7 +431,7 @@ export class IdentityService {
     const clientToken =
       input.clientToken ?? randomUUID().replaceAll('-', '');
     await this.users.updateLastLogin(user.id, this.now());
-    const firstProfile = await this.profiles.findFirstByUserId(user.id);
+    const firstProfile = await this.profiles.findFirstActiveByUserId(user.id);
     const issued = await this.tokens.issue({
       tokenType: 'yggdrasil',
       userId: user.id,
@@ -463,8 +535,307 @@ export class IdentityService {
     });
   }
 
+  // ---- 用户名模式（0003）----
+  //
+  // 三种模式/状态，必须先分清，后面所有判断都建立在这上面：
+  //
+  //   'single' + 已决定   ：只能有 1 个 active。改名与「启用预留角色」共用**同一个**
+  //                         30 天窗口，基准是当前 active 角色的 name_changed_at。
+  //   'multi'  + 已决定   ：无冷却；active + reserved 合计 ≤ 10。新建的角色即 active。
+  //   任意模式 + 未决定    ：存量多角色用户的中间态（迁移把 decided_at 留成 NULL）。
+  //                         除「首次决定」外的任何写操作都拒绝（MODE_CHOICE_REQUIRED），
+  //                         否则会出现「用户还没选，后端已经替他定了」的状态漂移。
+  //
+  // 预留（reserved）角色为什么保留在库里：多 -> 单 时被换下的角色如果直接删掉，
+  // 用户等满冷却后想换回来的那个名字已经被别人抢注了。保留名字占位，
+  // 代价只是「这个名字暂时查不到可用角色」。
+
+  /** 模式未决定时拦下一切写操作（读操作放行：前端要先能列出角色给用户选） */
+  private assertModeDecided(user: UserRow): void {
+    if (user.profileModeDecidedAt === null) {
+      throw new AppError(
+        'MODE_CHOICE_REQUIRED',
+        '请先选择要保留的角色 ID，再继续其他操作',
+      );
+    }
+  }
+
+  /**
+   * 生成一次身份变更的时间戳。
+   *
+   * 「这个角色改过名没有」在数据上用 `name_changed_at !== created_at` 表示（P1 起沿用），
+   * 目的是给注册时按邮箱前缀自动生成的初始名留一次免费改名 —— 否则新用户要顶着
+   * 一个邮箱前缀当 ID 等满 30 天。
+   *
+   * 但同一毫秒内改名会让两者相等，于是被判定成「从未改名」：免费改名被重复发放，
+   * 30 天窗口也不会启动。生产里这条路径隔着一次 bcrypt 和一次 HTTP 往返，撞不上；
+   * 可它把一条规则的成立条件押在时钟精度上，属于不该留的脆弱点。
+   * 这里把时间戳抬到严格大于 created_at，让判定与精度解耦。
+   */
+  private identityChangeStamp(profile: ProfileRow, now: Date): Date {
+    const created = new Date(profile.createdAt).getTime();
+    return new Date(Math.max(now.getTime(), created + 1));
+  }
+
+  /**
+   * 单用户名模式下的「换 ID」冷却。
+   *
+   * 基准刻意是**当前 active 角色**的 name_changed_at，而不是 users 上的某个时间戳：
+   * 改名与「把预留角色搬进来」是同一件事（换掉正在用的那个 ID）的两种形式，
+   * 共用一个 30 天窗口才能在语义上成立 —— 否则用户可以「改名不用冷却，靠换角色实现」。
+   *
+   * 返回 null 表示当前无冷却。三种情况：多用户名模式、从未改过名（初始命名不算改名）、
+   * 或者窗口已经跑完。
+   */
+  private singleModeCooldown(
+    active: ProfileRow | null,
+    now: Date,
+  ): { until: string; daysRemaining: number } | null {
+    if (!active) return null;
+    // 初始命名（name_changed_at === created_at）不算改名，首次改名不受冷却限制
+    if (active.nameChangedAt === active.createdAt) return null;
+    const stamp = new Date(active.nameChangedAt).getTime();
+    // elapsed 下限取 0：identityChangeStamp 可能写出比「现在」晚 1 毫秒的时间戳
+    // （同一毫秒内改名时），不减这一刀会算出「还需 31 天」这种莫名其妙的数字。
+    const elapsed = Math.max(0, now.getTime() - stamp);
+    if (elapsed >= NAME_COOLDOWN_MS) return null;
+    return {
+      until: new Date(stamp + NAME_COOLDOWN_MS).toISOString(),
+      daysRemaining: Math.ceil((NAME_COOLDOWN_MS - elapsed) / 86400000),
+    };
+  }
+
+  /**
+   * 模式与角色状态快照（个人中心 / 首次选择弹窗 / 预留口可见性判定）。
+   *
+   * 前端**不应该**自己算预留口该不该显示：那需要组合「模式 + 待决定 + 预留数量」
+   * 三个字段，任何一处判断漂移都会让用户看到一个点了会报错的入口。
+   */
+  async getProfileModeState(userId: string): Promise<ProfileModeState> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+
+    const [active, reserved] = await Promise.all([
+      this.profiles.listActiveByUserId(userId),
+      this.profiles.listReservedByUserId(userId),
+    ]);
+    const now = this.now();
+    const cooldown =
+      user.profileMode === 'single'
+        ? this.singleModeCooldown(active[0] ?? null, now)
+        : null;
+
+    return {
+      mode: user.profileMode,
+      decisionRequired: user.profileModeDecidedAt === null,
+      decidedAt: user.profileModeDecidedAt,
+      modeChangedAt: user.modeChangedAt,
+      maxProfiles: MAX_PROFILES_PER_USER,
+      activeLimit:
+        user.profileMode === 'single'
+          ? SINGLE_MODE_ACTIVE_LIMIT
+          : MAX_PROFILES_PER_USER,
+      activeCount: active.length,
+      reservedCount: reserved.length,
+      cooldownUntil: cooldown?.until ?? null,
+      cooldownDaysRemaining: cooldown?.daysRemaining ?? null,
+    };
+  }
+
+  /**
+   * 首次决定模式（存量多角色用户下次登录必须走这条）。
+   *
+   * 选 'single' 时必须给出要保留的角色；其余角色转预留（数据与名字都留着），
+   * 并从此刻开始 30 天窗口 —— 这正是产品上「切回单用户名后，想用别的 ID 要等
+   * 冷却期满再从预留口里挑」的语义。只有原本就 ≤ 1 个角色时不启动窗口（无可缩减）。
+   */
+  async decideInitialMode(input: {
+    userId: string;
+    mode: ProfileMode;
+    keepProfileId?: string | null;
+  }): Promise<ProfileModeState> {
+    const user = await this.users.findById(input.userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    if (user.profileModeDecidedAt !== null) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        '用户名模式已确定，如需更改请使用切换模式',
+      );
+    }
+
+    const now = this.now();
+    const profiles = await this.profiles.listByUserId(input.userId);
+
+    let keep: ProfileRow | null = null;
+    if (input.mode === 'single') {
+      if (profiles.length === 0) {
+        // 理论不可能（注册即建角色），但不引入额外分支：直接确定模式即可
+      } else if (input.keepProfileId) {
+        keep = profiles.find((p) => p.id === input.keepProfileId) ?? null;
+        if (!keep) throw new AppError('NOT_FOUND', '角色不存在');
+      } else if (profiles.length === 1) {
+        keep = profiles[0]!;
+      } else {
+        throw new AppError('VALIDATION_ERROR', '请选择要保留的角色 ID');
+      }
+    }
+
+    await this.db.transaction(async () => {
+      if (input.mode === 'single' && keep && profiles.length > 1) {
+        await this.profiles.setStatusForAllExcept(
+          input.userId,
+          keep.id,
+          'reserved',
+          now,
+        );
+        // 3 个可用 ID 变成 1 个 = 一次身份变更，窗口从这里开始
+        await this.profiles.markNameChanged(
+          keep.id,
+          this.identityChangeStamp(keep, now),
+        );
+      }
+      await this.users.decideMode(input.userId, input.mode, now);
+    });
+
+    return this.getProfileModeState(input.userId);
+  }
+
+  /**
+   * 切换模式（单 <-> 多）。
+   *
+   * 单 -> 多：预留角色全部放回 active。**不设冷却** —— 多用户名模式本身的规则
+   *   就是「无冷却」，把切换也拦掉等于给多模式加了它不该有的限制。
+   *   代价（如实记录）：用户可以「单模式被冷却挡住 -> 切到多模式改名 -> 切回单模式」
+   *   绕过 30 天窗口。这是两条产品规则叠加的必然结果，不是实现疏漏；
+   *   若日后要堵，做法是让「单 -> 多」也要求窗口已结束（一行判断）。
+   * 多 -> 单：必须指定保留哪个 active 角色（多于 1 个可用时），其余转预留，
+   *   并从此开始 30 天窗口。
+   */
+  async switchMode(input: {
+    userId: string;
+    mode: ProfileMode;
+    keepProfileId?: string | null;
+  }): Promise<ProfileModeState> {
+    const user = await this.users.findById(input.userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    this.assertModeDecided(user);
+    if (user.profileMode === input.mode) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        input.mode === 'single' ? '当前已是单用户名模式' : '当前已是多用户名模式',
+      );
+    }
+
+    const now = this.now();
+    const active = await this.profiles.listActiveByUserId(input.userId);
+
+    let keep: ProfileRow | null = null;
+    if (input.mode === 'single') {
+      if (active.length === 0) {
+        throw new AppError('VALIDATION_ERROR', '账号没有可用角色，无法切换到单用户名模式');
+      }
+      if (input.keepProfileId) {
+        keep = active.find((p) => p.id === input.keepProfileId) ?? null;
+        if (!keep) {
+          // 分两种情况给出精确原因。预留角色不能直接成为「保留下来的那个」——
+          // 那等于绕开冷却启用预留角色，所以必须是 PROFILE_RESERVED 而不是「不存在」。
+          //
+          // 这条分支在当前规则下不可达（多用户名模式里不存在 reserved 角色），
+          // 保留它是防御性的：数据一旦被手工改成「multi + reserved」，这里必须挡住
+          // 而不是静默把预留角色扶成 active。
+          const other = await this.profiles.findById(input.keepProfileId);
+          if (other && other.userId === input.userId) {
+            throw new AppError(
+              'PROFILE_RESERVED',
+              '只能保留当前可用的角色 ID；预留角色需等冷却期满后单独启用',
+            );
+          }
+          throw new AppError('NOT_FOUND', '角色不存在');
+        }
+      } else if (active.length === 1) {
+        keep = active[0]!;
+      } else {
+        throw new AppError('VALIDATION_ERROR', '请选择要保留的角色 ID');
+      }
+    }
+
+    await this.db.transaction(async () => {
+      if (input.mode === 'single' && keep) {
+        await this.profiles.setStatusForAllExcept(
+          input.userId,
+          keep.id,
+          'reserved',
+          now,
+        );
+        await this.profiles.markNameChanged(
+          keep.id,
+          this.identityChangeStamp(keep, now),
+        );
+      } else if (input.mode === 'multi') {
+        await this.profiles.setStatusForAll(input.userId, 'active', now);
+      }
+      await this.users.setProfileMode(input.userId, input.mode, now);
+    });
+
+    return this.getProfileModeState(input.userId);
+  }
+
+  /**
+   * 启用预留口里的一个角色（单用户名模式下唯一的「换 ID」路径之一）。
+   *
+   * 它消耗与改名同一个 30 天窗口：换角色和改名字对「这个账号当前叫什么」而言
+   * 是同一件事。启用后当前 active 转预留（数据留着，随时可以再换回来）。
+   */
+  async activateReservedProfile(
+    userId: string,
+    profileId: string,
+  ): Promise<ProfileModeState> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    this.assertModeDecided(user);
+    if (user.profileMode !== 'single') {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        '多用户名模式下角色本身就是可用的，无需启用预留角色',
+      );
+    }
+
+    const target = await this.profiles.findById(profileId);
+    if (!target || target.userId !== userId) {
+      throw new AppError('NOT_FOUND', '角色不存在');
+    }
+    if (target.status !== 'reserved') {
+      throw new AppError('VALIDATION_ERROR', '该角色已是可用状态');
+    }
+
+    const now = this.now();
+    const current = await this.profiles.findFirstActiveByUserId(userId);
+    const cooldown = this.singleModeCooldown(current, now);
+    if (cooldown) {
+      throw new AppError(
+        'MODE_COOLDOWN',
+        `更换角色 ID 的冷却中，还需约 ${cooldown.daysRemaining} 天`,
+      );
+    }
+
+    await this.db.transaction(async () => {
+      if (current) {
+        await this.profiles.setStatus(current.id, 'reserved', now);
+      }
+      await this.profiles.setStatus(target.id, 'active', now);
+      // 换了正在用的 ID = 一次身份变更，窗口从此刻重新开始
+      await this.profiles.markNameChanged(
+        target.id,
+        this.identityChangeStamp(target, now),
+      );
+    });
+
+    return this.getProfileModeState(userId);
+  }
+
   // ---- 角色管理（Web）----
 
+  /** 全部角色（含预留），按创建时间升序；前端按 status 分成「我的角色」与预留口 */
   async listProfiles(userId: string): Promise<ProfileRow[]> {
     return this.profiles.listByUserId(userId);
   }
@@ -513,6 +884,18 @@ export class IdentityService {
 
   async createProfile(userId: string, name: string): Promise<ProfileRow> {
     this.assertValidProfileName(name);
+    const user = await this.users.findById(userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    this.assertModeDecided(user);
+    if (user.profileMode === 'single') {
+      // 单用户名模式的「只有一个 ID」不是靠数量上限表达（上限是 1 个 active，
+      // 而预留角色也占总数），而是干脆不接受新建：用户的第 2 个 ID 只能来自
+      // 「曾是多用户名模式」，否则等于绕开 30 天窗口凭空多出一个可用名字。
+      throw new AppError(
+        'VALIDATION_ERROR',
+        `单用户名模式下每个账号只能有一个角色 ID；如需多个 ID 请先切换到多用户名模式`,
+      );
+    }
     if (await this.profiles.findByName(name)) {
       throw new AppError('NAME_TAKEN', '该角色名已被占用');
     }
@@ -524,31 +907,60 @@ export class IdentityService {
       );
     }
     const id = randomUUID();
-    await this.profiles.insert({ id, userId, name, now: this.now() });
+    await this.profiles.insert({
+      id,
+      userId,
+      name,
+      now: this.now(),
+      status: 'active',
+    });
     return (await this.profiles.findById(id))!;
   }
 
   async renameProfile(userId: string, profileId: string, newName: string): Promise<ProfileRow> {
     this.assertValidProfileName(newName);
+    const user = await this.users.findById(userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    this.assertModeDecided(user);
     const profile = await this.profiles.findById(profileId);
     if (!profile || profile.userId !== userId) {
       throw new AppError('NOT_FOUND', '角色不存在');
     }
-    // 初始命名（name_changed_at === created_at）不算改名，首次改名不受冷却限制
-    const neverRenamed = profile.nameChangedAt === profile.createdAt;
-    const elapsed = this.now().getTime() - new Date(profile.nameChangedAt).getTime();
-    if (!neverRenamed && elapsed < NAME_COOLDOWN_MS) {
-      const days = Math.ceil((NAME_COOLDOWN_MS - elapsed) / 86400000);
-      throw new AppError('NAME_COOLDOWN', `改名冷却中，还需约 ${days} 天`);
+    // 预留角色是「暂时不可用」的占位：允许改名等于给了单用户名模式一个
+    // 免费的抢注通道（改个想要的名字先占着，等冷却期满再启用）。
+    if (profile.status === 'reserved') {
+      throw new AppError(
+        'PROFILE_RESERVED',
+        '预留中的角色 ID 不能改名；如需启用请等冷却期满后使用「启用预留角色」',
+      );
+    }
+    // 单用户名模式下改名消耗与「启用预留角色」共用的 30 天窗口；多用户名模式无冷却。
+    // 错误码沿用 NAME_COOLDOWN（而不是 MODE_COOLDOWN）：改名的调用方从 P1 起就按这个码
+    // 处理文案，换码会让既有前端静默退化成通用提示，而收益只是码名更「统一」。
+    if (user.profileMode === 'single') {
+      const cooldown = this.singleModeCooldown(profile, this.now());
+      if (cooldown) {
+        throw new AppError(
+          'NAME_COOLDOWN',
+          `改名冷却中，还需约 ${cooldown.daysRemaining} 天`,
+        );
+      }
     }
     if (await this.profiles.findByName(newName)) {
       throw new AppError('NAME_TAKEN', '该角色名已被占用');
     }
-    await this.profiles.rename(profileId, newName, this.now());
+    await this.profiles.rename(
+      profileId,
+      newName,
+      this.identityChangeStamp(profile, this.now()),
+    );
     return (await this.profiles.findById(profileId))!;
   }
 
   async deleteProfile(userId: string, profileId: string): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
+    this.assertModeDecided(user);
     const profile = await this.profiles.findById(profileId);
     if (!profile || profile.userId !== userId) {
       throw new AppError('NOT_FOUND', '角色不存在');
@@ -557,6 +969,15 @@ export class IdentityService {
     if (count <= 1) {
       throw new AppError('VALIDATION_ERROR', '至少保留一个角色');
     }
+    // 单用户名模式下删掉唯一的 active 会让账号一个可用 ID 都不剩，
+    // 而恢复它的唯一路径又卡在 30 天冷却上 —— 等于把用户锁死。
+    if (user.profileMode === 'single' && profile.status === 'active') {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        '单用户名模式下不能删除当前生效的角色 ID；请先在预留口中启用另一个角色',
+      );
+    }
+    // 删预留角色是允许的：它只是放弃一个占位（能力减少，不构成身份变更，不需要冷却）
     await this.profiles.delete(profileId);
   }
 
@@ -641,17 +1062,10 @@ export class IdentityService {
     const now = this.now();
     await this.users.clearDeleted(user.id, now);
     const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });
-    const profile = await this.profiles.findFirstByUserId(user.id);
+    const profile = await this.profiles.findFirstActiveByUserId(user.id);
     return {
       user: toPublicUser(user),
-      profile: profile ?? {
-        id: '',
-        userId: user.id,
-        name: '',
-        nameChangedAt: '',
-        createdAt: '',
-        updatedAt: '',
-      },
+      profile: profile ?? emptyProfile(user.id),
       token,
     };
   }
@@ -662,7 +1076,7 @@ export class IdentityService {
   async getMySkin(
     userId: string,
   ): Promise<{ profileId: string; profileName: string; skinUrl: string | null; model: string | null }> {
-    const profile = await this.profiles.findFirstByUserId(userId);
+    const profile = await this.profiles.findFirstActiveByUserId(userId);
     if (!profile) {
       throw new AppError('NOT_FOUND', '角色不存在');
     }

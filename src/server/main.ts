@@ -8,9 +8,11 @@ import { SiteUrlResolver } from '../site/siteUrl.js';
 import { RuntimeSettings } from '../site/runtimeSettings.js';
 import { SecretBox, MASTER_SECRET_ENV } from '../util/secretBox.js';
 import { AccountTokenRepository } from '../repositories/accountTokenRepository.js';
+import { EmailChangeRepository } from '../repositories/emailChangeRepository.js';
 import { SmtpMailer } from '../mail/smtpMailer.js';
 import { MailService } from '../mail/mailService.js';
 import { EmailFlow } from '../account/emailFlow.js';
+import { EmailChangeFlow } from '../account/emailChangeFlow.js';
 import { TokenService } from '../auth/tokens.js';
 import { IdentityService } from '../auth/identity.js';
 import { purgeExpiredAccounts } from '../auth/accountLifecycle.js';
@@ -121,10 +123,20 @@ async function main(): Promise<void> {
   await runtimeSettings.refresh();
 
   const accountTokens = new AccountTokenRepository(db);
+  const emailChangeRepo = new EmailChangeRepository(db);
   const smtpMailer = new SmtpMailer(runtimeSettings);
   const mailService = new MailService({
     mailer: smtpMailer,
     runtime: runtimeSettings,
+  });
+  const emailChangeFlow = new EmailChangeFlow({
+    db,
+    users: userRepository,
+    changes: emailChangeRepo,
+    mail: mailService,
+    siteUrl: siteUrlResolver,
+    // 复用 IdentityService 的邮箱格式校验，避免两套正则各自漂移
+    emails: identity,
   });
   const emailFlow = new EmailFlow({
     db,
@@ -161,6 +173,7 @@ async function main(): Promise<void> {
   // 不清就会随「用户反复点重发」一直长。失败同样不阻塞启动。
   try {
     await emailFlow.purgeExpiredTokens();
+    await emailChangeFlow.purgeExpired();
   } catch (err) {
     console.error(
       '[mscts] account token purge failed (non-fatal):',
@@ -192,6 +205,7 @@ async function main(): Promise<void> {
     siteUrlResolver,
     runtimeSettings,
     emailFlow,
+    emailChangeFlow,
     mailService,
     secretBox,
   });

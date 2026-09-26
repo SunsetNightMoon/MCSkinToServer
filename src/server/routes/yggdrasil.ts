@@ -172,7 +172,10 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
       throw illegalArgument(`非法 Profile UUID: ${String(req.params['uuid'] ?? '')}`);
     }
     const state = await deps.profiles.findTextureState(canonical);
-    if (!state) {
+    // 预留角色（0003）：UUID 还存在、名字还占着，但当前不可用 ——
+    // 按协议回 204，与「角色不存在」同一种响应，避免把「这个 ID 被某人占着
+    // 只是暂时没用」暴露成可探测的信息。
+    if (!state || state.status !== 'active') {
       res.status(204).end();
       return;
     }
@@ -204,7 +207,11 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     const found: { id: string; name: string }[] = [];
     for (const name of names) {
       const profile = await deps.profiles.findByName(name);
-      if (profile) found.push(profileDto(profile.id, profile.name));
+      // 预留角色不参与按名字解析（0003）：名字仍被占着，但它当前不可用。
+      // 报出去等于给了外部一个「这个名字已被注册但用不了」的探测口径。
+      if (profile && profile.status === 'active') {
+        found.push(profileDto(profile.id, profile.name));
+      }
     }
     res.json(found);
   });

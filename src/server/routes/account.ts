@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { TokenService } from '../../auth/tokens.js';
 import type { EmailFlow } from '../../account/emailFlow.js';
+import type { EmailChangeFlow } from '../../account/emailChangeFlow.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
 import { optionalAuth, requireAuth } from '../middleware.js';
@@ -32,6 +33,11 @@ import { AppError } from '../../errors.js';
 export interface AccountRouteDependencies {
   tokenService: TokenService;
   emailFlow: EmailFlow;
+  /**
+   * 0003：备用邮箱与邮箱变更流程。可选 —— 未注入时 `/api/me/email-status`
+   * 只返回主邮箱与验证状态，保持 P5 的行为不变（既有测试与部署不必同步升级）。
+   */
+  emailChangeFlow?: EmailChangeFlow;
   /** 限流器；未注入则不做限流（测试场景） */
   rateLimiter?: RateLimiterPort;
   rateLimit?: RateLimitSettings;
@@ -148,10 +154,23 @@ export function createAccountRouter(deps: AccountRouteDependencies): Router {
 
   const auth = requireAuth(deps.tokenService);
 
-  /** 个人中心用：当前账号的邮箱与验证状态 */
+  /**
+   * 个人中心用：当前账号的邮箱与验证状态。
+   *
+   * 0003 起注入了 EmailChangeFlow 时，把备用邮箱与进行中的邮箱变更**合并**进同一
+   * 响应（而不是另开一个端点）：界面上这是同一张「邮箱」卡片的三块信息，
+   * 分成两个接口只会让前端多一次往返、并制造「两次读之间状态变了」的窗口。
+   */
   router.get('/api/me/email-status', auth, async (req, res) => {
-    const status = await deps.emailFlow.getEmailStatus(req.context!.userId);
-    res.json(status);
+    const userId = req.context!.userId;
+    const base = await deps.emailFlow.getEmailStatus(userId);
+    if (!deps.emailChangeFlow) {
+      res.json(base);
+      return;
+    }
+    const extra = await deps.emailChangeFlow.getStatus(userId);
+    // 两者都带 email / emailVerified（值相同），展开顺序不影响结果
+    res.json({ ...base, ...extra });
   });
 
   return router;

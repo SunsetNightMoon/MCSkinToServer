@@ -3,12 +3,18 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Button, Descriptions, message, Tag, Divider, Typography,
-  Modal, Form, Input, Spin, Alert, Space,
+  Modal, Form, Input, Spin, Alert, Space, Radio, Popconfirm,
 } from 'antd'
-import { EditOutlined, CheckCircleOutlined, CloseCircleOutlined, MailOutlined, LinkOutlined, CopyOutlined, ExclamationCircleOutlined, LockOutlined, SafetyOutlined, KeyOutlined } from '@ant-design/icons'
+import { EditOutlined, CheckCircleOutlined, CloseCircleOutlined, MailOutlined, LinkOutlined, CopyOutlined, ExclamationCircleOutlined, LockOutlined, SafetyOutlined, KeyOutlined, UserSwitchOutlined, ClockCircleOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useAuthStore } from '../../store/authStore'
 import { SkinAvatar } from '../../components/SkinAvatar'
 import { profileService } from '../../services/profileService'
+import {
+  accountSecurityService,
+  type ProfileModeState,
+  type EmailSecurityStatus,
+  type EmailChangeRequestResult,
+} from '../../services/accountSecurityService'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { useTranslation } from 'react-i18next'
 
@@ -36,6 +42,11 @@ interface ProfileInfo {
   skin_id?: string
   cape_id?: string
   name_changed_at?: string | null
+  /**
+   * 0003：`reserved` = 预留态。数据与名字都保留（否则冷却期满就换不回来了），
+   * 但当前不作为会话角色使用，也不出现在启动器的可选角色列表里。
+   */
+  status?: 'active' | 'reserved'
 }
 
 export function UserProfile() {
@@ -85,34 +96,146 @@ export function UserProfile() {
   const [resetEmailSent, setResetEmailSent] = useState(false)
   const [sendingResetEmail, setSendingResetEmail] = useState(false)
 
+  // ---- 0003：用户名模式 ----
+  const [modeState, setModeState] = useState<ProfileModeState | null>(null)
+  const [modeModalOpen, setModeModalOpen] = useState(false)
+  /** 弹窗里选中的目标模式 */
+  const [pendingMode, setPendingMode] = useState<'single' | 'multi'>('single')
+  /** 切/决定为单用户名时选中的「保留哪个 ID」 */
+  const [pendingKeepId, setPendingKeepId] = useState<string | null>(null)
+  const [savingMode, setSavingMode] = useState(false)
+  /** 正在启用的预留角色 id（按钮 loading 用） */
+  const [activatingId, setActivatingId] = useState<string | null>(null)
+
+  // ---- 0003：邮箱安全 ----
+  const [emailStatus, setEmailStatus] = useState<EmailSecurityStatus | null>(null)
+  const [backupModalOpen, setBackupModalOpen] = useState(false)
+  const [backupInput, setBackupInput] = useState('')
+  const [sendingBackup, setSendingBackup] = useState(false)
+  const [changeModalOpen, setChangeModalOpen] = useState(false)
+  const [changeTarget, setChangeTarget] = useState<'primary' | 'backup'>('primary')
+  const [changeInput, setChangeInput] = useState('')
+  const [requestingChange, setRequestingChange] = useState(false)
+  /** 本次发起改邮箱后服务端回的信息（授权信发给了谁），用于「去收信」面板 */
+  const [changeSent, setChangeSent] = useState<EmailChangeRequestResult | null>(null)
+
+  /**
+   * 拉取当前用户的角色列表。
+   *
+   * 独立成函数而不是只写在 effect 里：模式切换、启用预留角色、删角色之后都要重拉，
+   * 否则界面会停在旧状态（例如冷却已启动，用户却还能再点一次「启用」）。
+   */
+  const loadProfiles = async () => {
+    setLoadingProfiles(true)
+    try {
+      const data = await profileService.getMe()
+      // 同步更新用户信息（角色、验证状态等可能已被管理员修改）
+      if (data.user) {
+        updateUser(data.user)
+      }
+      if (data.skinUrl !== undefined) {
+        setSkinUrl(data.skinUrl || null)
+      }
+      if (data.profiles) {
+        setProfiles(data.profiles)
+      }
+    } catch (err: any) {
+      console.error(t('profile.fetchProfileFailed'), err)
+    } finally {
+      setLoadingProfiles(false)
+    }
+  }
+
+  /**
+   * 拉取用户名模式与邮箱安全状态。
+   *
+   * 邮箱状态挂了单独的 catch：它是增量能力，未接线的部署上 `/api/me/email-status`
+   * 可能不存在，不该因此把整页拖垮（模式信息仍应正常显示）。
+   */
+  const loadAccountSecurity = async () => {
+    try {
+      const [mode, mail] = await Promise.all([
+        accountSecurityService.getProfileMode(),
+        accountSecurityService.getEmailStatus().catch(() => null),
+      ])
+      setModeState(mode)
+      if (mail) {
+        setEmailStatus(mail)
+        // 主邮箱可能在这次操作里刚被改掉 / 刚被验证（改邮箱、点验证链接），
+        // 而 store 里的 user 是**登录那一刻的快照**。不同步的话「邮箱」一行会出现
+        // 新地址配旧验证标记、甚至显示旧地址的错位 —— 界面上两个字段来自两个时间点。
+        updateUser({ email: mail.email, email_verified: mail.emailVerified })
+      }
+      // 存量多角色账号：一进页面就把「先选一个 ID」的弹窗推出来。
+      // 不推的话用户点任何写操作都只会拿到 409，却不知道要做什么。
+      if (mode.decisionRequired && !modeModalOpen) {
+        setPendingMode('single')
+        setPendingKeepId(null)
+        setModeModalOpen(true)
+      }
+    } catch (err) {
+      console.error('加载账号安全状态失败', err)
+    }
+  }
+
   // 获取角色信息和最新用户数据
   useEffect(() => {
     if (!user) return
-    const fetchProfiles = async () => {
-      setLoadingProfiles(true)
-      try {
-        const data = await profileService.getMe()
-        // 同步更新用户信息（角色、验证状态等可能已被管理员修改）
-        if (data.user) {
-          updateUser(data.user)
-        }
-        if (data.skinUrl !== undefined) {
-          setSkinUrl(data.skinUrl || null)
-        }
-        if (data.profiles) {
-          setProfiles(data.profiles)
-        }
-      } catch (err: any) {
-        console.error(t('profile.fetchProfileFailed'), err)
-      } finally {
-        setLoadingProfiles(false)
-      }
-    }
-    fetchProfiles()
+    loadProfiles()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
-  const primaryProfile = profiles[0]
+  useEffect(() => {
+    if (!user) return
+    loadAccountSecurity()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  /**
+   * 有进行中的改邮箱请求时，轮询服务端的幂等收敛点。
+   *
+   * 两封邮件通常在不同标签页 / 不同设备上被点开，本页无从得知对方进度；
+   * 后端提供了 `finalize` 这个收敛端点，轮询它就能在「两枚都确认了」的瞬间
+   * 自动把变更落地，顺带自愈「两枚被并发点开」的死锁（详见后端注释）。
+   * 页面不可见时不发请求 —— 后台标签页不该持续打接口。
+   */
+  useEffect(() => {
+    const pending = emailStatus?.pendingChange
+    if (!user || !pending) return
+    const timer = window.setInterval(async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const res = await accountSecurityService.finalizeEmailChange()
+        if (res.completed) {
+          message.success(t('profile.changeEmailDone'))
+          setChangeModalOpen(false)
+        }
+        await loadAccountSecurity()
+        if (res.completed) await loadProfiles()
+      } catch {
+        // 轮询失败静默处理：可能只是网络抖动，下一轮会再来
+      }
+    }, 8000)
+    return () => window.clearInterval(timer)
+    // exhaustive-deps 会要求把 loadAccountSecurity/loadProfiles 也列进来，
+    // 但它们是每次渲染重建的函数，列进去会让定时器不停重建。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, emailStatus?.pendingChange?.id, emailStatus?.pendingChange?.verifyConfirmed, emailStatus?.pendingChange?.authorizeConfirmed])
+
+  /**
+   * 0003：角色按状态分组。
+   *
+   * 「预留口」只在**单用户名模式 + 确实存在预留角色**时可见 ——
+   * 从没开过多用户（没有预留角色）、或当前就是多用户名模式的账号，看不到这一块。
+   * 这正是产品要求里「单用户模式没打开过 / 是多 ID 的情况下看不到多用户预留口」的实现点。
+   *
+   * 先于 primaryProfile 求值：当前角色必须是 **active** 的那个。
+   * 直接取 `profiles[0]` 在单用户名模式下会取到预留角色（预留角色排在前面时），
+   * 于是页面会把一个不可用的 ID 当成「玩家名称」显示出来。
+   */
+  const activeProfiles = profiles.filter((p) => (p.status ?? 'active') === 'active')
+  const reservedProfiles = profiles.filter((p) => p.status === 'reserved')
+  const primaryProfile = activeProfiles[0] ?? profiles[0]
   const currentGameName = primaryProfile?.name || profileName || ''
   const nameChangedAt = primaryProfile?.name_changed_at ?? undefined
 
@@ -144,8 +267,12 @@ export function UserProfile() {
     : `${apiBaseUrl}/api/yggdrasil`
   const authlibUrl = `authlib-injector:yggdrasil-server:${encodeURIComponent(yggUrl)}`
 
-  // 计算冷却
-  function getCooldownInfo(): { inCooldown: boolean; daysRemaining: number; canChangeAt?: Date } {
+  /**
+   * 旧版冷却估算：name_changed_at + 30 天。
+   *
+   * 只在 `modeState` 拿不到时使用（后端还是 0003 之前的版本 / 请求还没回来）。
+   */
+  const legacyCooldown = (() => {
     if (!nameChangedAt) return { inCooldown: false, daysRemaining: 0 }
     const lastChanged = new Date(nameChangedAt)
     const cooldownEnd = new Date(lastChanged)
@@ -156,9 +283,195 @@ export function UserProfile() {
       return { inCooldown: true, daysRemaining, canChangeAt: cooldownEnd }
     }
     return { inCooldown: false, daysRemaining: 0 }
+  })()
+
+  /**
+   * 改名 / 换 ID 的冷却信息。
+   *
+   * 0003 起**以后端为准**：单用户名模式下改名与「启用预留角色」共用同一个 30 天窗口，
+   * 且「从未改名」不设冷却（后端把这种情形的时间戳抬到严格大于 created_at，
+   * 再把 name_changed_at === created_at 判为「从未改名」）。这两条规则后端都已实现，
+   * 并由 `/api/me/profile-mode` 直接给出 cooldownUntil / cooldownDaysRemaining。
+   *
+   * 这里曾经只按 name_changed_at + 30 天做本地估算，后果是**新注册用户一进页面就被
+   * 告知「改名冷却中：30 天后可再次改名」，而且改名输入框被 disabled 锁死** ——
+   * 后端其实允许他免费改名一次。本地估算区分不了「从未改名」与「刚改过名」，
+   * 因为两者的 name_changed_at 都有值（注册时就写入了 created_at）。
+   */
+  const cooldown: { inCooldown: boolean; daysRemaining: number; canChangeAt?: Date } =
+    modeState === null
+      ? legacyCooldown
+      : modeState.cooldownDaysRemaining === null
+        ? { inCooldown: false, daysRemaining: 0 }
+        : {
+            inCooldown: true,
+            daysRemaining: modeState.cooldownDaysRemaining,
+            canChangeAt: modeState.cooldownUntil
+              ? new Date(modeState.cooldownUntil)
+              : undefined,
+          }
+
+  const modeIsSingle = modeState?.mode === 'single'
+  const showReservedSlots = modeIsSingle && reservedProfiles.length > 0
+  const modeCooldownActive = (modeState?.cooldownDaysRemaining ?? 0) > 0
+
+  // ---- 0003：用户名模式操作 ----
+
+  /** 打开模式弹窗。切为单用户名时默认预选第一个 active 角色，避免必然的报错 */
+  const openModeModal = (target: 'single' | 'multi') => {
+    setPendingMode(target)
+    setPendingKeepId(target === 'single' ? (activeProfiles[0]?.id ?? null) : null)
+    setModeModalOpen(true)
   }
 
-  const cooldown = getCooldownInfo()
+  const handleSaveMode = async () => {
+    // 多选一时必须先定保留谁。后端会用 MODE_CHOICE_REQUIRED / VALIDATION_ERROR 拦，
+    // 但让用户先看到提示比先吃一个报错好。
+    if (pendingMode === 'single' && activeProfiles.length > 1 && !pendingKeepId) {
+      message.warning(t('profile.modeChooseKeepRequired'))
+      return
+    }
+    setSavingMode(true)
+    try {
+      const next = await accountSecurityService.saveProfileMode(
+        pendingMode,
+        pendingMode === 'single' ? pendingKeepId : null,
+      )
+      setModeState(next)
+      await loadProfiles()
+      // 决定/切换完成后，若首次选择还没落地则不会再弹
+      setModeModalOpen(false)
+      message.success(t('profile.modeSaved'))
+    } catch (err: any) {
+      message.error(err?.response?.data?.errorMessage || t('profile.modeSaveFailed'))
+    } finally {
+      setSavingMode(false)
+    }
+  }
+
+  const handleActivateReserved = async (profileId: string) => {
+    setActivatingId(profileId)
+    try {
+      const next = await accountSecurityService.activateReservedProfile(profileId)
+      setModeState(next)
+      await loadProfiles()
+      message.success(t('profile.reservedActivated'))
+    } catch (err: any) {
+      // 冷却未满 / 角色已不是预留态，都靠后端的错误码文案说清楚（MODE_COOLDOWN 等）
+      message.error(
+        err?.response?.data?.errorMessage || t('profile.reservedActivateFailed'),
+      )
+    } finally {
+      setActivatingId(null)
+    }
+  }
+
+  // ---- 0003：邮箱安全操作 ----
+
+  const handleSendBackupEmail = async () => {
+    const email = backupInput.trim()
+    if (!email || !email.includes('@')) {
+      message.warning(t('profile.emailInvalid'))
+      return
+    }
+    setSendingBackup(true)
+    try {
+      const res = await accountSecurityService.requestBackupEmail(email)
+      if (res.alreadyVerified) {
+        message.info(t('profile.backupAlreadyVerified'))
+      } else if (res.sent) {
+        message.success(t('profile.backupEmailSent', { email: res.pendingEmail }))
+      } else {
+        // 已有一枚待验证的备用邮箱时后端不重发，如实告知而不是假装成功
+        message.warning(t('profile.backupEmailNotSent'))
+      }
+      setBackupModalOpen(false)
+      setBackupInput('')
+      await loadAccountSecurity()
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.errorMessage || t('profile.backupEmailFailed'),
+      )
+    } finally {
+      setSendingBackup(false)
+    }
+  }
+
+  const handleRemoveBackup = async () => {
+    try {
+      await accountSecurityService.removeBackupEmail()
+      message.success(t('profile.backupRemoved'))
+      // 解除备用邮箱会连带取消「用备用邮箱授权」的进行中请求，必须重拉状态
+      await loadAccountSecurity()
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.errorMessage || t('profile.backupRemoveFailed'),
+      )
+    }
+  }
+
+  const openChangeEmailModal = (target: 'primary' | 'backup') => {
+    setChangeTarget(target)
+    setChangeInput('')
+    setChangeSent(null)
+    setChangeModalOpen(true)
+  }
+
+  const handleRequestChange = async () => {
+    const email = changeInput.trim()
+    if (!email || !email.includes('@')) {
+      message.warning(t('profile.emailInvalid'))
+      return
+    }
+    setRequestingChange(true)
+    try {
+      const res = await accountSecurityService.requestEmailChange(
+        changeTarget,
+        email,
+      )
+      setChangeSent(res)
+      await loadAccountSecurity()
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.errorMessage || t('profile.changeEmailFailed'),
+      )
+    } finally {
+      setRequestingChange(false)
+    }
+  }
+
+  /** 手动触发一次收敛检查（自动轮询之外的「我已点完两封」按钮） */
+  const handleFinalizeChange = async () => {
+    try {
+      const res = await accountSecurityService.finalizeEmailChange()
+      if (res.completed) {
+        message.success(t('profile.changeEmailDone'))
+        setChangeModalOpen(false)
+        await loadProfiles()
+      } else {
+        message.info(t('profile.changeEmailWaiting'))
+      }
+      await loadAccountSecurity()
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.errorMessage || t('profile.changeEmailFailed'),
+      )
+    }
+  }
+
+  const handleCancelChange = async () => {
+    try {
+      await accountSecurityService.cancelEmailChange()
+      message.success(t('profile.changeCancelled'))
+      setChangeSent(null)
+      setChangeModalOpen(false)
+      await loadAccountSecurity()
+    } catch (err: any) {
+      message.error(
+        err?.response?.data?.errorMessage || t('profile.changeEmailFailed'),
+      )
+    }
+  }
 
   // 发送验证邮件
   const handleSendVerification = async () => {
@@ -333,9 +646,16 @@ export function UserProfile() {
       setIsEditModalOpen(false)
     } catch (err: any) {
       const errMsg = err.response?.data?.errorMessage || t('profile.updateFailed')
-      if (err.response?.status === 429) {
-        const days = err.response?.data?.days_remaining
-        message.error(t('profile.nameChangeCooldown', { days }))
+      const code = err.response?.data?.error
+      // 0003：单用户名模式的改名冷却由后端以 403 NAME_COOLDOWN 拒绝；
+      // 「启用预留角色」用的是同一个 30 天窗口，错误码是 MODE_COOLDOWN。
+      // 旧代码判的是 429 + days_remaining，而 MSCTS 从不返回这两个东西 ——
+      // 分支永远走不到，用户只能看到后端那句原始文案（能懂，但丢了剩余天数）。
+      if (code === 'NAME_COOLDOWN' || code === 'MODE_COOLDOWN') {
+        const days = modeState?.cooldownDaysRemaining
+        message.error(
+          days ? t('profile.nameChangeCooldown', { days }) : errMsg,
+        )
       } else {
         message.error(errMsg)
       }
@@ -442,17 +762,111 @@ export function UserProfile() {
             )}
           </Descriptions.Item>
           <Descriptions.Item label={t('profile.email')}>
-            <Space>
-              <Text>{user.email}</Text>
-              {isVerified ? (
-                <Tag color="green">{t('profile.verified')}</Tag>
-              ) : (
-                <>
-                  <Tag color="orange">{t('profile.unverified')}</Tag>
-                  <Button size="small" icon={<MailOutlined />} loading={sendingVerify} onClick={handleSendVerification}>
-                    {t('profile.verifyNow')}
+            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              {/* 主邮箱 */}
+              <Space wrap>
+                <Text>{emailStatus?.email || user.email}</Text>
+                {isVerified ? (
+                  <Tag color="green">{t('profile.verified')}</Tag>
+                ) : (
+                  <>
+                    <Tag color="orange">{t('profile.unverified')}</Tag>
+                    <Button size="small" icon={<MailOutlined />} loading={sendingVerify} onClick={handleSendVerification}>
+                      {t('profile.verifyNow')}
+                    </Button>
+                  </>
+                )}
+                <Button size="small" onClick={() => openChangeEmailModal('primary')}>
+                  {t('profile.changePrimaryEmail')}
+                </Button>
+              </Space>
+
+              {/* 备用邮箱 */}
+              {emailStatus?.backupEmail ? (
+                <Space wrap>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {t('profile.backupEmail')}:
+                  </Text>
+                  <Text>{emailStatus.backupEmail}</Text>
+                  {emailStatus.backupEmailVerified ? (
+                    <Tag color="green">{t('profile.verified')}</Tag>
+                  ) : (
+                    <Tag color="orange">{t('profile.unverified')}</Tag>
+                  )}
+                  <Button size="small" onClick={() => openChangeEmailModal('backup')}>
+                    {t('profile.changeBackupEmail')}
                   </Button>
-                </>
+                  <Popconfirm
+                    title={t('profile.removeBackupConfirm')}
+                    okText={t('common.confirm')}
+                    cancelText={t('common.cancel')}
+                    onConfirm={handleRemoveBackup}
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />}>
+                      {t('profile.removeBackup')}
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ) : (
+                <Button
+                  size="small"
+                  type="dashed"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    setBackupInput('')
+                    setBackupModalOpen(true)
+                  }}
+                >
+                  {t('profile.addBackupEmail')}
+                </Button>
+              )}
+
+              {emailStatus?.backupEmailRecommended && (
+                <Text type="warning" style={{ fontSize: 12 }}>
+                  {t('profile.backupRecommended')}
+                </Text>
+              )}
+
+              {/*
+                进行中的改邮箱请求。两枚链接可能分别在两台设备上被点开，
+                本页靠轮询后端的收敛端点自动完成，用户也可以手动催一下。
+              */}
+              {emailStatus?.pendingChange && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message={t('profile.pendingChange', { email: emailStatus.pendingChange.newEmail })}
+                  description={
+                    <div style={{ fontSize: 12, lineHeight: 1.9 }}>
+                      <div>
+                        {emailStatus.pendingChange.verifyConfirmed ? '✅' : '⬜'}{' '}
+                        {t('profile.pendingVerifySide')}
+                      </div>
+                      <div>
+                        {emailStatus.pendingChange.authorizeConfirmed ? '✅' : '⬜'}{' '}
+                        {t('profile.pendingAuthorizeSide')}
+                      </div>
+                      <Text type="secondary">{t('profile.pendingAutoCheck')}</Text>
+                    </div>
+                  }
+                  action={
+                    <Space direction="vertical" size={4}>
+                      <Button size="small" onClick={handleFinalizeChange}>
+                        {t('profile.checkNow')}
+                      </Button>
+                      <Popconfirm
+                        title={t('profile.cancelChangeConfirm')}
+                        okText={t('common.confirm')}
+                        cancelText={t('common.cancel')}
+                        onConfirm={handleCancelChange}
+                      >
+                        <Button size="small" danger>
+                          {t('common.cancel')}
+                        </Button>
+                      </Popconfirm>
+                    </Space>
+                  }
+                />
               )}
             </Space>
           </Descriptions.Item>
@@ -498,6 +912,105 @@ export function UserProfile() {
           </Button>
         </div>
       </div>
+
+      {/* 用户名模式卡片（0003） */}
+      {modeState && (
+        <div style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 12,
+          padding: 24,
+          marginTop: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <UserSwitchOutlined />
+              {t('profile.usernameMode')}
+            </div>
+            <Tag color={modeIsSingle ? 'blue' : 'purple'}>
+              {modeIsSingle ? t('profile.modeSingle') : t('profile.modeMulti')}
+            </Tag>
+          </div>
+
+          <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12, lineHeight: 1.8 }}>
+            {modeIsSingle ? t('profile.modeSingleDesc') : t('profile.modeMultiDesc')}
+          </Text>
+
+          <Space size={16} wrap style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 13 }}>
+              {t('profile.modeActiveCount', { count: modeState.activeCount, limit: modeState.activeLimit })}
+            </Text>
+            {reservedProfiles.length > 0 && (
+              <Text style={{ fontSize: 13 }}>
+                {t('profile.modeReservedCount', { count: reservedProfiles.length })}
+              </Text>
+            )}
+          </Space>
+
+          {modeCooldownActive && (
+            <div style={{ marginBottom: 12 }}>
+              <Tag color="orange" icon={<ClockCircleOutlined />}>
+                {t('profile.modeCooldown', { days: modeState.cooldownDaysRemaining })}
+              </Tag>
+            </div>
+          )}
+
+          {/*
+            预留口。只在「单用户名模式 + 确有预留角色」时渲染：
+            从没开过多用户、或当前就是多用户模式的账号看不到这一块。
+          */}
+          {showReservedSlots && (
+            <div style={{ marginBottom: 12 }}>
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+                {t('profile.reservedSlots')}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+                {t('profile.reservedHint')}
+              </Text>
+              <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                {reservedProfiles.map((p) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                    }}
+                  >
+                    <Text code>{p.name}</Text>
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      disabled={modeCooldownActive}
+                      loading={activatingId === p.id}
+                      onClick={() => handleActivateReserved(p.id)}
+                    >
+                      {t('profile.reservedUse')}
+                    </Button>
+                  </div>
+                ))}
+              </Space>
+            </div>
+          )}
+
+          <Space wrap>
+            {modeIsSingle ? (
+              <Button onClick={() => openModeModal('multi')}>
+                {t('profile.switchToMulti')}
+              </Button>
+            ) : (
+              <Button onClick={() => openModeModal('single')}>
+                {t('profile.switchToSingle')}
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
 
       {/* Yggdrasil 认证服务器卡片 */}
       <div style={{
@@ -936,6 +1449,232 @@ export function UserProfile() {
               />
             )}
           </div>
+        )}
+      </Modal>
+
+      {/*
+        用户名模式弹窗。同时承载两件事：
+        - 存量多角色账号的「首次选择」（modeState.decisionRequired）
+        - 后续的模式切换
+        对用户而言都是「保存我的选择」，前端不需要区分 —— 由服务端决定走哪条路。
+      */}
+      <Modal
+        title={
+          <span>
+            <UserSwitchOutlined style={{ marginRight: 8 }} />
+            {modeState?.decisionRequired
+              ? t('profile.modeFirstChoice')
+              : t('profile.modeSwitchTitle')}
+          </span>
+        }
+        open={modeModalOpen}
+        onCancel={() => setModeModalOpen(false)}
+        confirmLoading={savingMode}
+        onOk={handleSaveMode}
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
+        width={520}
+      >
+        {modeState?.decisionRequired && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={t('profile.modeFirstChoiceHint')}
+          />
+        )}
+
+        <Radio.Group
+          value={pendingMode}
+          onChange={(e) => {
+            const next = e.target.value as 'single' | 'multi'
+            setPendingMode(next)
+            if (next === 'single') {
+              setPendingKeepId(activeProfiles[0]?.id ?? null)
+            }
+          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+        >
+          <Radio value="single">
+            <div style={{ fontWeight: 500 }}>{t('profile.modeSingle')}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('profile.modeSingleDesc')}
+            </Text>
+          </Radio>
+          <Radio value="multi">
+            <div style={{ fontWeight: 500 }}>{t('profile.modeMulti')}</div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t('profile.modeMultiDesc')}
+            </Text>
+          </Radio>
+        </Radio.Group>
+
+        {/* 切为单用户名且当前有多个可用角色时，必须指定保留哪一个 */}
+        {pendingMode === 'single' && activeProfiles.length > 1 && (
+          <div style={{ marginTop: 20 }}>
+            <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+              {t('profile.modeKeepWhich')}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+              {t('profile.modeKeepHint', { count: activeProfiles.length - 1 })}
+            </Text>
+            <Radio.Group
+              value={pendingKeepId}
+              onChange={(e) => setPendingKeepId(e.target.value as string)}
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {activeProfiles.map((p) => (
+                <Radio key={p.id} value={p.id}>
+                  <Text code>{p.name}</Text>
+                </Radio>
+              ))}
+            </Radio.Group>
+          </div>
+        )}
+      </Modal>
+
+      {/* 添加备用邮箱 */}
+      <Modal
+        title={
+          <span>
+            <PlusOutlined style={{ marginRight: 8 }} />
+            {t('profile.addBackupEmail')}
+          </span>
+        }
+        open={backupModalOpen}
+        onCancel={() => setBackupModalOpen(false)}
+        confirmLoading={sendingBackup}
+        onOk={handleSendBackupEmail}
+        okText={t('profile.sendVerifyMail')}
+        cancelText={t('common.cancel')}
+        width={480}
+      >
+        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16, lineHeight: 1.8 }}>
+          {t('profile.backupEmailExplain')}
+        </Text>
+        <Input
+          value={backupInput}
+          onChange={(e) => setBackupInput(e.target.value)}
+          placeholder={t('profile.backupEmailPlaceholder')}
+          onPressEnter={handleSendBackupEmail}
+        />
+      </Modal>
+
+      {/* 更改邮箱（主邮箱 / 备用邮箱共用一个向导） */}
+      <Modal
+        title={
+          <span>
+            <MailOutlined style={{ marginRight: 8 }} />
+            {changeTarget === 'primary'
+              ? t('profile.changePrimaryEmail')
+              : t('profile.changeBackupEmail')}
+          </span>
+        }
+        open={changeModalOpen}
+        onCancel={() => setChangeModalOpen(false)}
+        footer={
+          changeSent || emailStatus?.pendingChange
+            ? [
+                <Button key="close" onClick={() => setChangeModalOpen(false)}>
+                  {t('common.close')}
+                </Button>,
+              ]
+            : [
+                <Button
+                  key="cancel"
+                  onClick={() => setChangeModalOpen(false)}
+                  disabled={requestingChange}
+                >
+                  {t('common.cancel')}
+                </Button>,
+                <Button
+                  key="ok"
+                  type="primary"
+                  loading={requestingChange}
+                  onClick={handleRequestChange}
+                >
+                  {t('profile.sendChangeMail')}
+                </Button>,
+              ]
+        }
+        width={520}
+      >
+        {/* 第一步：填新地址 */}
+        {!changeSent && !emailStatus?.pendingChange && (
+          <>
+            <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 16, lineHeight: 1.8 }}>
+              {changeTarget === 'primary'
+                ? t('profile.changePrimaryExplain')
+                : t('profile.changeBackupExplain')}
+            </Text>
+            <Input
+              value={changeInput}
+              onChange={(e) => setChangeInput(e.target.value)}
+              placeholder={t('profile.newEmailPlaceholder')}
+              onPressEnter={handleRequestChange}
+            />
+          </>
+        )}
+
+        {/* 第二步：去两封信里点链接 */}
+        {(changeSent || emailStatus?.pendingChange) && (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={t('profile.changeMailSent', {
+                email: changeSent?.newEmail || emailStatus?.pendingChange?.newEmail || '',
+              })}
+              description={
+                <div style={{ fontSize: 12, lineHeight: 1.9 }}>
+                  <div>
+                    {t('profile.changeMailVerifyTo', {
+                      email: changeSent?.newEmail || emailStatus?.pendingChange?.newEmail || '',
+                    })}
+                  </div>
+                  <div>
+                    {t('profile.changeMailAuthorizeTo', {
+                      email:
+                        changeSent?.authorizeEmail ||
+                        (emailStatus?.pendingChange?.authorizeVia === 'backup'
+                          ? (emailStatus.backupEmail ?? '')
+                          : (emailStatus?.email ?? '')),
+                    })}
+                  </div>
+                  {changeSent?.fallbackToSelf && (
+                    <Text type="warning">{t('profile.changeFallbackToSelf')}</Text>
+                  )}
+                </div>
+              }
+            />
+
+            {/* 两侧各自的确认进度 —— 两枚都齐了变更才生效 */}
+            <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 12 }}>
+              <Text style={{ fontSize: 13 }}>
+                {emailStatus?.pendingChange?.verifyConfirmed ? '✅' : '⬜'}{' '}
+                {t('profile.pendingVerifySide')}
+              </Text>
+              <Text style={{ fontSize: 13 }}>
+                {emailStatus?.pendingChange?.authorizeConfirmed ? '✅' : '⬜'}{' '}
+                {t('profile.pendingAuthorizeSide')}
+              </Text>
+            </Space>
+
+            <Space wrap>
+              <Button type="primary" onClick={handleFinalizeChange}>
+                {t('profile.checkNow')}
+              </Button>
+              <Popconfirm
+                title={t('profile.cancelChangeConfirm')}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+                onConfirm={handleCancelChange}
+              >
+                <Button danger>{t('profile.cancelChange')}</Button>
+              </Popconfirm>
+            </Space>
+          </>
         )}
       </Modal>
     </div>

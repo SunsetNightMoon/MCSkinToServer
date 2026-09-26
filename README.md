@@ -286,6 +286,105 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
     2. **前后端密码长度口径不一致（既有缺陷，未改）**：后端要求 **8-128** 位，而前端 `Register.tsx:317`、`SetupWizard.tsx:636` 的校验规则是 `min: 6`，文案也写「至少6位」（`auth.passwordMin` / `profile.enterNewPassword` / `profile.enterNewPasswordMin6` / `profile.passwordMinLength` / `setup.validation.passwordMin`，四语言共 20 处）。后果：用户填 6-7 位密码前端放行、后端拒绝（`VALIDATION_ERROR`）。修它涉及 4 语言 × 5 键 + 2 处规则，需单独确认后再动。
     3. **`web/src/i18n/locales/nul`**（Git Bash 重定向造出的垃圾文件，内容是一份 TCH 语系重复 JSON）：普通路径、`\\?\` 扩展路径的删除与改名**全部被拒（WinError 5）**，疑似被某个进程持有句柄，需在真实终端执行 `del \\?\G:\Skin2.catnight.top\MSCTS\web\src\i18n\locales\nul`。`.gitignore` 已含 `nul`，因此不影响提交与构建，仅为整洁。
     4. **Yggdrasil `POST /refresh` 仍未接限流**：按用户名计数会误伤 HMCL 的定期刷新，要接必须按 IP 计。
+    5. **`tests/identity.test.ts` 的 PG 偶发失败未定位（既有问题，本批未动该文件）**：全量运行时 `identity: …（postgres）` 极低频失败（观测到 2 次，约 1/7 次全量），**隔离单跑 25/25 + 3/3 全过**，连续 5 次全量复跑也全过。已用实验排除两项：① **限流** —— 该测试构造的 `AppConfig` 不接 `TEST_REDIS_URL`，限流器是进程内独立的；② **设置经共享 PG 库泄漏** —— 该测试的依赖里**没有** `settings`/`runtimeSettings`，实测往共享 `mscts_smoke_test` 注入 `ALLOW_REGISTRATION=false` 后它仍 8/8 通过。剩余两个可疑点：① 该文件的 `join → hasJoined → profile/:uuid` 用例只断言 `join.status === 204`，**没有断言 `authenticate` 成功**就直接取 `session.selectedProfile!.id`，任何上游异常都会退化成 `TypeError` 而非可读的失败原因（诊断性缺口）；② `findActiveByServerId` 是 `ORDER BY created_at DESC LIMIT 1`，而 `hasJoined` 在「取到的会话名 ≠ 请求 username」时按协议返回 **204**，因此同一 `serverId` 若存在重复活跃会话，会**静默变成 204** 而不是报错。建议修法（改前请确认）：补 `authenticate` 断言 + 该用例的 `serverId` 按方言唯一化。与 `tests/mailpitSmtp.test.ts` 无关。
+
+- 2026-09-24 P5 第三批补充：**接入便携 Mailpit，把邮件链路从「替身」升级为「真实 SMTP 端到端」**。（起因：第三批的邮件流程只用 `MemoryMailer` 替身跑过 —— `nodemailer` 的 transport 建连、AUTH、From 头拼装从未经过一次真实 SMTP 事务。）
+  - `INDEV/mailpit/`（便携 Mailpit v1.31.2，Go 单文件，不入 git）：SMTP `127.0.0.1:10259` + Web UI/API `127.0.0.1:18025`，配 `start-mailpit.cmd` / `stop-mailpit.cmd` / `ping-mailpit.cmd`；详见 `INDEV/README.md`。
+    - **下载通道**：本机 `github.com` 直连超时（5s 无响应），但 `api.github.com` 通 —— 所以 release 资产**不能**走 `browser_download_url`，改走 **API 资产端点**（`/repos/axllent/mailpit/releases/assets/<id>` + `Accept: application/octet-stream`），它 302 到可达的 `release-assets.githubusercontent.com`。
+    - **UI 端口不能用 80259**：那是「上游默认 8025 追加 9」得到的，但 80259 > 65535 超出 16 位端口上限，Go 直接报 `listen tcp: address 80259: invalid port`、HTTP 端起不来。SMTP 侧 1025→10259 有效，UI 取 8025+10000=**18025**。
+  - 新增 `tests/mailpitSmtp.test.ts`（8 项，门控 `TEST_SMTP_URL` + `TEST_SMTP_API_URL`，缺则整块 skip）：走真实 SMTP 事务，并把**对端收到的报文**从 Mailpit API 读回来断言 —— SMTP 握手 + AUTH、`"显示名" <地址>` 的 From 头、链接挂在站点根（刻意让 `BASE_URL` 与请求 host 不同，用请求 host 拼就过不了）、令牌只存 sha256、重复消费 401、防枚举（未知邮箱回 `{ok:true}` 但不发信）、弱密码被拒且不消耗令牌、模板占位符在真实报文里的替换结果（含未识别占位符原样保留）。`INDEV/run-tests.cmd` 探测到 18025 有响应才开门控（没起 Mailpit 则 skip，避免假警报）。
+  - **实际投递核验**（隔离后端 :3100 + 独立 SQLite 库 + 真实 Mailpit，不碰开发环境的 :3000）：注册 → Mailpit 收到 3191 字节邮件（`From: "CatTavernSkins" <noreply@cattavern.local>`、`To: e2e-user@test.local`、主题「请验证你的邮箱」）；正文链接为 `http://localhost:3100/#/verify-email?token=…`（站点根 + HashRouter 形态，未混入素材前缀）；库内令牌与 `sha256(原文)` **逐字符一致**、TTL 恰好 30 分钟；验证 200 → 重复消费 401 `TOKEN_REVOKED` → 登录 200 且 `emailVerified:true`；重置邮件未知邮箱不发信、弱密码 400 后令牌**仍可用**、改密后新密码可登录 / 旧密码 401；`SMTP_PASS` 以 `enc:v1:` 密文入库、读回 `''` + `SMTP_PASS_SET=true`；`POST /api/admin/test-smtp` 真实握手 `{success:true}`；改邮件模板后**下一封真实报文**的主题与正文占位符全部替换、`{{NOPE}}` 原样保留。
+  - 验收：`tsc --noEmit` 零错误；`npm test`（无门控）**160 tests / 136 pass / 0 fail / 24 skipped**；`TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL` 全开 **160 tests / 160 pass / 0 fail / 0 skipped**（连续 5 次复跑一致）。
+  - **已知边界**：`SMTP_SECURE=true`（隐式 TLS / 465）**未被真实链路覆盖** —— Mailpit 的 TLS 需另配 `--smtp-tls-cert/--smtp-tls-key` 证书对。
+
+- 2026-09-24 P5 第四批：**用户名模式三态（单 / 多 / 待决定）+ 备用邮箱 + 交叉验证改邮箱 + 第三方登录预留端口**。（分 8 个子批 #44–#51 执行。）
+  - **用户拍板的四点决策**：
+    1. **冷却** —— 单用户名模式**沿用 MC 正版的 30 天改名冷却**，且「从预留口换上另一个 ID」本质就是改 ID，**与改名共用同一个窗口**；多用户名模式**无冷却**。
+    2. **存量多角色用户** —— **下次登录时强制选一个**保留，其余转 `reserved`（数据与名字占位都保留，避免被抢注），选完不再弹。
+    3. **改邮箱** —— 两枚邮箱**各自独立验证**（绑定时各验各的）；**交叉验证只在「要改其中一个邮箱」时启用**：新邮箱负责 verify、另一个邮箱负责 authorize、旧邮箱**只收通知且不阻塞流程**；单邮箱账号的授权方回落到当前主邮箱自己（否则死锁）。
+    4. **第三方登录** —— **只做端口 + 指南**，不实现任何真实 provider；**电话/短信验证在路由/服务/DB/i18n 中一律不出现**。
+
+  **迁移 0003**（`schema/{sqlite,postgresql}/0003_username_mode_and_backup_email.sql`）
+  - `users` 加 `profile_mode`（'single'/'multi'）、`profile_mode_decided_at`（**NULL = 存量待选择**）、`mode_changed_at`、`backup_email`、`backup_email_verified`、`backup_email_verified_at`；`profiles` 加 `status`（'active'/'reserved'）、`status_changed_at`
+  - 新索引 `users_backup_email_lower_uidx`（**部分唯一** `WHERE backup_email IS NOT NULL`，允许多行 NULL 共存）、`profiles_user_status_idx`
+  - 新表三张：`backup_email_tokens`（带 `pending_email`，避免同一用户两次绑定串号）、`email_change_requests`（`target` 与 `authorize_via` **在创建时固定**，防中途换授权邮箱绕过交叉验证）、`email_change_tokens`（`role` = verify / authorize）
+  - **顺带放开 `oauth_accounts.provider` 的 CHECK**（原为 `IN ('github','microsoft')`，会挡住 bilibili / QQ）。SQLite 不支持删 CHECK → 按「建新表 → 拷数据 → 换名」重建；PG 用 `DO $$` 动态查约束名再删
+  - **迁移验证**走真实增量路径（一次性脚本，双方言各 15 项全过）：先在只有 0001+0002 的库上造「2 角色 / 1 角色 / 0 角色」三种用户 → 再单独应用 0003 → 断言回填（多角色用户必须留 `decided_at = NULL`）、枚举约束真的在拦、备用邮箱 `lower()` 唯一性生效且多行 NULL 共存、`bilibili` 可插入、三张新表可写、删用户级联清空、重复运行被 checksum 跳过
+
+  **模式三态（`src/auth/identity.ts`）**
+  - `MAX_PROFILES_PER_USER` 3 → **10**；新增 `SINGLE_MODE_ACTIVE_LIMIT = 1`。状态定义：`'single'`+已决定 = 1 个 active，改名与启用预留**共用同一个 30 天窗口**；`'multi'`+已决定 = 无冷却，active + reserved ≤ 10；任意模式 + **未决定** = 存量中间态，除「首次决定」外一切写操作抛 **409 `MODE_CHOICE_REQUIRED`**
+  - **冷却基准 = 当前 active 角色的 `name_changed_at`**（不是 users 上的时间戳）—— 改名与「把预留角色搬进来」是同一件事的两种形式，共用一个窗口才成立
+  - `PublicUser` 加 `profileMode` + `modeChoiceRequired`，**放在登录/注册响应里**：前端必须在拿到会话的那一刻就知道要不要弹选择框，否则会先看到角色列表再被迟到弹窗打断
+  - `createProfile`：单模式直接拒（第 2 个 ID 只能来自「曾是多模式」，否则等于绕开窗口凭空多一个可用名字）；`renameProfile`：预留角色抛 **403 `PROFILE_RESERVED`**；`deleteProfile`：单模式不许删当前 active（删了就没有可用 ID 且恢复路径卡在冷却上 = 锁死），**删预留角色允许**（放弃占位、能力减少，不构成身份变更）
+  - **多 → 单**：多于 1 个 active 时必须指定保留者，其余转预留，**并从此刻开始 30 天窗口**；冷却期内启用预留抛 **403 `MODE_COOLDOWN`**。**单 → 多**：不设冷却 —— 代价如实记录：可「切到多模式改名再切回」绕过 30 天窗口，这是两条产品规则叠加的必然结果（代码注释里写明；要堵就是让「单 → 多」也要求窗口已结束，一行判断）
+  - 新方法 `getProfileModeState` 一并返回上限（`maxProfiles` / `activeLimit`），不让前端硬编码 10 / 1
+  - **顺手修掉一个真实脆弱点**：P1 用 `name_changed_at === created_at` 表示「从未改名」（给初始名留一次免费改名），而**同一毫秒内改名会让两者相等 → 被判定成从未改名 → 免费改名重复发放、30 天窗口不启动**。新增 `identityChangeStamp()` 把时间戳抬到严格大于 `created_at`，让判定与时钟精度解耦；`singleModeCooldown` 里 `elapsed` 下限取 0
+  - **Yggdrasil 侧**：`buildSession` 改 `listActiveByUserId`（`availableProfiles` 只列 active，否则启动器给出选了也 join 不进去的选项）；`profile/:uuid` 对 reserved 回 **204**（与「角色不存在」同一响应，避免暴露「这个 ID 被某人占着只是暂时没用」）；`POST /api/profiles/minecraft` reserved 不参与名字解析；`hasJoined` **刻意不加** status 检查（会话是加入时按当时 active 的角色登记的，30 秒 TTL 内改为 204 会把已进服玩家踢掉，害处大于收益）
+
+  **备用邮箱 + 改邮箱流程（`src/account/emailChangeFlow.ts` 新，核心）**
+  - 三条分工：绑定备用邮箱 = **独立验证**；变更任一邮箱 = **交叉验证**（新地址 verify + 另一个邮箱 authorize，**两枚都消费完才生效**）；被改掉的旧邮箱 = **只收通知、不需要操作、发失败也不阻塞**
+  - 有效期：备用邮箱验证 30 分钟（与模板文案绑定）；改邮箱两枚令牌 **1 小时**（用户要分别打开两个邮箱，风险由「两枚令牌」承担，而非靠缩短有效期）
+  - `assertAddressAvailable` 三条约束：不与自己的另一个槽位相同（「第一 / 第二邮箱不能相同」）、不是别人的主邮箱、不是别人的备用邮箱。**不靠唯一索引兜底** —— 索引抛的是数据库错误，用户看不懂
+  - 变更完成后**不吊销会话**（与 `changePassword` 不同）：改密针对「密码已泄露」，改邮箱需要同时控制新旧两个地址，攻击者拿不到旧地址点不了授权链接，吊销只会让正常用户在流程结束时被踢下线
+  - **并发死锁点与自愈**：两枚链接几乎同时被点开时，两个事务可能各自只看见自己那一枚已消费（未提交写入对对方不可见），双双判定「还差另一侧」→ 变更永不生效而两枚令牌都已作废。解决三件套：`tryFinalize()` 作为**幂等收敛点**（同一事务内 `claimChangeRequest` 抢占 + 写邮箱，崩在中间也不会留下「请求已完成但邮箱没改」的死状态）；`findChangeToken()` **允许已消费的令牌继续走流程**（第三次点击即可自愈，无需人工介入）；公开 `finalizePendingChange(userId)` 供前端等待页轮询
+  - `requestChange` 的「请求 + 两枚令牌」放同一事务（只建请求不建令牌 = 永远点不动的状态），发信在事务外（SMTP 不参与事务、回滚退不回已发的信）；`removeBackupEmail` **只取消依赖该槽位的请求**（无差别取消会顺手干掉与备用邮箱无关、已完成一半的主邮箱变更）
+
+  **仓储层**
+  - `userRepository`：新列 + `findByBackupEmail` / `decideMode` / `setProfileMode` / `setBackupEmail` / `markBackupEmailVerified` / `clearBackupEmail` / `updateEmail`。**`decideMode` 用 `COALESCE(profile_mode_decided_at, ?)`** 保护首次决定时间（审计信息）；**`setBackupEmail` 强制把 `verified` 归零**（否则把备用邮箱从 A 改成 B 后，B 会在没收到任何信件的情况下继承 A 的已验证身份 —— 兜底通道等于可被任意改写）；`updateEmail` 一并把 `email_verified` 置真（新址已在同一流程里由 verify 令牌证明归属，不置真会让用户在开启邮箱验证的站点上自我锁死）；`purgeUser` 顺带清空 `backup_email*`
+  - `profileRepository`：新 `ProfileStatus`；`listActiveByUserId` / `listReservedByUserId` / `countActiveByUserId` / `findFirstActiveByUserId` / `setStatus` / `setStatusForAllExcept`（多→单）/ `setStatusForAll`（单→多）/ **`markNameChanged(id, at)`**（只推进改名基准、不改名字 —— 「启用预留」也是身份变更，若走 `rename()` 会让「改名」出现在与改名无关的调用栈里）。`setStatusForAll*` 都带 `AND status <> ?` → **幂等，重复调用返回 0 且不动 `status_changed_at`**（避免时间戳失真）
+  - `emailChangeRepository`（新，**独立拥有三张新表**，刻意不复用 `AccountTokenRepository` —— 那张表是扁平 6 列，装不下 `pending_email` / `request_id` / `role`）。`invalidateUnusedForRequest(requestId, role)` **按角色作废**（重发新地址那封不得连带干掉授权链接，否则永远凑不齐两枚令牌）；`claimChangeRequest(id, at)`（条件 UPDATE + RETURNING）是**邮箱变更落库的唯一仲裁点**；沿用铁律：只存 sha256、消费判定与置位写进同一条 UPDATE
+
+  **邮件模板（`src/mail/`）**
+  - `MailKind` 扩到 6 类：`verify` / `reset` / `backup_verify` / `change_verify` / `change_authorize` / `change_notice`；`defaultSubject` 与 `builtinTemplateHtml` 改成 `switch`（穷尽检查，新增 kind 忘写会编译报错）
+  - 新增 `{{ACTION_URL}}`（中性动作链接名）、`{{OLD_EMAIL}}` / `{{NEW_EMAIL}}`；`VERIFY_URL` / `RESET_URL` / `ACTION_URL` 三者同值，沿用既有「宽容规则」。新增 `noticeShell()`：无 CTA 按钮的正文外壳（纯通知邮件里放按钮反而让人以为要点）
+  - 新增 `CUSTOMIZABLE_MAIL_KINDS`：**只有 `verify` / `reset` 走管理端自定义模板**，0003 的四类只用内置正文 —— 它们是低频账号安全通知，为每个都加一套编辑器会把管理页撑成一屏十几个模板，收益只是措辞可改
+
+  **新增端点**
+
+  | 端点 | 认证 | 说明 |
+  |---|---|---|
+  | `GET /api/me/profile-mode` | 需登录 | 模式 / 是否待决定 / 上限 / 计数 / 冷却剩余天数 |
+  | `POST /api/me/profile-mode` | 需登录 | 首次决定或切换（多→单带 `keepProfileId`） |
+  | `POST /api/me/profiles/:id/activate` | 需登录 | 启用预留角色（冷却期内 403 `MODE_COOLDOWN`） |
+  | `POST /api/me/backup-email` | 需登录 | 发起备用邮箱绑定（按收件邮箱限流） |
+  | `POST /api/me/backup-email/verify` | 匿名 | 消费备用邮箱验证令牌（按来源 IP 限流） |
+  | `DELETE /api/me/backup-email` | 需登录 | 解除备用邮箱（只取消依赖该槽位的请求） |
+  | `POST /api/me/email-change` | 需登录 | 发起变更（`target` = primary / backup） |
+  | `POST /api/me/email-change/confirm` | 匿名 | 消费 verify 或 authorize 令牌 |
+  | `POST /api/me/email-change/finalize` | 需登录 | 收敛点，前端等待页轮询 |
+  | `DELETE /api/me/email-change` | 需登录 | 取消进行中的变更 |
+
+  **前端（沿用旧版界面设计，JSX 尽量少改）**
+  - 新增 `web/src/services/accountSecurityService.ts`（类型 + 11 个方法）；`profileService` 的 `MsctsProfileRow` 加 `status` / `statusChangedAt`
+  - `UserProfile.tsx`：**用户名模式卡片**（模式 Tag、可用 / 预留计数、冷却 Tag；**预留口区块只在「单模式 && 有预留角色」时渲染**，按钮在冷却期内灰置）、**邮箱行扩展**（主邮箱 + 备用邮箱 + 改邮箱入口 + 补兜底提示 + 进行中面板）、**三个新弹窗**（用户名模式：含「首次选择」强制分支与「保留哪一个 ID」单选；添加备用邮箱；改邮箱两步式向导）；新增 8 秒轮询 `finalizeEmailChange` 的 effect（遵守 `document.visibilityState`，切到后台不轮询）
+  - **修掉两个由 0003 才暴露出来的前端缺陷**：① 新注册用户被显示成「改名冷却中：30 天后可再次改名」且改名输入框锁死 —— 前端 `getCooldownInfo()` 只做 `name_changed_at + 30 天` 的本地估算，区分不了「从未改名」与「刚改过名」（`name_changed_at` 在 INSERT 时就写了 `created_at`），0003 让单模式真正启用 30 天规则后这个幻觉变成实际锁死；改为**以后端 `GET /api/me/profile-mode` 为准**，旧估算仅在未接后端时兜底。② `primaryProfile` 原先取 `profiles[0]`，在存在预留角色时会取到预留角色 → 改为优先取 active
+  - i18n 四语言 `profile` 段新增 **54 个键**（键集四语言完全一致），`common` 段补上原缺失的 `close`
+
+  **批4-F：第三方登录预留端口（`src/account/oauth/`）**
+  - 只提供**端口 + 注册表 + 4 个端点 + 一份接入指南**，**不落地任何真实 provider，也不落地回调** —— 缺 state 校验 / 邮箱可信度判定的 OAuth 回调可被伪造成登录，半成品比没有更危险。因此入口与回调**故意返回 501 `NOT_IMPLEMENTED`**，并在错误信息里指向指南路径
+  - `OAuthProvider` 契约（`id` / `displayName` / `enabled` / `authorizeUrl` / `exchangeCode`）+ 模块级 `Map` 单例（`registerOAuthProvider` / `listOAuthProviders` / `findOAuthProvider` / `resetOAuthProviders`）；**契约刻意不含 `phone` 字段**
+  - `advertiseProviderFlags()` **形状稳定**：即使一个 provider 都没注册，`{ github: false, microsoft: false }` 两键也照常出现 —— 响应形状刻意保持旧版形态，前端小格子无需改
+  - 端点：`GET /api/auth/oauth/providers`（带 `Cache-Control: no-store`）、`GET /api/oauth/providers`、`GET /api/auth/oauth/:providerId`、`GET /api/auth/oauth/:providerId/callback`（**注册顺序必须排在 `/providers` 之后**，否则被路由参数吃掉）
+  - **顺手修掉一个真缺陷**：前端 `apiCompat.ts` 原先**写死** `{ github: false, microsoft: false }`，导致「后端注册了 provider，前端小格子永远不出现」。改为**透传**（失败或非 2xx 才降级回全 false）
+  - `docs/oauth-provider-guide.md`（7 节）：提供 / 不提供什么、**硬约束不做电话短信**、默认行为、最小接入步骤（实现 `OAuthProvider` → `registerOAuthProvider` → 自行挂真实入口 / 回调）、**为什么不实现回调**（含 `oauth_identities` 表示意 + 7 项检查清单）、让更多 provider 出现、文件索引 + `OAuthCallback.tsx` 死代码警告
+
+  **批4-G：真实 SMTP 扩展（`tests/mailpitSmtp.test.ts` 8 → 12 项）**
+  - 0003 的邮件链路原先只用 `MemoryMailer` 替身跑过，本批把新增的四类邮件也推进**真实 SMTP 事务**（对端报文从 Mailpit API 读回断言）
+  - 新增 4 项：备用邮箱验证邮件真实投递（主题 / 链接 HashRouter 形态、令牌只存 sha256 且只能用一次、`email-status` 的 `hasVerifiedBackup` / `backupEmailRecommended` 翻转）；改邮箱（新址收确认信、备用邮箱收授权信、旧地址只收通知且**新地址只收到 1 封**、只点一枚 `completed:false` / 两枚齐 `completed:true`、旧邮箱不再能登录）；单邮箱回落授权（`authorizeVia:'primary'` + `fallbackToSelf:true`）；**自定义模板不得污染 0003 的四类邮件**（对 `verify` 改模板生效，`backup_verify` 仍用内置主题 / 正文）
+  - **踩坑**：新用例初版全部 401「缺少 Bearer token」—— 根因是 HTTP 层已把服务的 `{token:{token,expiresAt}}` 摊平成**裸字符串**，测试里还在按 `body.token.token` 取
+
+  **验收（数字均为实际输出）**
+  - `npx tsc --noEmit` 后端 + 前端**均零错误**；`npm run build` 通过（24.85s）
+  - `npm test`（仅 SQLite）：**177 tests / 146 pass / 0 fail / 31 skipped**
+  - `TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL` 全开：**177 tests / 177 pass / 0 fail / 0 skipped**
+  - 新增测试文件：`tests/profileModeRepository.test.ts`、`tests/profileMode.test.ts`（服务层，可推进假钟）、`tests/emailChange.test.ts`（服务层）、`tests/oauth.test.ts`（6 项，假 provider 无网络）
+  - **无头截图端到端验收**（当前代码 + 开发库副本（补跑 0003）+ 独立端口（后端 :3100 / 前端 :5273）+ 真实 Mailpit，**未触碰用户的 :3000 / :5173**）：6 张截图确认默认单用户名（冷却幻觉已消失）、多用户名「可用角色 3/10」且**无预留口**、切到单模式后预留口出现且两个按钮灰置、首次选择弹窗、改邮箱向导 + 进行中面板、新主邮箱与备用邮箱均「已验证」且无残留面板。端到端链路：注册 → 多角色 → 多→单（`reservedCount:2, cooldownDaysRemaining:30`）→ 绑备用邮箱（Mailpit 收到真信、抠令牌消费成功）→ 发起改邮箱（`authorizeVia:'backup'`、两封信投递到不同地址）→ 消费两枚（第一枚 `completed:false, waitingFor:'authorize'`；第二枚 `completed:true`）→ 通知信投递到**旧地址**
+  - **截图脚手架的一个坑**：Edge `--screenshot --virtual-time-budget` 下 **CSS 入场动画不会推进**，AntD 弹窗永远停在 `ant-fade-appear-active`（opacity:0）→ 表现为「DOM 里有、画面上没有」。改用 **CDP**（`--remote-debugging-port` + 真机时间 + `Page.captureScreenshot`）才截到弹窗
+
+  **遗留 / 待决策（本批未做）**
+  1. **「单 → 多」可绕过 30 天窗口**（见上「代价如实记录」）：要堵是一行判断，需产品决策
+  2. **第三方登录仍无任何真实实现**：4 个端点**故意 501**；`docs/oauth-provider-guide.md` 已给出接入契约与回调检查清单，落地需另行开工
+  3. **`OAuthCallback.tsx` 是死代码**（旧前端遗留，指向尚未实现的回调），指南里已标注
 
 ## 生产部署（域名类型）
 

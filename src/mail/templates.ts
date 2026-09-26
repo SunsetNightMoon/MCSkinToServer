@@ -26,7 +26,17 @@ import type { MailTemplateSetting } from '../site/runtimeSettings.js';
  * 渲染路径与自定义模板因此共用同一条 fillPlaceholders，不存在两套替换逻辑。
  */
 
-export type MailKind = 'verify' | 'reset';
+export type MailKind =
+  | 'verify'
+  | 'reset'
+  /** 0003：绑定备用邮箱（发给待绑定的备用邮箱） */
+  | 'backup_verify'
+  /** 0003：改邮箱 —— 新地址证明归属 */
+  | 'change_verify'
+  /** 0003：改邮箱 —— 另一个邮箱交叉授权 */
+  | 'change_authorize'
+  /** 0003：改邮箱 —— 通知被改掉的那个邮箱（不阻塞流程） */
+  | 'change_notice';
 
 const BRAND_FALLBACK = 'Minecraft Skin Server';
 const YEAR_PLACEHOLDER = '{{YEAR}}';
@@ -36,6 +46,10 @@ export const MAIL_PLACEHOLDERS = [
   'EMAIL',
   'VERIFY_URL',
   'RESET_URL',
+  /** 通用动作链接：与 VERIFY_URL / RESET_URL 同值（见 placeholderValues 的宽容规则） */
+  'ACTION_URL',
+  'OLD_EMAIL',
+  'NEW_EMAIL',
   'SITE_TITLE',
   'YEAR',
 ] as const;
@@ -129,23 +143,152 @@ export const DEFAULT_RESET_TEMPLATE_HTML = shell({
   lang: 'zh-CN',
 });
 
+// ---------------------------------------------------------------------------
+// 0003：备用邮箱与邮箱变更（四类内置模板）
+//
+// 这四类**不走管理端自定义**，只用内置正文。理由：它们是低频的账号安全通知，
+// 为每一个都加一套「主题 + 正文」编辑器会把管理页撑成一屏十几个模板，
+// 而收益只是措辞可改。将来真需要时，套用现有的 EMAIL_TEMPLATE_* 键加一组即可。
+// ---------------------------------------------------------------------------
+
+/** 内置：验证待绑定的备用邮箱 */
+export const DEFAULT_BACKUP_VERIFY_TEMPLATE_HTML = shell({
+  emailTitle: `验证备用邮箱 - {{SITE_TITLE}}`,
+  heading: `📮 {{SITE_TITLE}}`,
+  intro:
+    '我们收到了把它绑定为备用邮箱的请求。备用邮箱用于主邮箱失效时找回账号，请点击下面的按钮完成验证：',
+  buttonText: '验证备用邮箱',
+  urlPlaceholder: '{{ACTION_URL}}',
+  // 30 分钟必须与 emailChangeFlow.BACKUP_VERIFY_TTL_MS 一致
+  validity: '此链接 30 分钟内有效。如果你没有提出该请求，请忽略此邮件。',
+  lang: 'zh-CN',
+});
+
+/** 内置：改邮箱 —— 请新地址证明归属 */
+export const DEFAULT_CHANGE_VERIFY_TEMPLATE_HTML = shell({
+  emailTitle: `确认新邮箱 - {{SITE_TITLE}}`,
+  heading: `📧 {{SITE_TITLE}}`,
+  intro:
+    '你的账号正在申请把邮箱改为本地址。请点击下面的按钮证明这个邮箱属于你 —— 变更还需要另一个邮箱授权，两步都完成后才会生效：',
+  buttonText: '确认这个新邮箱',
+  urlPlaceholder: '{{ACTION_URL}}',
+  // 1 小时必须与 emailChangeFlow.CHANGE_TTL_MS 一致
+  validity: '此链接 1 小时内有效。如果你没有提出该请求，请忽略此邮件。',
+  lang: 'zh-CN',
+});
+
+/** 内置：改邮箱 —— 请另一个邮箱交叉授权 */
+export const DEFAULT_CHANGE_AUTHORIZE_TEMPLATE_HTML = shell({
+  emailTitle: `授权邮箱变更 - {{SITE_TITLE}}`,
+  heading: `🔑 {{SITE_TITLE}}`,
+  intro:
+    '有人申请把账号 {{EMAIL}} 的邮箱变更到新地址。为了防止账号被他人接管，这次变更需要你**授权**才会生效。请点击下面的按钮确认你同意：',
+  buttonText: '授权这次变更',
+  urlPlaceholder: '{{ACTION_URL}}',
+  validity:
+    '此链接 1 小时内有效。如果你没有提出该请求，请不要点击，并考虑尽快修改密码。',
+  lang: 'zh-CN',
+});
+
+/**
+ * 无按钮的正文外壳（用于纯通知类邮件）。
+ *
+ * 复用同一套 STYLE，但去掉 CTA 按钮与「复制链接」区块 —— 通知邮件里放一个链接
+ * 反而会让收件人以为需要点它做点什么。
+ */
+function noticeShell(input: {
+  emailTitle: string;
+  heading: string;
+  intro: string;
+  body: string;
+  lang: string;
+}): string {
+  return `<!DOCTYPE html>
+<html lang="${input.lang}">
+<head>
+  <meta charset="UTF-8" />
+  <title>${input.emailTitle}</title>
+  <style>${STYLE}
+    .change { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: monospace; font-size: 13px; word-break: break-all; color: #c9d1d9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${input.heading}</h1>
+    </div>
+    <p>你好，</p>
+    <p>${input.intro}</p>
+    <div class="change">${input.body}</div>
+    <p style="font-size:13px;color:#8b949e;margin-top:20px;">
+      这不是你需要执行的操作，只是变更完成后的知情通知。如果这不是你本人做的，请立即修改密码。
+    </p>
+    <div class="footer">${BRAND_FALLBACK} &copy; ${YEAR_PLACEHOLDER}</div>
+  </div>
+</body>
+</html>`;
+}
+
+/** 内置：改邮箱 —— 通知被改掉的那个邮箱（仅知情，不需要操作） */
+export const DEFAULT_CHANGE_NOTICE_TEMPLATE_HTML = noticeShell({
+  emailTitle: `邮箱已变更 - {{SITE_TITLE}}`,
+  heading: `✅ {{SITE_TITLE}}`,
+  intro: '你的账号邮箱已经完成变更：',
+  body: '{{OLD_EMAIL}}<br />↓<br />{{NEW_EMAIL}}',
+  lang: 'zh-CN',
+});
+
 /** 内置默认主题。与前端 `admin.defaultEmailSubject` 的措辞保持一致 */
 export function defaultSubject(kind: MailKind, siteTitle: string): string {
   const brand = siteTitle.trim() !== '' ? siteTitle.trim() : BRAND_FALLBACK;
-  return kind === 'verify' ? `【${brand}】请验证你的邮箱` : `【${brand}】重置密码`;
+  switch (kind) {
+    case 'verify':
+      return `【${brand}】请验证你的邮箱`;
+    case 'reset':
+      return `【${brand}】重置密码`;
+    case 'backup_verify':
+      return `【${brand}】请验证你的备用邮箱`;
+    case 'change_verify':
+      return `【${brand}】请确认新的邮箱地址`;
+    case 'change_authorize':
+      return `【${brand}】请授权邮箱变更`;
+    case 'change_notice':
+      return `【${brand}】邮箱已变更`;
+  }
 }
 
 export function builtinTemplateHtml(kind: MailKind): string {
-  return kind === 'verify'
-    ? DEFAULT_VERIFY_TEMPLATE_HTML
-    : DEFAULT_RESET_TEMPLATE_HTML;
+  switch (kind) {
+    case 'verify':
+      return DEFAULT_VERIFY_TEMPLATE_HTML;
+    case 'reset':
+      return DEFAULT_RESET_TEMPLATE_HTML;
+    case 'backup_verify':
+      return DEFAULT_BACKUP_VERIFY_TEMPLATE_HTML;
+    case 'change_verify':
+      return DEFAULT_CHANGE_VERIFY_TEMPLATE_HTML;
+    case 'change_authorize':
+      return DEFAULT_CHANGE_AUTHORIZE_TEMPLATE_HTML;
+    case 'change_notice':
+      return DEFAULT_CHANGE_NOTICE_TEMPLATE_HTML;
+  }
 }
+
+/** 管理员可自定义正文与主题的邮件种类（管理端编辑器只暴露这些） */
+export const CUSTOMIZABLE_MAIL_KINDS: ReadonlySet<MailKind> = new Set<MailKind>([
+  'verify',
+  'reset',
+]);
 
 export interface MailRenderVars {
   email: string;
-  /** 本次邮件的动作链接（验证或重置） */
+  /** 本次邮件的动作链接（验证或重置）；纯通知类邮件传空串 */
   url: string;
   siteTitle: string;
+  /** 邮箱变更通知用：被替换掉的旧地址 */
+  oldEmail?: string;
+  /** 邮箱变更通知用：生效的新地址 */
+  newEmail?: string;
   /** 缺省取当前年份（UTC） */
   year?: string;
 }
@@ -154,8 +297,13 @@ export interface MailRenderVars {
 function placeholderValues(vars: MailRenderVars): Record<string, string> {
   return {
     EMAIL: vars.email,
+    // ACTION_URL 是给 0003 那几个内置模板用的中性名字；保留 VERIFY_URL / RESET_URL
+    // 是因为管理员可能沿用了旧模板里的写法，静默失效不如照常填上。
     VERIFY_URL: vars.url,
     RESET_URL: vars.url,
+    ACTION_URL: vars.url,
+    OLD_EMAIL: vars.oldEmail ?? '',
+    NEW_EMAIL: vars.newEmail ?? '',
     SITE_TITLE: vars.siteTitle,
     YEAR: vars.year ?? String(new Date().getUTCFullYear()),
   };

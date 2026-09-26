@@ -18,7 +18,12 @@ import { runMigrations } from '../src/migrate/runner.js';
  */
 
 const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
-const CORE_TABLES = [
+
+/**
+ * `0001_init.sql` 建的表。**回滚用例只重放版本号最小的那条迁移**，所以那里
+ * 只能期望这些表存在；把后续迁移新增的表混进来会让断言失败。
+ */
+const TABLES_FROM_0001 = [
   'users',
   'profiles',
   'blobs',
@@ -36,6 +41,19 @@ const CORE_TABLES = [
   'system_settings',
 ];
 
+/**
+ * 后续迁移新增的表。**新增迁移建了新表就加到这里**（同时别忘了 `PG_DROP_ALL`）。
+ */
+const TABLES_ADDED_LATER = [
+  // 0003_username_mode_and_backup_email
+  'backup_email_tokens',
+  'email_change_requests',
+  'email_change_tokens',
+];
+
+/** 全部迁移跑完后应当存在的业务表 */
+const CORE_TABLES = [...TABLES_FROM_0001, ...TABLES_ADDED_LATER];
+
 /** 统一清理钩子：先关库再删临时目录（顺序错误会 EBUSY） */
 function cleanupSqlite(t: { after: (fn: () => Promise<void>) => void }, db: SqliteConnection, dir: string): void {
   t.after(async () => {
@@ -48,7 +66,7 @@ function cleanupSqlite(t: { after: (fn: () => Promise<void>) => void }, db: Sqli
  * schema/<dialect>/ 下真实存在的迁移版本清单。
  * 新增迁移时只需在这里加一项（下方断言数处共用，避免漏改）。
  */
-const EXPECTED_MIGRATIONS = ['0001', '0002'];
+const EXPECTED_MIGRATIONS = ['0001', '0002', '0003'];
 
 test('sqlite: 空库执行全部迁移成功', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
@@ -172,9 +190,14 @@ test('sqlite: 迁移失败时整体回滚且不记录版本', async (t) => {
 // ---------------------------------------------------------------------------
 const TEST_DATABASE_URL = process.env['TEST_DATABASE_URL'];
 
+/**
+ * 清场语句。**新增迁移建了新表就必须加进这里** —— 漏加的表不会被 DROP，
+ * 下一次运行 0003 之类的 CREATE TABLE 会直接撞 "already exists"。
+ */
 const PG_DROP_ALL =
   'DROP TABLE IF EXISTS profile_assets, favorites, asset_reviews, minecraft_sessions, ' +
   'login_sessions, tokens, email_verification_tokens, password_reset_tokens, ' +
+  'backup_email_tokens, email_change_requests, email_change_tokens, ' +
   'oauth_accounts, blacklist_entries, system_settings, assets, blobs, profiles, users, ' +
   'schema_migrations CASCADE';
 
@@ -248,7 +271,7 @@ test(
     const pgNames = pgTables.map((r) => r.tablename);
     assert.ok(!pgNames.includes('pg_half_done'), 'PG 事务内 DDL 必须整体回滚');
     assert.ok(!pgNames.includes('pg_bad'), 'PG 失败的表不应存在');
-    for (const expected of CORE_TABLES) {
+    for (const expected of TABLES_FROM_0001) {
       assert.ok(pgNames.includes(expected), `首个迁移的表应保留：${expected}`);
     }
     const pgVersions = await db.query<{ version: string }>(

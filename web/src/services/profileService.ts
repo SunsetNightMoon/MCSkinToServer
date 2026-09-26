@@ -34,6 +34,13 @@ interface MsctsProfileRow {
   skinUrl?: string | null
   capeUrl?: string | null
   model?: 'default' | 'slim' | null
+  /**
+   * 0003：角色状态。`reserved` = 预留态 —— 数据与名字都还在，
+   * 但当前不作为会话角色使用，也不参与名字解析（不进启动器的可选角色列表）。
+   * 单用户名模式下它就是「冷却期满后可以换进来的那个 ID」。
+   */
+  status?: 'active' | 'reserved'
+  statusChangedAt?: string | null
 }
 
 function toLegacyProfile(p: MsctsProfileRow): Record<string, any> {
@@ -52,6 +59,10 @@ function toLegacyProfile(p: MsctsProfileRow): Record<string, any> {
     skin_url: p.skinUrl ?? null,
     cape_url: p.capeUrl ?? null,
     model_type: p.model ?? 'default',
+    // 0003：预留口 UI 靠这两个字段。旧字段缺失时按 active 兜底 ——
+    // 老后端（0003 之前）不返回 status，此时所有角色本来也都是 active。
+    status: p.status ?? 'active',
+    status_changed_at: p.statusChangedAt ?? null,
   }
 }
 

@@ -34,6 +34,16 @@ export const RateLimitKeys = {
    * 「拿字典扫令牌」这种没成本但很吵的行为，不承担安全职责。
    */
   tokenConsume: (ip: string): string => `${KEY_PREFIX}:rl:token:${ip}`,
+  /** 0003：发起备用邮箱绑定：按待绑定的邮箱（同样是发信端点） */
+  backupEmail: (email: string): string =>
+    `${KEY_PREFIX}:rl:backup:${email.toLowerCase()}`,
+  /**
+   * 0003：发起邮箱变更：按**用户**而不是收件地址。
+   * 一次请求要往两个地址各发一封信，按地址限流挡不住「一个账号反复发起、
+   * 每次都换一个新地址」——按用户计才是真实的成本口径。
+   */
+  emailChange: (userId: string): string =>
+    `${KEY_PREFIX}:rl:emailchange:${userId}`,
 } as const;
 
 /** 缓存键 */

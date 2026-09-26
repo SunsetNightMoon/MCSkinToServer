@@ -1,13 +1,13 @@
 import type { RuntimeSettings } from '../site/runtimeSettings.js';
-import { renderMail } from './templates.js';
+import { CUSTOMIZABLE_MAIL_KINDS, renderMail, type MailKind } from './templates.js';
 import type { MailPort } from './types.js';
 
 /**
  * 邮件应用服务：把「渲染什么内容」与「怎么发出去」分开。
  *
- * 调用方（EmailFlow）负责生成令牌与链接，这里只负责：读站点设置（自定义模板、
- * 站点名）→ 渲染 → 交给 MailPort。这样换一个 MailPort 实现（测试的内存实现、
- * 将来的 SES）不影响邮件内容逻辑。
+ * 调用方（EmailFlow / EmailChangeFlow）负责生成令牌与链接，这里只负责：读站点设置
+ * （自定义模板、站点名）→ 渲染 → 交给 MailPort。这样换一个 MailPort 实现
+ * （测试的内存实现、将来的 SES）不影响邮件内容逻辑。
  */
 
 export interface MailServiceDependencies {
@@ -20,6 +20,13 @@ export interface OutboundMailInput {
   to: string;
   /** 邮件里的动作链接（由 SiteUrlResolver 生成，已含站点根与哈希路由） */
   url: string;
+}
+
+/** 邮箱变更通知：无动作链接，只有前后的两个地址 */
+export interface OutboundNoticeInput {
+  to: string;
+  oldEmail: string;
+  newEmail: string;
 }
 
 export class MailService {
@@ -38,15 +45,28 @@ export class MailService {
     return this.runtime.smtpConfigured();
   }
 
-  private async build(kind: 'verify' | 'reset', input: OutboundMailInput) {
+  /**
+   * 渲染一封邮件。
+   *
+   * `custom` 只对「管理员可自定义」的种类读取设置（见 CUSTOMIZABLE_MAIL_KINDS）：
+   * 0003 的四类账号安全通知只有内置正文，读设置也没人会写，白白多一次缓存读。
+   */
+  private async build(
+    kind: MailKind,
+    input: OutboundMailInput & { oldEmail?: string; newEmail?: string },
+  ): Promise<{ subject: string; html: string }> {
     return renderMail({
       kind,
-      custom: await this.runtime.mailTemplate(),
+      custom: CUSTOMIZABLE_MAIL_KINDS.has(kind)
+        ? await this.runtime.mailTemplate()
+        : null,
       vars: {
         email: input.to,
         url: input.url,
         siteTitle: await this.runtime.siteTitle(),
         year: String(this.now().getUTCFullYear()),
+        ...(input.oldEmail !== undefined ? { oldEmail: input.oldEmail } : {}),
+        ...(input.newEmail !== undefined ? { newEmail: input.newEmail } : {}),
       },
     });
   }
@@ -58,6 +78,35 @@ export class MailService {
 
   async sendPasswordReset(input: OutboundMailInput): Promise<void> {
     const mail = await this.build('reset', input);
+    await this.mailer.send({ to: input.to, ...mail });
+  }
+
+  /** 0003：验证待绑定的备用邮箱 */
+  async sendBackupEmailVerification(input: OutboundMailInput): Promise<void> {
+    const mail = await this.build('backup_verify', input);
+    await this.mailer.send({ to: input.to, ...mail });
+  }
+
+  /** 0003：改邮箱 —— 发给新地址，证明归属 */
+  async sendEmailChangeVerify(input: OutboundMailInput): Promise<void> {
+    const mail = await this.build('change_verify', input);
+    await this.mailer.send({ to: input.to, ...mail });
+  }
+
+  /** 0003：改邮箱 —— 发给另一个邮箱，交叉授权 */
+  async sendEmailChangeAuthorize(input: OutboundMailInput): Promise<void> {
+    const mail = await this.build('change_authorize', input);
+    await this.mailer.send({ to: input.to, ...mail });
+  }
+
+  /** 0003：改邮箱 —— 通知被改掉的那个邮箱（纯知情，不需要操作） */
+  async sendEmailChangeNotice(input: OutboundNoticeInput): Promise<void> {
+    const mail = await this.build('change_notice', {
+      to: input.to,
+      url: '',
+      oldEmail: input.oldEmail,
+      newEmail: input.newEmail,
+    });
     await this.mailer.send({ to: input.to, ...mail });
   }
 

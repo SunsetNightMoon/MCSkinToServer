@@ -14,6 +14,8 @@ import type { TextureService } from '../textures/ingest.js';
 import type { LibraryService } from '../library/libraryService.js';
 import type { SettingRepository } from '../repositories/settingRepository.js';
 import type { EmailFlow } from '../account/emailFlow.js';
+import type { EmailChangeFlow } from '../account/emailChangeFlow.js';
+import type { OAuthProvider } from '../account/oauth/types.js';
 import type { MailService } from '../mail/mailService.js';
 import type { RuntimeSettings } from '../site/runtimeSettings.js';
 import type { SiteUrlResolver } from '../site/siteUrl.js';
@@ -24,6 +26,8 @@ import { buildMetadataDto } from '../yggdrasil/metadata.js';
 import { createYggdrasilRouter } from './routes/yggdrasil.js';
 import { createIdentityRouter } from './routes/identity.js';
 import { createAccountRouter } from './routes/account.js';
+import { createEmailChangeRouter } from './routes/emailChange.js';
+import { createOAuthRouter } from './routes/oauth.js';
 import { createAssetRouter } from './routes/assets.js';
 import { createLibraryRouter } from './routes/library.js';
 import { createAdminRouter } from './routes/admin.js';
@@ -78,6 +82,14 @@ export interface AppDependencies {
   emailFlow?: EmailFlow;
   /** 邮件服务（管理端测试 SMTP 连接） */
   mailService?: MailService;
+  /** 0003：备用邮箱与邮箱变更流程；未注入则相关端点不挂载 */
+  emailChangeFlow?: EmailChangeFlow;
+  /**
+   * 批4-F：第三方登录 provider 列表来源。
+   * 未注入时读模块级注册表（宿主在自己的启动脚本里 `registerOAuthProvider`）。
+   * 默认无 provider → 前端第三方登录小格子不渲染。
+   */
+  oauthProviders?: () => OAuthProvider[];
   /** 敏感设置加解密（SMTP_PASS）；缺省从 MSCTS_SECRET 环境变量取 */
   secretBox?: SecretBox | null;
 }
@@ -215,11 +227,28 @@ export function createApp(deps: AppDependencies): Express {
       createAccountRouter({
         tokenService,
         emailFlow: deps.emailFlow,
+        // 0003：注入后 /api/me/email-status 会连带返回备用邮箱与进行中的变更
+        emailChangeFlow: deps.emailChangeFlow,
         rateLimiter: deps.rateLimiter,
         rateLimit: deps.rateLimitSettings,
       }),
     );
   }
+
+  // ---- 备用邮箱 / 邮箱变更端点（0003；未注入 EmailChangeFlow 则整体不挂载）----
+  if (deps.emailChangeFlow) {
+    app.use(
+      createEmailChangeRouter({
+        tokenService,
+        emailChangeFlow: deps.emailChangeFlow,
+        rateLimiter: deps.rateLimiter,
+        rateLimit: deps.rateLimitSettings,
+      }),
+    );
+  }
+
+  // ---- 第三方登录预留端口（批4-F；无 provider 时前端小格子不渲染）----
+  app.use(createOAuthRouter({ providers: deps.oauthProviders }));
 
   // ---- 素材上传/衣柜端点（P2）----
   app.use(

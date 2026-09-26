@@ -549,30 +549,31 @@ for (const c of cases) {
       'NAME_COOLDOWN',
     );
 
-    // 新建第二个角色 → 删除第一个（剩一个不允许删空）
+    // 0003 默认进入单用户名模式：不允许再新建第二个角色 ID
+    //（多用户名模式下的新建/删除见 tests/profileMode.test.ts）
     const create = await fetch(`${ctx.baseUrl}/api/profiles`, {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({ name: `sec_${Date.now().toString(36)}` }),
     });
-    assert.equal(create.status, 201);
+    assert.equal(create.status, 400);
+    assert.equal(
+      ((await create.json()) as { error: string }).error,
+      'VALIDATION_ERROR',
+    );
+
+    // 也不允许删掉当前唯一的可用角色 —— 删了账号就一个可用 ID 都不剩，
+    // 而恢复它的路径又卡在 30 天冷却上，等于把用户锁死
     const del = await fetch(`${ctx.baseUrl}/api/profiles/${profile.id}`, {
       method: 'DELETE',
       headers: authHeaders,
     });
-    assert.equal(del.status, 204);
-    const delLast = await fetch(`${ctx.baseUrl}/api/me/profiles`, {
+    assert.equal(del.status, 400);
+
+    const stillOne = await fetch(`${ctx.baseUrl}/api/me/profiles`, {
       headers: authHeaders,
     });
-    const remaining = (await delLast.json()) as { profiles: unknown[] };
-    assert.equal(remaining.profiles.length, 1);
-
-    const delAgain = await fetch(
-      `${ctx.baseUrl}/api/profiles/${
-        (remaining.profiles[0] as { id: string }).id
-      }`,
-      { method: 'DELETE', headers: authHeaders },
-    );
-    assert.equal(delAgain.status, 400);
+    const remaining = (await stillOne.json()) as { profiles: unknown[] };
+    assert.equal(remaining.profiles.length, 1, '单用户名模式下角色数应恒为 1');
   });
 }

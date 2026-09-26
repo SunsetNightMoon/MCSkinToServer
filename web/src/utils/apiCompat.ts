@@ -10,8 +10,10 @@
  *   `blob:` 等静态资源直通。
  * - 2xx 时返回"翻译后"的 JSON Response；非 2xx 时保留原状态码，并把
  *   MSCTS 的 `message` 补成旧版页面读取的 `errorMessage`。
- * - 后端没有的能力（站点设置/黑名单/验证码/OAuth/邮箱与密码管理…）返回
+ * - 后端没有的能力（站点设置/黑名单/验证码/邮箱与密码管理…）返回
  *   中性默认值或 501 + `comingSoon` 文案，页面优雅降级而不是抛错。
+ * - 第三方登录开关（`/api/auth/oauth/providers`）**透传**给后端：
+ *   它是有真实端点的预留端口，宿主注册 provider 后开关会变 true。
  */
 
 import i18n from '../i18n'
@@ -581,15 +583,41 @@ export async function compatFetch(
     return notSupported()
   }
 
-  // ── 验证码 / OAuth：MSCTS 未启用，返回"关闭"信号 ──
+  // ── 验证码：MSCTS 未启用验证码（批 2 自托管数学题尚未落地），返回"关闭"信号 ──
   if (path === '/api/captcha/captcha-type') {
     return json({ type: 'none' })
   }
   if (path.startsWith('/api/captcha/')) {
     return json({ question: '' })
   }
+
+  // ── 第三方登录开关（预留端口） ──
+  // 后端有 `GET /api/auth/oauth/providers`，返回 `{ github, microsoft, ...布尔 }`。
+  // 默认部署没有注册任何 provider → 全 false → 登录/注册页的第三方登录小格子
+  // 整体不渲染，与「本项目不内置第三方登录」的现状一致。
+  //
+  // 为什么必须**透传**而不是在这里写死 `{ github:false, microsoft:false }`：
+  // 宿主可以按 `docs/oauth-provider-guide.md` 注册自己的 provider，
+  // 那时后端会返回 true。写死 false 会让小格子**永远**不出现 ——
+  // 后端点了灯、前端看不见，接入指南就成了空话。这里曾经就是写死的。
+  //
+  // 透传失败（旧后端没有此端点 / 网络异常 / 非 2xx）时回落全 false，
+  // 行为与从前完全一致，不会把登录页搞挂。
   if (path === '/api/auth/oauth/providers') {
-    return json({ github: false, microsoft: false })
+    try {
+      const res = await rawFetch(url, init)
+      if (!res.ok) return json({ github: false, microsoft: false })
+      const data = (await res.json()) as Record<string, unknown>
+      // 展开在前、归一化在后：保留 `bilibili` 之类的额外键，
+      // 同时保证 github/microsoft 一定是严格布尔（前端做 `||` 判断）
+      return json({
+        ...data,
+        github: data?.github === true,
+        microsoft: data?.microsoft === true,
+      })
+    } catch {
+      return json({ github: false, microsoft: false })
+    }
   }
 
   // ── 账号安全 ──

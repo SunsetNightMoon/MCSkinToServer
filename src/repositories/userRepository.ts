@@ -11,6 +11,18 @@ import type { UserRole } from './tokenRepository.js';
  * 两种方言下该方法都必须在调用方事务内执行（IdentityService 负责）。
  */
 
+/**
+ * 用户名模式（0003）。
+ *
+ * - 'single'：单用户名。沿用 Minecraft 正版的 30 天改名冷却，账号只能有 1 个
+ *   active 角色；其余角色只能是 'reserved'（预留口），且**当前不可用**。
+ * - 'multi' ：多用户名。无改名冷却，活跃 + 预留合计上限 10 个。
+ *
+ * 强调「当前不可用」是因为预留角色的名字仍被占住（防抢注）：用户必须等满冷却
+ * 才能把预留口里的角色搬回 active。见 ProfileRepository 与 IdentityService。
+ */
+export type ProfileMode = 'single' | 'multi';
+
 export interface UserRow {
   id: string;
   userUid: number;
@@ -29,6 +41,19 @@ export interface UserRow {
   deletedAt: string | null;
   /** 非空 = 宽限期已过、个人数据已清除；行保留以占住 user_uid（UID 永不复用） */
   purgedAt: string | null;
+  // ---- 0003：用户名模式 ----
+  profileMode: ProfileMode;
+  /**
+   * 模式选择的完成时刻。NULL = **待选择**：该账号在迁移时角色数 > 1，
+   * 下次登录必须选一个保留 ID 才能继续（选完写非 NULL，不再弹窗）。
+   */
+  profileModeDecidedAt: string | null;
+  /** 模式切换的计时基准（切换动作与具体角色无关，所以基准放 users 而非 profiles） */
+  modeChangedAt: string | null;
+  // ---- 0003：备用邮箱（兜底）----
+  backupEmail: string | null;
+  backupEmailVerified: boolean;
+  backupEmailVerifiedAt: string | null;
 }
 
 export interface NewUserRow {
@@ -39,12 +64,18 @@ export interface NewUserRow {
   passwordHash: string;
   role: UserRole;
   now: Date;
+  /**
+   * 首次模式决定的时刻。注册流程角色数为 0，视为已决定，应传 `now`；
+   * 传 `null`/省略则写 NULL = 待选择（只可能出现在数据修补场景，正常注册不会）。
+   */
+  profileModeDecidedAt?: Date | null;
 }
 
 const USER_COLUMNS =
   'id, user_uid, email, password_hash, role, is_active, email_verified, ' +
   'banned_until, ban_permanent, ban_reason, created_at, updated_at, last_login_at, ' +
-  'deleted_at, purged_at';
+  'deleted_at, purged_at, profile_mode, profile_mode_decided_at, mode_changed_at, ' +
+  'backup_email, backup_email_verified, backup_email_verified_at';
 
 function mapUserRow(raw: Record<string, unknown>): UserRow {
   return {
@@ -63,6 +94,12 @@ function mapUserRow(raw: Record<string, unknown>): UserRow {
     lastLoginAt: toIso(raw['last_login_at']),
     deletedAt: toIso(raw['deleted_at']),
     purgedAt: toIso(raw['purged_at']),
+    profileMode: (raw['profile_mode'] as ProfileMode | null) ?? 'single',
+    profileModeDecidedAt: toIso(raw['profile_mode_decided_at']),
+    modeChangedAt: toIso(raw['mode_changed_at']),
+    backupEmail: (raw['backup_email'] as string | null) ?? null,
+    backupEmailVerified: toBoolean(raw['backup_email_verified']),
+    backupEmailVerifiedAt: toIso(raw['backup_email_verified_at']),
   };
 }
 
@@ -72,14 +109,19 @@ export class UserRepository {
   /** 插入用户，返回分配到的 user_uid */
   async insert(user: NewUserRow): Promise<number> {
     const now = user.now.toISOString();
+    // 新账号此刻角色数为 0，视作模式已决定；显式传 NULL 才是「待选择」
+    const decidedAt =
+      user.profileModeDecidedAt === undefined
+        ? now
+        : (user.profileModeDecidedAt?.toISOString() ?? null);
 
     if (this.db.dialect === 'postgres') {
       const rows = await this.db.query<Record<string, unknown>>(
         `INSERT INTO users (id, email, password_hash, role, is_active,
-           email_verified, ban_permanent, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, $5, $5)
+           email_verified, ban_permanent, profile_mode_decided_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, $5, $6, $6)
          RETURNING user_uid`,
-        [user.id, user.email, user.passwordHash, user.role, now],
+        [user.id, user.email, user.passwordHash, user.role, decidedAt, now],
       );
       return Number(rows[0]!['user_uid']);
     }
@@ -91,9 +133,18 @@ export class UserRepository {
     const userUid = Number(uidRows[0]!['next_uid']);
     await this.db.run(
       `INSERT INTO users (id, user_uid, email, password_hash, role, is_active,
-         email_verified, ban_permanent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?)`,
-      [user.id, userUid, user.email, user.passwordHash, user.role, now, now],
+         email_verified, ban_permanent, profile_mode_decided_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?)`,
+      [
+        user.id,
+        userUid,
+        user.email,
+        user.passwordHash,
+        user.role,
+        decidedAt,
+        now,
+        now,
+      ],
     );
     return userUid;
   }
@@ -260,6 +311,10 @@ export class UserRepository {
    * 宽限期到期清除：邮箱改墓碑值（释放原邮箱给新注册）、密码清空、停用，
    * 并写 purged_at。**行本身保留**——SQLite 的 user_uid 由 MAX(uid)+1 分配，
    * 删行会导致 UID 被后续注册复用，而 UID 要求永不复用。
+   *
+   * 备用邮箱一并清空：它与主邮箱同为「可被占用的全局唯一地址」，
+   * 留着一个已清除账号占住别人想注册的地址，比墓碑主邮箱更莫名其妙
+   * （主邮箱有墓碑值可供人工追溯，备用邮箱没有这种用途）。
    */
   async purgeUser(
     userId: string,
@@ -272,6 +327,9 @@ export class UserRepository {
          is_active = ${this.db.dialect === 'postgres' ? 'FALSE' : '0'},
          deleted_at = NULL,
          purged_at = ${phAt(this.db.dialect, 1)},
+         backup_email = NULL,
+         backup_email_verified = ${this.db.dialect === 'postgres' ? 'FALSE' : '0'},
+         backup_email_verified_at = NULL,
          updated_at = ${phAt(this.db.dialect, 2)}
        WHERE id = ${phAt(this.db.dialect, 3)}`,
       [tombstoneEmail, at.toISOString(), at.toISOString(), userId],
@@ -289,5 +347,118 @@ export class UserRepository {
       [cutoff.toISOString()],
     );
     return rows.map(mapUserRow);
+  }
+
+  // ---- 0003：用户名模式 ----
+
+  /** 按备用邮箱精确查找（大小写不敏感，与主邮箱口径一致） */
+  async findByBackupEmail(email: string): Promise<UserRow | null> {
+    const rows = await this.db.query<Record<string, unknown>>(
+      `SELECT ${USER_COLUMNS} FROM users
+       WHERE lower(backup_email) = ${phAt(this.db.dialect, 0)}`,
+      [email.toLowerCase()],
+    );
+    return rows[0] ? mapUserRow(rows[0]) : null;
+  }
+
+  /**
+   * 首次确定模式（存量多角色用户登录后选择保留 ID 时调用）。
+   *
+   * `profile_mode_decided_at` 用 COALESCE 保护：重复调用不会覆盖首次决定的时间点
+   * —— 那个时间点是「用户何时被告知并接受了这套规则」的唯一记录，审计价值在此。
+   */
+  async decideMode(userId: string, mode: ProfileMode, at: Date): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET profile_mode = ${phAt(this.db.dialect, 0)},
+         profile_mode_decided_at = COALESCE(profile_mode_decided_at, ${phAt(this.db.dialect, 1)}),
+         mode_changed_at = ${phAt(this.db.dialect, 2)},
+         updated_at = ${phAt(this.db.dialect, 3)}
+       WHERE id = ${phAt(this.db.dialect, 4)}`,
+      [mode, at.toISOString(), at.toISOString(), at.toISOString(), userId],
+    );
+  }
+
+  /** 切换模式（单 <-> 多）。不改 decided_at：它记录的是「首次决定」，不该被覆盖 */
+  async setProfileMode(
+    userId: string,
+    mode: ProfileMode,
+    at: Date,
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET profile_mode = ${phAt(this.db.dialect, 0)},
+         mode_changed_at = ${phAt(this.db.dialect, 1)},
+         updated_at = ${phAt(this.db.dialect, 2)}
+       WHERE id = ${phAt(this.db.dialect, 3)}`,
+      [mode, at.toISOString(), at.toISOString(), userId],
+    );
+  }
+
+  // ---- 0003：备用邮箱（兜底）----
+
+  /**
+   * 写入备用邮箱地址，**并强制回到未验证**。
+   *
+   * 这不是可以省的一步：若沿用上一次的 verified 标志，用户把备用邮箱从 A 改成 B
+   * 后，B 会在没收到任何信件的情况下直接获得「已验证」身份，兜底邮箱就等于可以被
+   * 任意改写 —— 而它的用途恰恰是「主邮箱失效时的救援通道」。
+   */
+  async setBackupEmail(userId: string, email: string, at: Date): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET backup_email = ${phAt(this.db.dialect, 0)},
+         backup_email_verified = ${this.db.dialect === 'postgres' ? 'FALSE' : '0'},
+         backup_email_verified_at = NULL,
+         updated_at = ${phAt(this.db.dialect, 1)}
+       WHERE id = ${phAt(this.db.dialect, 2)}`,
+      [email.toLowerCase(), at.toISOString(), userId],
+    );
+  }
+
+  /** 置备用邮箱验证状态；verified=false 时清掉 verified_at */
+  async markBackupEmailVerified(
+    userId: string,
+    verified: boolean,
+    at: Date,
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET backup_email_verified = ${phAt(this.db.dialect, 0)},
+         backup_email_verified_at = ${phAt(this.db.dialect, 1)},
+         updated_at = ${phAt(this.db.dialect, 2)}
+       WHERE id = ${phAt(this.db.dialect, 3)}`,
+      [
+        this.db.dialect === 'postgres' ? verified : verified ? 1 : 0,
+        verified ? at.toISOString() : null,
+        at.toISOString(),
+        userId,
+      ],
+    );
+  }
+
+  /** 解除备用邮箱绑定（用户主动移除；未验证的绑定也走这条清理） */
+  async clearBackupEmail(userId: string, at: Date): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET backup_email = NULL,
+         backup_email_verified = ${this.db.dialect === 'postgres' ? 'FALSE' : '0'},
+         backup_email_verified_at = NULL,
+         updated_at = ${phAt(this.db.dialect, 0)}
+       WHERE id = ${phAt(this.db.dialect, 1)}`,
+      [at.toISOString(), userId],
+    );
+  }
+
+  /**
+   * 改主邮箱（邮箱变更流程收尾时调用）。
+   *
+   * 新地址在同一个流程里已由 verify 令牌证明归属，故一并把 `email_verified` 置真
+   * —— 否则用户改完邮箱会突然变成「未验证」而在开启邮箱验证的站点上登不进去，
+   * 这是纯粹的自我锁死，没有任何安全收益。
+   */
+  async updateEmail(userId: string, email: string, at: Date): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET email = ${phAt(this.db.dialect, 0)},
+         email_verified = ${this.db.dialect === 'postgres' ? 'TRUE' : '1'},
+         updated_at = ${phAt(this.db.dialect, 1)}
+       WHERE id = ${phAt(this.db.dialect, 2)}`,
+      [email.toLowerCase(), at.toISOString(), userId],
+    );
   }
 }

@@ -27,6 +27,10 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     case 'USER_DISABLED':
     case 'USER_BANNED':
     case 'NAME_COOLDOWN':
+    // 单用户名模式的「换 ID」冷却：凭据正确但当前状态不允许，语义同改名冷却
+    case 'MODE_COOLDOWN':
+    // 预留角色的写操作：角色归属正确，但它当前不是可用状态
+    case 'PROFILE_RESERVED':
     case 'ACCOUNT_DELETED':
     // 关闭注册：请求方无权创建账号（而不是请求格式错）
     case 'REGISTRATION_DISABLED':
@@ -38,6 +42,8 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
       return 502;
     case 'EMAIL_TAKEN':
     case 'NAME_TAKEN':
+    // 账号状态与请求冲突：必须先做完「选择保留 ID」才能继续操作
+    case 'MODE_CHOICE_REQUIRED':
       return 409;
     case 'NOT_FOUND':
       return 404;
@@ -46,6 +52,9 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
       return 403;
     case 'TOO_MANY_REQUESTS':
       return 429;
+    // 预留端口：地址是对的、能力没实现。501 而不是 404，见 errors.ts 的说明
+    case 'NOT_IMPLEMENTED':
+      return 501;
     default:
       return 500;
   }

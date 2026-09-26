@@ -21,8 +21,11 @@ import { AppError } from '../../errors.js';
  * - GET  /api/me/profiles    角色列表（含每个角色的当前皮肤/披风 ID 与 URL）
  * - GET  /api/me/skin        当前默认角色的皮肤（顶栏头像）
  * - POST /api/profiles       新建角色
- * - POST /api/profiles/:id/name  改名（30 天冷却）
+ * - POST /api/profiles/:id/name  改名（单用户名模式下 30 天冷却）
  * - DELETE /api/profiles/:id 删除角色
+ * - GET  /api/me/profile-mode        用户名模式与角色状态（0003）
+ * - POST /api/me/profile-mode        决定 / 切换用户名模式（0003）
+ * - POST /api/me/profiles/:id/activate  启用预留角色（0003）
  */
 
 export interface IdentityRouteDependencies {
@@ -188,6 +191,49 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   router.get('/api/me/profiles', auth, async (req, res) => {
     const list = await deps.identity.listProfilesWithTextures(req.context!.userId);
     res.json({ profiles: list });
+  });
+
+  // ---- 用户名模式（0003）----
+
+  /** 模式与角色状态快照：模式、待选择标记、上限、冷却剩余、预留口数量 */
+  router.get('/api/me/profile-mode', auth, async (req, res) => {
+    const state = await deps.identity.getProfileModeState(req.context!.userId);
+    res.json(state);
+  });
+
+  /**
+   * 决定或切换模式。
+   *
+   * 用一个端点承载两件事（而不是 decide / switch 分开）：对界面而言就是同一个
+   * 「保存我的选择」按钮，而「当前该走哪条路」由服务端的状态决定 ——
+   * 让前端自己判断就会出现「前端以为在决定、后端认为在切换」的错位。
+   * 响应体始终返回切换后的完整状态，前端不需要再拉一次。
+   */
+  router.post('/api/me/profile-mode', auth, async (req, res) => {
+    const userId = req.context!.userId;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const mode = String(body['mode'] ?? '');
+    if (mode !== 'single' && mode !== 'multi') {
+      throw new AppError('VALIDATION_ERROR', 'mode 只能是 single 或 multi');
+    }
+    const keepProfileId =
+      body['keepProfileId'] === undefined || body['keepProfileId'] === null
+        ? null
+        : String(body['keepProfileId']);
+    const current = await deps.identity.getProfileModeState(userId);
+    const state = current.decisionRequired
+      ? await deps.identity.decideInitialMode({ userId, mode, keepProfileId })
+      : await deps.identity.switchMode({ userId, mode, keepProfileId });
+    res.json(state);
+  });
+
+  /** 启用预留口里的角色（单用户名模式下唯一的「换 ID」路径） */
+  router.post('/api/me/profiles/:id/activate', auth, async (req, res) => {
+    const state = await deps.identity.activateReservedProfile(
+      req.context!.userId,
+      String(req.params['id'] ?? ''),
+    );
+    res.json(state);
   });
 
   /** 当前用户默认角色的皮肤（顶栏头像） */
