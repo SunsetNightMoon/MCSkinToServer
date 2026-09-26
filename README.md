@@ -84,15 +84,14 @@ npm test          # SQLite 基线（无需外部服务，门控用例自动 skip
 
 ## 文档
 
-- [开发实施日志](docs/development-log.md) —— 按批次的完整实施与验收记录（P0–P5 第十二批）
-- [plan3 代码与架构分析](docs/plan3-analysis.md)
-- [API 与数据对象清单](docs/route-inventory.md)
-- [重制架构蓝图与实施顺序](docs/rebuild-blueprint.md)
-- [Canonical Schema 设计](docs/schema-design.md)（15 表，`schema/sqlite/` + `schema/postgresql/` 双库 DDL）
 - [第三方登录 Provider 接入指南](docs/oauth-provider-guide.md)
+
+## 贡献者
+
+- [@SunsetNightMoon](https://github.com/SunsetNightMoon) — 开发与维护
 
 ## 工作约定
 
 - 重制以「单一事实来源」为核心目标：统一 schema、统一 AuthContext、统一素材 URL 组装、统一迁移入口
 - 兼容 Yggdrasil 外部协议是硬约束；内部实现可以重写
-- 每批完成后同步更新 API、schema、迁移与测试状态，验收数字写进开发日志
+- 每批完成后同步更新 API、schema、迁移与测试状态
