@@ -226,7 +226,7 @@ export class TextureService {
     if (!asset || asset.ownerUserId !== userId) {
       throw new AppError('NOT_FOUND', '素材不存在');
     }
-    const patch: Parameters<AssetRepository['updateOwnerFields']>[2] = {};
+    const patch: Parameters<AssetRepository['updateOwnerFields']>[1] = {};
     if (fields.name !== undefined) {
       const name = String(fields.name).trim();
       if (name.length === 0 || name.length > 64) {
@@ -249,7 +249,7 @@ export class TextureService {
       }
       patch.downloadPolicy = fields.downloadPolicy;
     }
-    await this.assets.updateOwnerFields(assetId, patch, this.now());
+    await this.assets.updateOwnerFields(assetId, patch, new Date());
   }
 
   /**

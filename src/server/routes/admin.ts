@@ -1,10 +1,11 @@
 import { Router } from 'express';
+import type { TokenService } from '../../auth/tokens.js';
 import type { LibraryService } from '../../library/libraryService.js';
 import type {
   AssetRepository,
   AssetKind,
 } from '../../repositories/assetRepository.js';
-import { requireAdmin } from '../middleware.js';
+import { requireAdmin, requireAuth } from '../middleware.js';
 import { AppError } from '../../errors.js';
 
 /**
@@ -17,6 +18,7 @@ import { AppError } from '../../errors.js';
  */
 
 export interface AdminRouteDependencies {
+  tokenService: TokenService;
   library: LibraryService;
   assets: AssetRepository;
 }
@@ -25,9 +27,11 @@ const REVIEW_STATUSES: ReadonlySet<string> = new Set(['approved', 'rejected']);
 
 export function createAdminRouter(deps: AdminRouteDependencies): Router {
   const router = Router();
-  const admin = requireAdmin();
+  // requireAuth 写入 req.context，requireAdmin 再做角色门槛 —— 两个都要挂
+  const auth = requireAuth(deps.tokenService);
+  const admin = requireAdmin;
 
-  router.get('/api/admin/reviews', admin, async (req, res) => {
+  router.get('/api/admin/reviews', auth, admin, async (req, res) => {
     const q = req.query as Record<string, unknown>;
     const kind =
       typeof q['kind'] === 'string' && (q['kind'] === 'skin' || q['kind'] === 'cape')
@@ -37,7 +41,7 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     res.json({ items });
   });
 
-  router.get('/api/admin/assets/:id/reviews', admin, async (req, res) => {
+  router.get('/api/admin/assets/:id/reviews', auth, admin, async (req, res) => {
     const assetId = String(req.params['id'] ?? '');
     const asset = await deps.assets.findById(assetId);
     if (!asset) {
@@ -46,7 +50,7 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     res.json({ reviews: await deps.assets.listReviews(assetId) });
   });
 
-  router.post('/api/admin/assets/:id/review', admin, async (req, res) => {
+  router.post('/api/admin/assets/:id/review', auth, admin, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const status = String(body['status'] ?? '');
     if (!REVIEW_STATUSES.has(status)) {
@@ -65,7 +69,7 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     res.status(204).end();
   });
 
-  router.patch('/api/admin/assets/:id', admin, async (req, res) => {
+  router.patch('/api/admin/assets/:id', auth, admin, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     await deps.library.moderate(
       req.context!,

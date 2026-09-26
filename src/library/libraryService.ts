@@ -152,18 +152,19 @@ export class LibraryService {
     };
   }
 
-  /** 统一详情：权限矩阵 + 公开可见时浏览计数 +1 */
+  /** 统一详情：权限矩阵 + 公开可见时浏览计数 +1（响应返回自增后的最新计数） */
   async getDetail(
     assetId: string,
     viewer: RequestContext | null,
   ): Promise<Record<string, unknown>> {
-    const asset = await this.assets.findById(assetId);
-    if (!asset || !this.canView(asset, viewer)) {
+    const existing = await this.assets.findById(assetId);
+    if (!existing || !this.canView(existing, viewer)) {
       throw new AppError('NOT_FOUND', '素材不存在');
     }
-    if (this.isPubliclyVisible(asset)) {
-      await this.assets.incrementViewCount(asset.id);
+    if (this.isPubliclyVisible(existing)) {
+      await this.assets.incrementViewCount(existing.id);
     }
+    const asset = (await this.assets.findById(assetId))!;
     const url = await this.previewUrl(asset);
     if (!url) throw new AppError('NOT_FOUND', '素材不存在');
     const favoriteCount = await this.favorites.countByAsset(asset.id);

@@ -92,6 +92,16 @@ interface HttpCtx {
   db: DatabaseConnection;
 }
 
+/** PG 复用 mscts_smoke_test 库，每个测试前清场（users 级联清 profiles/tokens/assets） */
+async function wipeAll(db: DatabaseConnection): Promise<void> {
+  await db.run('DELETE FROM profile_assets');
+  await db.run('DELETE FROM favorites');
+  await db.run('DELETE FROM asset_reviews');
+  await db.run('DELETE FROM assets');
+  await db.run('DELETE FROM blobs');
+  await db.run('DELETE FROM users');
+}
+
 async function startHttp(t: TestContext, db: DatabaseConnection): Promise<HttpCtx> {
   const dir = await mkdtemp(join(tmpdir(), 'mscts-lib-http-'));
   const config: AppConfig = {
@@ -171,7 +181,11 @@ async function register(ctx: HttpCtx, role: 'user' | 'admin' = 'user'): Promise<
   const body = (await res.json()) as { token: string; user: { id: string } };
   assert.equal(res.status, 201, `register failed: ${JSON.stringify(body)}`);
   if (role === 'admin') {
-    await ctx.db.run('UPDATE users SET role = ?', ['admin']);
+    await ctx.db.run(
+      `UPDATE users SET role = ${ctx.db.dialect === 'postgres' ? '$1' : '?'}
+       WHERE id = ${ctx.db.dialect === 'postgres' ? '$2' : '?'}`,
+      ['admin', body.user.id],
+    );
   }
   return { token: body.token, userId: body.user.id };
 }
@@ -193,6 +207,7 @@ function auth(token: string): Record<string, string> {
 for (const c of cases) {
   test(`library: 审核前不可见矩阵（${c.label}）`, { skip: c.skip }, async (t) => {
     const db = await c.setup(t);
+    await wipeAll(db);
     const ctx = await startHttp(t, db);
     const owner = await register(ctx);
     const viewer = await register(ctx);
@@ -247,11 +262,18 @@ for (const c of cases) {
 
   test(`library: 公开可见/收藏/浏览计数（${c.label}）`, { skip: c.skip }, async (t) => {
     const db = await c.setup(t);
+    await wipeAll(db);
     const ctx = await startHttp(t, db);
     const owner = await register(ctx);
     const viewer = await register(ctx);
     const admin = await register(ctx, 'admin');
     const assetId = await uploadSkin(ctx, owner.token, 'lib-skin');
+    // 领域流程：owner 发布（设为 public）→ admin 审核通过
+    await fetch(`${ctx.baseUrl}/api/assets/${assetId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...auth(owner.token) },
+      body: JSON.stringify({ visibility: 'public' }),
+    });
 
     await fetch(`${ctx.baseUrl}/api/admin/assets/${assetId}/review`, {
       method: 'POST',
@@ -330,6 +352,7 @@ for (const c of cases) {
 
   test(`library: rejected 从公开库/下载消失 + 审核流水/标记（${c.label}）`, { skip: c.skip }, async (t) => {
     const db = await c.setup(t);
+    await wipeAll(db);
     const ctx = await startHttp(t, db);
     const owner = await register(ctx);
     const admin = await register(ctx, 'admin');
@@ -337,6 +360,12 @@ for (const c of cases) {
     const goodId = await uploadSkin(ctx, owner.token, 'good-skin');
     const badId = await uploadSkin(ctx, owner.token, 'bad-skin');
     for (const id of [goodId, badId]) {
+      // owner 先发布，admin 再审核通过
+      await fetch(`${ctx.baseUrl}/api/assets/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', ...auth(owner.token) },
+        body: JSON.stringify({ visibility: 'public' }),
+      });
       await fetch(`${ctx.baseUrl}/api/admin/assets/${id}/review`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...auth(admin.token) },

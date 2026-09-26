@@ -126,7 +126,13 @@ export function createApp(deps: AppDependencies): Express {
   app.use(createLibraryRouter({ tokenService, library: deps.library }));
 
   // ---- 管理员审核端点（P3）----
-  app.use(createAdminRouter({ library: deps.library, assets: deps.assetRepository }));
+  app.use(
+    createAdminRouter({
+      tokenService,
+      library: deps.library,
+      assets: deps.assetRepository,
+    }),
+  );
 
   // ---- 本地存储静态挂载（URL 由 StoragePort 统一生成）----
   app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d' }));
