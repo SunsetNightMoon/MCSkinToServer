@@ -39,7 +39,7 @@ export function Login() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const setAuth = useAuthStore((state) => state.setAuth)
-  const { title, loginBgImage, loginEmbedImage, videoMuted, theme } = useSiteStore()
+  const { title, loginBgImage, loginEmbedImage, videoMuted, theme, logo } = useSiteStore()
 
   const hasCustomBg = loginBgImage && loginBgImage.trim() !== ''
   const hasEmbedImage = loginEmbedImage && loginEmbedImage.trim() !== ''
@@ -364,7 +364,15 @@ export function Login() {
 
         <div className="auth-content">
           <div className="auth-page__logo">
-            <div className="auth-page__logo-icon">S</div>
+            {logo ? (
+              <img
+                className="auth-page__logo-icon auth-page__logo-icon--img"
+                src={logo}
+                alt={title}
+              />
+            ) : (
+              <div className="auth-page__logo-icon">S</div>
+            )}
             <div className="auth-page__logo-text">{title}</div>
           </div>
 

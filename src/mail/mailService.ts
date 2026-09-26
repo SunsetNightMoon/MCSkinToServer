@@ -64,6 +64,9 @@ export class MailService {
         email: input.to,
         url: input.url,
         siteTitle: await this.runtime.siteTitle(),
+        // 邮件抬头与登录/注册页用同一枚徽标（SITE_LOGO）；未设置 = 空串，
+        // 内置模板里的 {{SITE_LOGO_IMG}} 会随之留空，不会渲染出破图
+        siteLogo: await this.runtime.siteLogoUrl(),
         year: String(this.now().getUTCFullYear()),
         ...(input.oldEmail !== undefined ? { oldEmail: input.oldEmail } : {}),
         ...(input.newEmail !== undefined ? { newEmail: input.newEmail } : {}),

@@ -849,6 +849,7 @@
     "placeholderEmail": "Recipient Email",
     "placeholderVerifyUrl": "Verification Link",
     "placeholderYear": "Current Year",
+    "placeholderSiteLogoImg": "Site logo image (empty when unset, no broken image)",
     "saveEmailSettings": "Save Email Settings",
     "emailSettingsSaved": "Email settings saved",
     "loadEmailTemplateFailed": "Failed to load email template",

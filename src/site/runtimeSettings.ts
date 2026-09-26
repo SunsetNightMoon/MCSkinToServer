@@ -34,6 +34,8 @@ export const RuntimeSettingKeys = {
   enableCaptcha: 'ENABLE_CAPTCHA',
   baseUrl: 'BASE_URL',
   siteTitle: 'SITE_TITLE',
+  /** 站点徽标（顶栏/登录页/邮件抬头共用）；未设置 = 空串，而不是默认图 */
+  siteLogo: 'SITE_LOGO',
   smtpHost: 'SMTP_HOST',
   smtpPort: 'SMTP_PORT',
   smtpSecure: 'SMTP_SECURE',
@@ -182,6 +184,16 @@ export class RuntimeSettings {
   async siteTitle(): Promise<string> {
     const raw = toSettingString(await this.read(RuntimeSettingKeys.siteTitle)).trim();
     return raw !== '' ? raw : RUNTIME_SETTING_DEFAULTS.siteTitle;
+  }
+
+  /**
+   * 站点徽标 URL（邮件抬头用）。
+   *
+   * 与 siteTitle 不同：未设置返回**空串**而不是默认值 ——
+   * 「没有设徽标」的正确表现是邮件里不出现那张图，而不是塞一张占位图。
+   */
+  async siteLogoUrl(): Promise<string> {
+    return toSettingString(await this.read(RuntimeSettingKeys.siteLogo)).trim();
   }
 
   // ---- 邮件 ----

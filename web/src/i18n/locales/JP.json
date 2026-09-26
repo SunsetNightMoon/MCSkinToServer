@@ -849,6 +849,7 @@
     "placeholderEmail": "受信者メールアドレス",
     "placeholderVerifyUrl": "確認リンク",
     "placeholderYear": "現在の年",
+    "placeholderSiteLogoImg": "サイトロゴ画像（未設定なら空欄、壊れた画像は表示されない）",
     "saveEmailSettings": "メール設定を保存",
     "emailSettingsSaved": "メール設定が保存されました",
     "loadEmailTemplateFailed": "メールテンプレートの読み込みに失敗しました",

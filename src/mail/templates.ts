@@ -14,6 +14,13 @@ import type { MailTemplateSetting } from '../site/runtimeSettings.js';
  * - `{{SITE_TITLE}}` 让内置模板与站点名一致，而不是写死一个品牌名
  * - `{{RESET_URL}}` 供重置密码邮件使用
  *
+ * 站点徽标（第八批 +）：
+ * - `{{SITE_LOGO}}` 原样填入徽标 URL（未设置 = 空串），给会写 HTML 的管理员自己拼
+ * - `{{SITE_LOGO_IMG}}` 填入**拼好的 `<img>` 标签**；未设置时填空串 ——
+ *   内置模板的抬头用的是它。空串不会在邮件里留下破图，这正是「未设置徽标」的正确表现。
+ *   之所以要一个「拼好的标签」占位符，是因为 fillPlaceholders 只做值替换、
+ *   没有条件块语法，`<img src="{{SITE_LOGO}}">` 在徽标未设置时会渲染成一张破图。
+ *
  * 宽容规则：重置密码邮件里如果出现了 `{{VERIFY_URL}}`（管理员直接复用验证模板），
  * 也填入重置链接。宁可给一个能用的链接，也不要寄出一封含字面占位符的死信。
  * 未知占位符原样保留 —— 便于管理员发现自己拼错了，而不是被静默吃掉。
@@ -51,6 +58,10 @@ export const MAIL_PLACEHOLDERS = [
   'OLD_EMAIL',
   'NEW_EMAIL',
   'SITE_TITLE',
+  /** 站点徽标 URL 原文；未设置 = 空串 */
+  'SITE_LOGO',
+  /** 站点徽标的完整 <img> 标签；未设置 = 空串（内置模板抬头用它） */
+  'SITE_LOGO_IMG',
   'YEAR',
 ] as const;
 
@@ -98,6 +109,7 @@ function shell(input: {
 <body>
   <div class="container">
     <div class="header">
+      {{SITE_LOGO_IMG}}
       <h1>${input.heading}</h1>
     </div>
     <p>你好 {{EMAIL}}，</p>
@@ -215,6 +227,7 @@ function noticeShell(input: {
 <body>
   <div class="container">
     <div class="header">
+      {{SITE_LOGO_IMG}}
       <h1>${input.heading}</h1>
     </div>
     <p>你好，</p>
@@ -285,12 +298,31 @@ export interface MailRenderVars {
   /** 本次邮件的动作链接（验证或重置）；纯通知类邮件传空串 */
   url: string;
   siteTitle: string;
+  /** 站点徽标 URL；未设置 = 空串（此时 SITE_LOGO_IMG 也是空串） */
+  siteLogo?: string;
   /** 邮箱变更通知用：被替换掉的旧地址 */
   oldEmail?: string;
   /** 邮箱变更通知用：生效的新地址 */
   newEmail?: string;
   /** 缺省取当前年份（UTC） */
   year?: string;
+}
+
+/**
+ * 站点徽标的完整 `<img>` 标签；未设置返回空串。
+ *
+ * 内联样式而不是放 `<style>`：不少收件端（Gmail 会裁掉 `<style>` 之外的一部分，
+ * 企业邮箱更激进）对 `<style>` 支持不完整，邮件里关键样式一律内联。
+ * 固定高度、宽度自适应，透明背景 SVG/PNG 都能正常显示。
+ */
+function siteLogoImg(siteLogo: string | undefined, siteTitle: string): string {
+  const url = (siteLogo ?? '').trim();
+  if (url === '') return '';
+  const alt = siteTitle.replace(/"/g, '&quot;');
+  return (
+    `<img src="${url}" alt="${alt}" ` +
+    'style="height: 56px; max-width: 200px; object-fit: contain; vertical-align: middle; border: 0;" />'
+  );
 }
 
 /** 组装完整占位符表；两种链接名都指向本次动作链接，理由见文件头「宽容规则」 */
@@ -305,6 +337,8 @@ function placeholderValues(vars: MailRenderVars): Record<string, string> {
     OLD_EMAIL: vars.oldEmail ?? '',
     NEW_EMAIL: vars.newEmail ?? '',
     SITE_TITLE: vars.siteTitle,
+    SITE_LOGO: (vars.siteLogo ?? '').trim(),
+    SITE_LOGO_IMG: siteLogoImg(vars.siteLogo, vars.siteTitle),
     YEAR: vars.year ?? String(new Date().getUTCFullYear()),
   };
 }

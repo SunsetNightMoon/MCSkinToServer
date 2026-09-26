@@ -678,6 +678,44 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第九批：登录/注册页与邮件通知使用 SITE_LOGO 徽标
+
+**起因**：用户指出「登录页以及注册页呢？Logo不同步了吗？对应的是站点图标（顶栏徽标），邮件通知的话也得使用这个」——第八批做完的站点徽标只出现在顶栏，认证页与邮件没跟上。
+
+### 落地（前端）
+
+- `web/src/App.tsx`：根组件挂载时统一拉一次站点设置（`useSiteStore.loadSettings()`）。
+  以前只有 Landing 会拉，**直达 `/#/login`、`/#/register` 时 logo/标题全是本地默认**——这是「不同步」的真正根因，顺手修复全站。
+- `web/src/pages/Auth/Login.tsx` / `Register.tsx`：logo 区条件渲染——`SITE_LOGO` 有值显示
+  `<img>`（与 `AuthLayout.tsx` 同款样式），无值回退原来的「S」方块，不留空档。
+
+### 落地（邮件）
+
+- `src/site/runtimeSettings.ts`：`siteLogoUrl()` 读 `SITE_LOGO`，**未设置返回空串**而不是默认值——没设徽标的正确表现是邮件里不出现那张图。
+- `src/mail/templates.ts`：新增两个占位符
+  - `{{SITE_LOGO}}`：URL 原文（未设置=空串）
+  - `{{SITE_LOGO_IMG}}`：拼好的 `<img>` 标签（56px 高、`object-fit: contain`、全内联样式——收件端对 `<style>` 支持不完整）。**为什么要 IMG 变体**：`fillPlaceholders` 只做值替换、无条件块语法，裸写 `<img src="{{SITE_LOGO}}">` 在未设置时会渲染破图。
+  - `shell()` 与 `noticeShell()` 两个外壳的 header（`<h1>` 之前）都加了 `{{SITE_LOGO_IMG}}` 行。
+- `src/mail/mailService.ts`：`build()` 透传 `siteLogo`。
+- `web/src/pages/Admin/SystemSettings.tsx`：默认模板字符串加 `${logoImgVar}`；占位符提示区加 `{{SITE_LOGO_IMG}}` chip；i18n 四语言 +1 key（`placeholderSiteLogoImg`）。
+
+### 验收（数字均为实际输出）
+
+- 后端 + 前端 `tsc --noEmit` 零错误（前端曾报 `logoImgVar` 未使用——默认模板里写成了 `\${...}` 转义字面量而非插值，已修）
+- 基线 `npm test`（仅 SQLite）：**286 tests / 207 pass / 0 fail / 79 skipped**
+- 全开门控 `TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL` 跑 `npm run test:pg`：
+  **286 tests / 286 pass / 0 fail / 0 skipped**（漏传 SMTP 两个变量时 12 项 mailpit 端到端会 skip，别漏）
+- **后端(:3000)与前端(:5173)均已重启**（按约定双端重启，不依赖 HMR）
+- 真实环境：上传测试 SVG → `SITE_LOGO` 生效 → `/#/login`、`/#/register` 截图均显示同一枚徽标
+  （`G:/Skin2.catnight.top/.shots/28-batch9-login-logo.png`、`29-batch9-register-logo.png`）
+- 邮件实测（Mailpit）：注册触发验证信，HTML 抬头恰 1 个 `<img src=".../theme/logo-*.svg">`，
+  内联样式与 `siteLogoImg()` 一致；移除 logo 后重发同款信件 → **0 个 `<img>`**，`<h1>` 前为空白，无破图
+- 收尾：测试账号 `logo-batch9@` 已注销、Mailpit 已清空、`REQUIRE_EMAIL_VERIFICATION` 已还原、
+  验证用 logo 已移除（键清空、磁盘文件删除）、`.wbscratch-logo/` 已删；开发库 SMTP 指向 Mailpit 的配置保留（方便后续邮件验证）
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+---
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

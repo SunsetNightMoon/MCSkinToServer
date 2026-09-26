@@ -849,6 +849,7 @@
     "placeholderEmail": "收件人郵箱",
     "placeholderVerifyUrl": "驗證連結",
     "placeholderYear": "当前年份",
+    "placeholderSiteLogoImg": "網站徽標圖片（未設置時留空，不出現破圖）",
     "saveEmailSettings": "儲存郵箱設定",
     "emailSettingsSaved": "郵箱設定已儲存",
     "loadEmailTemplateFailed": "載入郵件模板失敗",

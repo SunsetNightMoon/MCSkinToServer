@@ -64,7 +64,7 @@ export function Register() {
     form.setFieldValue('email', value)
     setEmailOptions([])
   }
-  const { title, loginBgImage, loginEmbedImage, videoMuted, theme, allowRegistration } = useSiteStore()
+  const { title, loginBgImage, loginEmbedImage, videoMuted, theme, allowRegistration, logo } = useSiteStore()
 
   const hasCustomBg = loginBgImage && loginBgImage.trim() !== ''
   const hasEmbedImage = loginEmbedImage && loginEmbedImage.trim() !== ''
@@ -286,7 +286,15 @@ export function Register() {
 
         <div className="auth-content">
           <div className="auth-page__logo">
-            <div className="auth-page__logo-icon">S</div>
+            {logo ? (
+              <img
+                className="auth-page__logo-icon auth-page__logo-icon--img"
+                src={logo}
+                alt={title}
+              />
+            ) : (
+              <div className="auth-page__logo-icon">S</div>
+            )}
             <div className="auth-page__logo-text">{title}</div>
           </div>
 

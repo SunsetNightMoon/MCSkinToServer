@@ -849,6 +849,7 @@
     "placeholderEmail": "收件人邮箱",
     "placeholderVerifyUrl": "验证链接",
     "placeholderYear": "当前年份",
+    "placeholderSiteLogoImg": "站点徽标图片（未设置时留空，不出现破图）",
     "saveEmailSettings": "保存邮箱设置",
     "emailSettingsSaved": "邮箱设置已保存",
     "loadEmailTemplateFailed": "加载邮件模板失败",

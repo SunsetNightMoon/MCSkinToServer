@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { lazy, Suspense, useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
+import { useSiteStore } from './store/siteStore'
 import { Layout } from './components/Layout/Layout'
 import { PageLoading } from './components/PageLoading/PageLoading'
 import { profileService } from './services/profileService'
@@ -64,6 +65,13 @@ function App() {
   useEffect(() => {
     setAuthClearHandler(clearAuth)
   }, [clearAuth])
+
+  // 站点外观（logo / 背景 / 标题 / 版权）全站通用。以前只有 Landing 会拉，
+  // 于是「直达 /login 或 /register」时这些值全是本地默认 —— 顶栏徽标设了也不显示。
+  // 放在根组件挂载时拉一次，登录页/注册页就与首页看到同一套外观。
+  useEffect(() => {
+    useSiteStore.getState().loadSettings()
+  }, [])
 
   // 应用初始化时刷新用户信息与头像
   useEffect(() => {

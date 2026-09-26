@@ -1274,6 +1274,8 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
     const emailVar = '{{EMAIL}}';
     const verifyUrlVar = '{{VERIFY_URL}}';
     const yearVar = '{{YEAR}}';
+    // 与后端 templates.ts 的 SITE_LOGO_IMG 同语义：未设置徽标时为空串，不渲染破图
+    const logoImgVar = '{{SITE_LOGO_IMG}}';
     setTemplateHtml(`<!DOCTYPE html>
 <html>
 <head>
@@ -1293,6 +1295,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 <body>
   <div class="container">
     <div class="header">
+      ${logoImgVar}
       <h1>🎮 Minecraft Skin Server</h1>
     </div>
     <p>${t('admin.emailTemplateHello')} ${emailVar}，</p>
@@ -1493,6 +1496,8 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
           <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>= {t('admin.placeholderVerifyUrl')}</span>
           <span style={{ fontSize: 12, fontFamily: 'monospace', background: '#1e3a5f', color: '#58a6ff', padding: '2px 8px', borderRadius: 4, border: '1px solid #1f6feb' }}>{'{{YEAR}}'}</span>
           <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>= {t('admin.placeholderYear')}</span>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', background: '#1e3a5f', color: '#58a6ff', padding: '2px 8px', borderRadius: 4, border: '1px solid #1f6feb' }}>{'{{SITE_LOGO_IMG}}'}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>= {t('admin.placeholderSiteLogoImg')}</span>
         </div>
         <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #30363d' }}>
           <Editor
