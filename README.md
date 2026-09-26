@@ -89,6 +89,7 @@ npm test          # SQLite 基线（无需外部服务，门控用例自动 skip
 ## 贡献者
 
 - [@SunsetNightMoon](https://github.com/SunsetNightMoon) — 开发与维护
+- [@feifei2005](https://github.com/feifei2005) — 新旧版本协助开发（旧版贡献记录见 [CatTavernSkins](https://github.com/SunsetNightMoon/CatTavernSkins) 仓库）
 
 ## 许可
 
