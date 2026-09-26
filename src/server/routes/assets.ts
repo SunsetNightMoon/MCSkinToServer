@@ -6,6 +6,7 @@ import type {
   AssetKind,
 } from '../../repositories/assetRepository.js';
 import type { AssetUrlResolver } from '../../storage/assetUrl.js';
+import type { LibraryService } from '../../library/libraryService.js';
 import { requireAuth } from '../middleware.js';
 import { AppError } from '../../errors.js';
 
@@ -20,6 +21,13 @@ export interface AssetRouteDependencies {
   textures: TextureService;
   assets: AssetRepository;
   assetUrlResolver: AssetUrlResolver;
+  /**
+   * 可选：给「我的素材」列表直出 `previewUrl`。
+   *
+   * 不注入时列表只有裸 AssetRow，前端兼容层会退化成逐项拉详情补图 ——
+   * 那条路径会顺带把 view_count 刷高，所以正式装配（app.ts）必须注入。
+   */
+  library?: LibraryService;
 }
 
 const KINDS: ReadonlySet<string> = new Set(['skin', 'cape']);
@@ -104,7 +112,9 @@ export function createAssetRouter(deps: AssetRouteDependencies): Router {
         ? (kindRaw as AssetKind)
         : undefined;
     const list = await deps.assets.listByOwner(req.context!.userId, kind);
-    res.json({ assets: list });
+    // 直出 previewUrl：前端兼容层不再逐项调详情补图片地址（那会把浏览数刷高）
+    const items = deps.library ? await deps.library.withPreviewUrls(list) : list;
+    res.json({ assets: items });
   });
 
   // ---- 应用到角色槽位（衣柜语义：同槽覆盖）----

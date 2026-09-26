@@ -583,6 +583,47 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第七批：路由审计修复（#1–#5，主题图补后端 + 计数去毒）
+
+### 起因：一次「还有哪个没做好路由」的反向审计
+
+用探针页对同一路径**同时**打 `compatFetch`（前端唯一数据层）与原生 `fetch`，
+两边一比即可分清「后端没有」与「被兼容层兜底」。审计确认了 8 处缺陷，
+用户拍板先做前 5 项（第 6 项「删死代码」暂不做）。五项：
+
+| # | 缺陷 | 表现 | 修法 |
+|---|---|---|---|
+| 1 | A 组兜底拦截 | `POST /api/admin/users/:id/send-verification` 与 `PUT …/verify-email` 后端早已实现，却被兼容层的 `/api/admin/` 前缀兜底拦成 501「敬请期待」——用户管理里两个按钮点了就是这句 | `ADMIN_PASSTHROUGH` 加 `'/api/admin/users/'`（**带尾斜杠是有意的**：不带会把用户列表也放过去，绕过它自己的翻译分支） |
+| 2 | 主题图上传/移除 | 系统设置里 4 组背景图按钮调的 `/api/admin/upload-theme-image` 与 `/api/admin/theme-image/:type` **后端从来没有**；展示侧（`LIGHT_BG_IMAGE` 等键）却是通的，所以症状是「设置项能用、按钮没用」 | 新增 `src/site/themeImage.ts` + admin 路由两端点（见下） |
+| 3 | 黑名单假页面 | `BlacklistManagement` 依赖的 `/api/admin/blacklist` 不存在，兼容层返回**假数据**（空数组 / 全 0 统计）→ 页面永远「暂无记录」，一个看起来正常、从不反映真实状态、也不报错的死页面 | 删兼容层假数据分支；侧栏摘掉「黑名单」页签；`BlacklistManagement.tsx` 保留不挂载，等后端补表 |
+| 4 | 详情页下载绕过策略与计数 | `SkinDetail.tsx:105` / `CapeDetail.tsx:93` 直接 `fetch(skin.file_path)`：owner_only 素材拿到 file_path 就能下、`download_count` 永远是 0（后台「下载数」一列因此一直全是 0） | `handleDownload` 改为先 `GET /api/assets/:id/download`（校验 `download_policy` + 计数 +1）拿地址，再走 blob 下载（跨源时 `<a download>` 会被浏览器忽略，而存储已开 ACAO）；403 的后端文案直接展示 |
+| 5 | 列表预取刷高浏览数 | 兼容层 `withPreviewUrl()` 对列表**每一项**调 `GET /api/assets/:id` 补图片地址，而那个端点会 `incrementViewCount` → 「翻一页列表 = 每项浏览数 +1」（实测一个皮肤被刷到 30，真实访问 0 次） | 列表接口直出 `previewUrl`（`LibraryService.withPreviewUrls`，**不含计数副作用**）；兼容层兜底改为「键存在就不再拉详情」——用 `'previewUrl' in item` 判断而不是「值非空」，因为 blob 缺失时值是 null，再拉一次还是 null，只会白刷计数 |
+
+### 主题图服务（`src/site/themeImage.ts`，新）
+
+- **不建新表**：键 → 值本来就在 `system_settings`（4 个键已在公开白名单），这里只做「字节写进存储 + URL 写进设置」。
+- **上传即写设置**（`remove` 同理立刻清空）：按钮语义是「换背景」，写进表单还要再点一次「保存」等于「上传完了但没生效」。
+- **objectKey 带内容哈希**（`theme/<type>-<sha12>.<ext>`）：同名复用会让浏览器继续用缓存旧图；上传/移除顺手删上一版（best-effort），不会越堆越多。**旧 key 必须在写设置之前取**——写完再读只会读到新值，「删上一版」永远删不到。
+- **只收 PNG/JPEG/WebP/GIF 四种位图并核对 magic bytes**，明确拒绝 SVG：SVG 是同源可执行文档（可内嵌 `<script>`），被当背景图直接打开就是 XSS 面，而这里没有任何净化手段。
+- 前端**发的是 FormData**、后端收的是 **raw 字节**（本项目不用 multer，见 `assets.ts`）。拆包放在兼容层而不是改 4 组上传组件：JSX 是验证过的资产，兼容层本来就是这个翻译层。拆完**原样透传状态码**（后端成功是 201）。
+
+### 顺带修的装配层
+
+- `GET /api/admin/assets`、`GET /api/admin/reviews`、`/api/me/assets` 三处列表**直出 previewUrl**；`createAssetRouter` 新增可选 `library` 依赖（不注入时前端退回逐项拉详情的兜底，但正式装配必须注入）。
+- 列表直出后兼容层的 `ensurePreviewUrl` 正常情况下**一次网络请求都不发**——上面探针实测 `detailRequests=0`。
+
+### 验收（数字均为实际输出）
+
+- `npx tsc --noEmit` 后端零错误；`cd web && npx tsc --noEmit` 零错误
+- `npm test`（仅 SQLite）：**280 tests / 204 pass / 0 fail / 76 skipped**；全开门控（PG+Redis+Mailpit）：**280 tests / 280 pass / 0 fail / 0 skipped**（基线 243 → 280）
+- 新增测试：`tests/themeImage.test.ts`（25 项，双方言：四类型上传落盘并立刻写设置键 / 换图删上一版 / 同内容复用同 key / 拒 SVG 与「声明 PNG 实为 JPEG」/ 空内容与非法 type / 服务层大小闸 / 移除清键删文件幂等 / 外链设置键移除不炸 / 未注入服务 501）、`tests/listPreviewUrl.test.ts`（12 项，双方言：三个列表接口直出 previewUrl / **反复拉 3 轮列表 view_count 不动** / 详情接口仍然 +1 / 私有素材详情不计数）
+- 真实环境（后端 :3000 已重启加载新代码，前端 :5173）：探针页实测 `themeUpload.status=201`、`themeRemove=200`、`sendVerification → 502 SMTP_ERROR`（**本实例未配 SMTP，报错文案如实**；不再是 501「敬请期待」）、`verifyEmail=200`、`adminSkins.detailRequests=0`（旧行为是每页 N 次）、`blacklist → 501`（假数据已删）；后端直连实测 `download_count +1`、owner_only 对他人 403、验证后计数已还原
+- 截图（`G:/Skin2.catnight.top/.shots/`）：`24-admin-settings-theme-AFTER.png`（主题设置出现 `theme/light-bg-<sha12>.png` 与预览图 + 移除按钮）、`25-admin-skins-thumbnails.png`（缩略图直出，浏览/下载 30/0、0/0、0/0 无虚高）、`26-admin-users.png`（用户管理页正常，侧栏已无「黑名单」）
+- 收尾：删除探针页 `_probe7.html`、注入页 `_shot7.html`、`vite.verify.config.ts`、`.wbscratch-e2e/` 与 Edge profile；删除临时账号（`probe-*`/`e2e-*`）；`data/uploads/theme/` 清空、`LIGHT_BG_IMAGE` 还原为空串
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+---
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

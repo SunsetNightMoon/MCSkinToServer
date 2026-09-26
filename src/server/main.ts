@@ -35,6 +35,7 @@ import { SettingRepository } from '../repositories/settingRepository.js';
 import { StatsRepository } from '../repositories/statsRepository.js';
 import { TextureService } from '../textures/ingest.js';
 import { LibraryService } from '../library/libraryService.js';
+import { ThemeImageService } from '../site/themeImage.js';
 import { TextureProfileBuilder } from '../yggdrasil/textures.js';
 import { AssetUrlResolver } from '../storage/assetUrl.js';
 import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
@@ -117,6 +118,11 @@ async function main(): Promise<void> {
     blobs: new BlobRepository(db),
     users: userRepository,
     resolver: assetUrlResolver,
+  });
+  // 主题背景图：图片存 blob 存储（theme/ 前缀），当前地址写进站点设置键
+  const themeImages = new ThemeImageService({
+    storage,
+    settings: settingRepository,
   });
   // ---- P5：注册开关 / 邮箱验证 / 邮件发送 ----
   const secretBox = SecretBox.fromEnv();
@@ -224,6 +230,7 @@ async function main(): Promise<void> {
     emailChangeFlow,
     captcha,
     stats,
+    themeImages,
     mailService,
     secretBox,
   });

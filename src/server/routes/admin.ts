@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { raw, Router } from 'express';
 import type { TokenService } from '../../auth/tokens.js';
 import type { LibraryService } from '../../library/libraryService.js';
 import type { IdentityService } from '../../auth/identity.js';
@@ -8,6 +8,11 @@ import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { SettingRepository } from '../../repositories/settingRepository.js';
 import type { StatsRepository } from '../../repositories/statsRepository.js';
 import { MAX_STATS_DAYS, MIN_STATS_DAYS } from '../../repositories/statsRepository.js';
+import {
+  MAX_THEME_IMAGE_BYTES,
+  parseThemeImageType,
+  type ThemeImageService,
+} from '../../site/themeImage.js';
 import { defaultSubject, builtinTemplateHtml } from '../../mail/templates.js';
 import type {
   AssetRepository,
@@ -33,6 +38,8 @@ import { AppError } from '../../errors.js';
  * - PUT   /api/admin/email-template    保存邮件模板
  * - GET   /api/admin/stats             仪表盘概览（用户/皮肤/待审三个数）
  * - GET   /api/admin/stats/daily?days= 仪表盘趋势序列（按日，缺失补 0）
+ * - POST  /api/admin/upload-theme-image?type=  上传主题背景图（raw 位图字节，成功即写设置键）
+ * - DELETE /api/admin/theme-image/:type        移除主题背景图（清设置键 + 删文件）
  * 全部要求 admin 及以上（requireRole(1)）。
  *
  * 用户管理那三个端点（send-verification / verify-email）不是可有可无的补充：
@@ -55,6 +62,8 @@ export interface AdminRouteDependencies {
   runtimeSettings?: RuntimeSettings;
   /** 统计聚合（仪表盘）；未注入则两个 stats 端点返回 502 */
   stats?: StatsRepository;
+  /** 主题背景图上传/移除；未注入则相关端点返回 501 */
+  themeImages?: ThemeImageService;
 }
 
 const REVIEW_STATUSES: ReadonlySet<string> = new Set(['approved', 'rejected']);
@@ -78,6 +87,26 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     }
     return deps.stats;
   };
+
+  /** 主题图服务缺失时同理明确报「未启用」，而不是 500 */
+  const requireThemeImages = (): ThemeImageService => {
+    if (!deps.themeImages) {
+      throw new AppError('NOT_IMPLEMENTED', '本实例未启用主题图上传');
+    }
+    return deps.themeImages;
+  };
+
+  /**
+   * 主题图上传的 body 解析：只认位图 Content-Type。
+   *
+   * limit 与 `MAX_THEME_IMAGE_BYTES` 同值（这里是闸门，服务层那道是兜底）。
+   * 类型不在白名单时 `raw()` **不解析**（`req.body` 为空）→ 服务层会以
+   * 「上传内容为空」拒绝，路径上不会出现「解析器悄悄吞掉合法图片」。
+   */
+  const rawImage = raw({
+    type: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+    limit: MAX_THEME_IMAGE_BYTES,
+  });
 
   /**
    * 仪表盘概览：用户总数 / 皮肤总数 / 待审核。
@@ -134,7 +163,13 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
       page,
       pageSize,
     });
-    res.json({ ...result, page, pageSize });
+    // 直出 previewUrl：前端不再逐项调详情端点补图片地址（那会把浏览数刷高）
+    res.json({
+      ...result,
+      items: await deps.library.withPreviewUrls(result.items),
+      page,
+      pageSize,
+    });
   });
 
   router.get('/api/admin/reviews', auth, admin, async (req, res) => {
@@ -144,7 +179,7 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
         ? (q['kind'] as AssetKind)
         : undefined;
     const items = await deps.assets.listPending(kind);
-    res.json({ items });
+    res.json({ items: await deps.library.withPreviewUrls(items) });
   });
 
   router.get('/api/admin/assets/:id/reviews', auth, admin, async (req, res) => {
@@ -360,6 +395,40 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     // 缓存里还留着旧模板，不刷新的话下一封信仍是旧的
     await deps.runtimeSettings?.refresh();
     res.json({ ok: true });
+  });
+
+  /**
+   * 上传主题背景图（明亮/暗色/登录页/登录嵌入）。
+   *
+   * **收 raw 字节而不是 multipart**：与本项目素材上传同一约定 ——
+   * 不引 multer，前端直接用 `fetch(url, { body: file })` 发原始字节。
+   * 旧前端原先发的是 FormData（后端从来没有这个路由，所以也没人发现），
+   * 现按约定改成原始字节。
+   *
+   * 上传成功即写入对应的设置键（`LIGHT_BG_IMAGE` 等），不必让管理员再点一次「保存」：
+   * 按钮语义就是「换背景」，写了不算等于没换。
+   */
+  router.post(
+    '/api/admin/upload-theme-image',
+    auth,
+    admin,
+    rawImage,
+    async (req, res) => {
+      const type = parseThemeImageType((req.query as Record<string, unknown>)['type']);
+      const result = await requireThemeImages().upload(
+        type,
+        req.body as Buffer,
+        req.headers['content-type'],
+      );
+      res.status(201).json({ ok: true, url: result.url, type });
+    },
+  );
+
+  /** 移除主题背景图：清空设置键 + 删文件（文件早就不在了也算成功） */
+  router.delete('/api/admin/theme-image/:type', auth, admin, async (req, res) => {
+    const type = parseThemeImageType(req.params['type']);
+    const result = await requireThemeImages().remove(type);
+    res.json({ ok: true, type, ...result });
   });
 
   return router;

@@ -100,9 +100,36 @@ export class LibraryService {
     this.now = deps.now ?? (() => new Date());
   }
 
-  private async previewUrl(asset: AssetRow): Promise<string | null> {
+  /**
+   * asset → 对外取件 URL。
+   *
+   * 公开给仓储/HTTP 层用（管理端列表与「我的素材」都要直出 previewUrl，
+   * 见 `withPreviewUrls`）：它是唯一知道「blob → storageKey → publicUrl」这条链路的地方，
+   * 别处再实现一遍必然漂移。
+   *
+   * **不碰浏览计数** —— 计数只在 `getDetail` 里做（那才是「有人打开了详情页」）。
+   */
+  async previewUrl(asset: AssetRow): Promise<string | null> {
     const blob = await this.blobs.findById(asset.blobId);
     return blob ? this.resolver.forBlob(blob) : null;
+  }
+
+  /**
+   * 给一批资产补 `previewUrl`（**不含**任何计数副作用）。
+   *
+   * 为什么必须有这个批量方法：列表接口原先只返回裸 `AssetRow`，
+   * 前端为了拿到图片地址只能对**每一项**再调一次 `GET /api/assets/:id` ——
+   * 而那个端点会 `incrementViewCount`，于是「翻一页列表 = 每项浏览数 +1」，
+   * 浏览数完全失真。列表接口直接给图片地址，这条路就不必再走。
+   */
+  async withPreviewUrls<T extends AssetRow>(
+    assets: readonly T[],
+  ): Promise<Array<T & { previewUrl: string | null }>> {
+    const out: Array<T & { previewUrl: string | null }> = [];
+    for (const asset of assets) {
+      out.push({ ...asset, previewUrl: await this.previewUrl(asset) });
+    }
+    return out;
   }
 
   isPubliclyVisible(asset: AssetRow): boolean {

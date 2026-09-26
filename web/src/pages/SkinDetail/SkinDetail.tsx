@@ -106,19 +106,36 @@ export function SkinDetail() {
     if (!skin) return
 
     try {
-      const response = await fetch(skin.file_path)
+      // 先向后端要「可下载地址」：`GET /api/assets/:id/download` 会按 download_policy
+      // 校验下载权限，并把 download_count +1。
+      //
+      // 这里以前直接 `fetch(skin.file_path)` —— 等于同时绕过校验与计数：
+      // owner_only 的素材只要拿到 file_path 就能下，而 download_count 永远是 0
+      // （后台「下载数」一列因此一直全是 0，看起来像统计没做）。
+      const ticketRes = await fetch(`/api/assets/${skin.id}/download`)
+      if (!ticketRes.ok) {
+        const data = await ticketRes.json().catch(() => ({}))
+        throw new Error(data.errorMessage || t('detail.downloadFailed'))
+      }
+      const { url } = await ticketRes.json()
+      if (!url) throw new Error(t('detail.downloadFailed'))
+
+      // 地址拿到后仍走 blob 下载：跨源时 <a download> 会被浏览器忽略，
+      // 而素材存储已开 ACAO（见 app.ts 的本地存储静态挂载）
+      const response = await fetch(url)
       const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
+      const objectUrl = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
+      a.href = objectUrl
       a.download = `skin_${skin.id}.png`
       document.body.appendChild(a)
       a.click()
-      window.URL.revokeObjectURL(url)
+      window.URL.revokeObjectURL(objectUrl)
       document.body.removeChild(a)
       message.success(t('detail.downloadSuccess'))
-    } catch (error) {
-      message.error(t('detail.downloadFailed'))
+    } catch (error: any) {
+      // 403（无下载权限）等业务错误的文案由后端给出，直接展示比「下载失败」更有用
+      message.error(error?.message || t('detail.downloadFailed'))
     }
   }
 

@@ -37,6 +37,7 @@ import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
 import type { CaptchaService } from '../account/captcha.js';
 import type { StatsRepository } from '../repositories/statsRepository.js';
+import type { ThemeImageService } from '../site/themeImage.js';
 
 /**
  * Express 应用工厂（蓝图 §2.1）：
@@ -109,6 +110,11 @@ export interface AppDependencies {
    * 这里只拿现成实例，不再透传配置项。
    */
   stats?: StatsRepository;
+  /**
+   * 主题背景图上传/移除（浅色/深色/登录页/登录页内嵌）。
+   * 未注入时两个管理端点返回 501，前端按钮会提示「敬请期待」。
+   */
+  themeImages?: ThemeImageService;
   /**
    * 批4-F：第三方登录 provider 列表来源。
    * 未注入时读模块级注册表（宿主在自己的启动脚本里 `registerOAuthProvider`）。
@@ -294,6 +300,7 @@ export function createApp(deps: AppDependencies): Express {
       textures: deps.textures,
       assets: deps.assetRepository,
       assetUrlResolver: deps.assetUrlResolver,
+      library: deps.library,
     }),
   );
 
@@ -312,6 +319,7 @@ export function createApp(deps: AppDependencies): Express {
       settings: deps.settings,
       runtimeSettings: deps.runtimeSettings,
       stats: deps.stats,
+      themeImages: deps.themeImages,
     }),
   );
 

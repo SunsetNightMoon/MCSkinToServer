@@ -7,7 +7,6 @@ import {
   SkinOutlined,
   SettingOutlined,
   AppstoreOutlined,
-  BlockOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useAuthStore } from '../../store/authStore'
@@ -20,7 +19,6 @@ import CapeApproval from './CapeApproval'
 import { SystemSettings } from './SystemSettings'
 import AdminSkinManagement from './AdminSkinManagement'
 import AdminCapeManagement from './AdminCapeManagement'
-import BlacklistManagement from './BlacklistManagement'
 import AdminErrorBoundary from './AdminErrorBoundary'
 import {
   LineChart,
@@ -102,11 +100,10 @@ export function AdminDashboard(_props: AdminDashboardProps) {
       label: t('admin.capeManagement'),
       // level >= 1 可用（管理员可管理所有披风）
     },
-    ...(isSuperAdmin ? [{
-      key: 'blacklist',
-      icon: <BlockOutlined />,
-      label: t('admin.blacklist'),
-    }] : []),
+    // 「黑名单」页签已摘除：MSCTS 既没有封禁名单表也没有 `/api/admin/blacklist` 端点，
+    // 旧版页面靠兼容层返回假数据（永远「暂无记录」）撑着 —— 那是死页面。
+    // 封禁能力本身在（用户管理里的封禁按钮走 PATCH /api/admin/users/:id），
+    // 只是没有独立的名单页。`BlacklistManagement.tsx` 暂时保留不挂载，等后端补表再启用。
     ...(isSuperAdmin ? [{
       key: 'settings',
       icon: <SettingOutlined />,
@@ -129,8 +126,6 @@ export function AdminDashboard(_props: AdminDashboardProps) {
           return <AdminSkinManagement />
         case 'cape-management':
           return <AdminCapeManagement />
-        case 'blacklist':
-          return <BlacklistManagement />
         case 'settings':
           return <SystemSettings />
         default:

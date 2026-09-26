@@ -85,13 +85,28 @@ async function rawFetch(url: string, init: RequestInit = {}): Promise<Response> 
   return res
 }
 
-/** 拉一次详情以获得 previewUrl（MSCTS 的列表接口不返回文件地址） */
-async function withPreviewUrl<T extends { id: string }>(
+/**
+ * 兜底补齐 `previewUrl`。
+ *
+ * MSCTS 的列表端点现在**直出** `previewUrl`（服务层 `LibraryService.withPreviewUrls`
+ * 统一补，见 `/api/library`、`/api/admin/assets`、`/api/admin/reviews`、
+ * `/api/me/assets`），所以正常情况下这里**一次网络请求都不会发**。
+ * 保留兜底只为兼容更早的后端版本。
+ *
+ * 它曾经是「列表必有的一步」：对**每一项**都调 `GET /api/assets/:id` 取文件地址。
+ * 而那个端点会 `incrementViewCount` —— 于是「翻一页列表 = 每项浏览数 +1」，
+ * 管理端素材列表与「我的素材」都把浏览数刷高过（实测 30 → 31）。
+ * 这是本条兜底必须退居其次、不能反过来当主路径用的原因。
+ */
+async function ensurePreviewUrl<T extends { id: string; previewUrl?: string }>(
   items: T[],
   headers?: HeadersInit,
 ): Promise<any[]> {
   return Promise.all(
     items.slice(0, MAX_ENRICH).map(async (item) => {
+      // 用「键是否存在」判断，而不是「值非空」：后端直出的 previewUrl 可能是 null
+      // （blob 记录确实缺失），再拉一次详情仍然是 null，只会白白把浏览数刷高。
+      if ('previewUrl' in item) return item
       try {
         const res = await rawFetch(`/api/assets/${item.id}`, { headers })
         if (!res.ok) return item
@@ -321,7 +336,7 @@ export async function compatFetch(
     const res = await rawFetch('/api/me/assets?kind=skin', { headers })
     if (!res.ok) return passthroughError(res)
     const body = await res.json()
-    const enriched = await withPreviewUrl<any>(body.assets ?? [], headers)
+    const enriched = await ensurePreviewUrl<any>(body.assets ?? [], headers)
     // 旧版 MySkins / Wardrobe 期望拿到数组
     return json(enriched.map((it) => toLegacyAsset(it)))
   }
@@ -329,7 +344,7 @@ export async function compatFetch(
     const res = await rawFetch('/api/me/assets?kind=cape', { headers })
     if (!res.ok) return passthroughError(res)
     const body = await res.json()
-    const enriched = await withPreviewUrl<any>(body.assets ?? [], headers)
+    const enriched = await ensurePreviewUrl<any>(body.assets ?? [], headers)
     const items = enriched.map((it) => toLegacyAsset(it))
     return json({ capes: items, items })
   }
@@ -389,7 +404,7 @@ export async function compatFetch(
     const res = await rawFetch(`/api/admin/reviews?kind=${kind}`, { headers })
     if (!res.ok) return passthroughError(res)
     const body = await res.json()
-    const enriched = await withPreviewUrl<any>(body.items ?? [], headers)
+    const enriched = await ensurePreviewUrl<any>(body.items ?? [], headers)
     return json(enriched.map((it) => toLegacyAsset(it)))
   }
 
@@ -443,8 +458,8 @@ export async function compatFetch(
     const res = await rawFetch(`/api/admin/assets?${target}`, { headers })
     if (!res.ok) return passthroughError(res)
     const body = await res.json()
-    // 管理端列表同样需要缩略图：补一次详情拿 previewUrl
-    const enriched = await withPreviewUrl<any>(body.items ?? [], headers)
+    // 缩略图由 `/api/admin/assets` 直出 previewUrl；这里只兜底（不再逐项拉详情刷高浏览数）
+    const enriched = await ensurePreviewUrl<any>(body.items ?? [], headers)
     const mapped = enriched.map((it) => toLegacyAsset(it))
     return json({
       skins: mapped,
@@ -546,14 +561,51 @@ export async function compatFetch(
     if (!res.ok) return passthroughError(res)
     return json(await res.json().catch(() => ({})))
   }
-  // ── 管理后台：黑名单（无后端支持） ──
-  if (path === '/api/admin/blacklist' && method === 'GET') {
-    return json([])
+
+  // ── 管理后台：主题背景图上传 / 移除 → MSCTS /api/admin/upload-theme-image、/theme-image/:type ──
+  //
+  // 后端（`src/site/themeImage.ts` + admin 路由）收的是 **raw 位图字节**
+  // （`express.raw({ type: ['image/png','image/jpeg','image/webp','image/gif'] })`），
+  // 而旧版 SystemSettings 发的是 `FormData`（字段名 `image`）。
+  // multipart 的 body 会被 raw 解析器整体当成"不是这几种 Content-Type"而拒收，
+  // 所以必须在这里拆包、按文件自身的 MIME 重发 —— 这是这条分支存在的唯一理由。
+  // 拆包放在兼容层而不是改 4 组上传组件：JSX 是验证过的资产，改动面越小越好。
+  if (path === '/api/admin/upload-theme-image' && method === 'POST') {
+    const type = query.get('type') ?? ''
+    const body = init.body
+    const file =
+      body instanceof FormData ? (body.get('image') as Blob | string | null) : null
+    if (!file || typeof file === 'string') {
+      const msg = '未收到图片文件（表单字段名应为 image）'
+      return jsonResponse({ error: 'VALIDATION_ERROR', message: msg, errorMessage: msg }, 400)
+    }
+    const target = new URLSearchParams({ type })
+    const uploadHeaders = new Headers(headers)
+    uploadHeaders.set('Content-Type', file.type || 'application/octet-stream')
+    const res = await rawFetch(`/api/admin/upload-theme-image?${target}`, {
+      method: 'POST',
+      headers: uploadHeaders,
+      body: await file.arrayBuffer(),
+    })
+    // 原样交回状态码（后端成功是 201）：合成 200 会把「创建成功」降级成「一般成功」，
+    // 和本项目其他透传分支保持同一纪律 —— 不吞状态码。
+    if (!res.ok) return passthroughError(res)
+    return new Response(await res.text(), { status: res.status, headers: { 'Content-Type': 'application/json' } })
   }
-  if (path.startsWith('/api/admin/blacklist')) {
-    if (method === 'GET') return json({ permanent: 0, temporary: 0, expired: 0, cleaned: 0 })
-    return notSupported()
+  // 移除：后端会同时清空对应设置键（`LIGHT_BG_IMAGE` 等）并删文件，
+  // 所以这里纯粹是转发，不做任何本地臆测。
+  if ((m = path.match(/^\/api\/admin\/theme-image\/([^/]+)$/)) && method === 'DELETE') {
+    const res = await rawFetch(url, { method: 'DELETE', headers })
+    if (!res.ok) return passthroughError(res)
+    return new Response(await res.text(), { status: res.status, headers: { 'Content-Type': 'application/json' } })
   }
+
+  // ── 管理后台：黑名单 ──
+  // 旧版 `BlacklistManagement` 依赖 `/api/admin/blacklist`，MSCTS **没有**这张表也没有
+  // 对应端点；这里曾经返回假数据（空数组 / 全 0 统计），于是页面上永远显示
+  // 「暂无封禁记录」—— 一个看起来正常、实际上从不反映真实状态、也不会报错的死页面。
+  // 假数据已删除，页签也已从管理后台侧栏摘掉（`AdminDashboard.tsx`）。
+  // 若哪天真要做封禁名单，请先补后端再挂页面，别再走「前端假装有」这条路。
 
   // ── 已有 MSCTS 后端端点的 /api/admin/* 直接透传，其余仍未支持 ──
   // 注意：这条兜底是按前缀拦截的，新增任何 /api/admin 端点都必须同时加进白名单，
@@ -562,6 +614,12 @@ export async function compatFetch(
     '/api/admin/settings',
     '/api/admin/test-smtp',
     '/api/admin/email-template',
+    // 代用户重发验证邮件（POST）与手动放行/收回邮箱验证（PUT）：
+    // 后端 `admin.ts` 里早就实现了，但前缀兜底把它们拦成 501，
+    // 于是 UserManagement 上那两个按钮点了只会弹「敬请期待」。
+    // 带尾斜杠是有意的：`/api/admin/users`（列表）由上面的分支处理，
+    // 前缀写成不带斜杠会把列表也一起放过去，绕过它原本的翻译逻辑。
+    '/api/admin/users/',
   ]
   if (
     path.startsWith('/api/admin/') &&
