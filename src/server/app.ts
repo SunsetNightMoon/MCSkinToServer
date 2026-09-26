@@ -18,6 +18,8 @@ import type { EmailChangeFlow } from '../account/emailChangeFlow.js';
 import type { OAuthProvider } from '../account/oauth/types.js';
 import type { MailService } from '../mail/mailService.js';
 import type { RuntimeSettings } from '../site/runtimeSettings.js';
+import { RUNTIME_SETTING_DEFAULTS } from '../site/runtimeSettings.js';
+import { buildAuthlibInjectorMeta } from '../yggdrasil/authlibInjectorMeta.js';
 import type { SiteUrlResolver } from '../site/siteUrl.js';
 import type { SecretBox } from '../util/secretBox.js';
 import type { RateLimiterPort, CachePort } from '../cache/types.js';
@@ -218,6 +220,34 @@ export function createApp(deps: AppDependencies): Express {
   };
   app.get('/', metadataHandler);
   app.get('/api/yggdrasil', metadataHandler);
+
+  // ---- authlib-injector 元数据（HMCL 用它给认证服务器命名）----
+  // 探测链：HMCL 在「添加认证服务器」时对 `<所填地址>/.well-known/authlib-injector`
+  // 发 GET，读到 serverName 才把名称填成站点标题，否则原样填 URL。
+  // 用户填 /api/yggdrasil 与裸站点根两种写法，因此两个前缀都挂。
+  const aiMetaHandler = async (
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> => {
+    await siteUrl?.ensureFresh();
+    const origin = siteUrl
+      ? siteUrl.originSync()
+      : new URL(config.publicBaseUrl).origin;
+    res.json(
+      buildAuthlibInjectorMeta({
+        origin,
+        serverName: deps.runtimeSettings
+          ? await deps.runtimeSettings.siteTitle()
+          : RUNTIME_SETTING_DEFAULTS.siteTitle,
+        openRegistration: deps.runtimeSettings
+          ? await deps.runtimeSettings.allowRegistration()
+          : RUNTIME_SETTING_DEFAULTS.allowRegistration,
+      }),
+    );
+  };
+  app.get('/.well-known/authlib-injector', aiMetaHandler);
+  app.get('/api/yggdrasil/.well-known/authlib-injector', aiMetaHandler);
+  app.get('/authserver/.well-known/authlib-injector', aiMetaHandler);
 
   // ---- Yggdrasil 协议端点（P1：认证五端点 + 会话/纹理 + 批量角色查询）----
   // 路由内部为相对路径，多前缀挂载：

@@ -17,6 +17,7 @@ import {
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
 import { buildForProfile } from '../src/yggdrasil/buildForProfile.js';
 import { buildMetadataDto } from '../src/yggdrasil/metadata.js';
+import { buildAuthlibInjectorMeta } from '../src/yggdrasil/authlibInjectorMeta.js';
 import { loadOrCreateKeyPair, publicKeyDerBase64, publicKeyPemOneLine } from '../src/yggdrasil/keys.js';
 import {
   toCanonicalUuid,
@@ -319,4 +320,19 @@ test('yggdrasil: findTextureState 排除 rejected + buildForProfile 链路', asy
   );
   assert.equal(payload.textures.CAPE, undefined);
   assert.ok(prop.signature);
+});
+
+test('authlib-injector 元数据：站点根尾斜杠吞掉、serverName 与链接跟随站点根', () => {
+  const meta = buildAuthlibInjectorMeta({
+    origin: 'https://skin.example.com/',
+    serverName: '猫旅之夜',
+    openRegistration: false,
+  });
+  assert.equal(meta.serverName, '猫旅之夜');
+  assert.equal(meta.openregistration, false);
+  assert.equal(meta.root, 'https://skin.example.com/api/yggdrasil');
+  // HashRouter：路由页链接必须挂在 # 之后，直连路径会被静态托管 404
+  assert.equal(meta.links.register, 'https://skin.example.com/#/register');
+  assert.equal(meta.links.password, 'https://skin.example.com/#/forgot-password');
+  assert.equal(meta.links.homepage, 'https://skin.example.com/');
 });

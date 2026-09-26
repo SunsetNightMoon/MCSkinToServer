@@ -61,7 +61,7 @@ node --import tsx src/server/main.ts
 ```nginx
 root /path/to/MCSTS/web/dist;
 location / { try_files $uri $uri/ /index.html; }   # HashRouter のドキュメント入口は /
-location ~ ^/(api|uploads)/ {                       # 業務 API + Yggdrasil + テクスチャ
+location ~ ^/(api|uploads|\.well-known)/ {          # 業務 API + Yggdrasil + テクスチャ + HMCL 名称検出
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -82,7 +82,7 @@ location ~ ^/(api|uploads)/ {                       # 業務 API + Yggdrasil + �
 npm test          # SQLite ベースライン（外部サービス不要、ゲート付きケースは自動 skip）
 ```
 
-フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**324/324 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**326/326 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## ドキュメント
 

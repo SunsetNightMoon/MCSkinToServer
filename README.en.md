@@ -61,7 +61,7 @@ Reverse proxy essentials (Nginx/OpenResty example):
 ```nginx
 root /path/to/MCSTS/web/dist;
 location / { try_files $uri $uri/ /index.html; }   # HashRouter document entry is /
-location ~ ^/(api|uploads)/ {                       # business API + Yggdrasil + textures
+location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil + textures + HMCL server-name probe
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -82,7 +82,7 @@ location ~ ^/(api|uploads)/ {                       # business API + Yggdrasil +
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **324/324 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **326/326 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

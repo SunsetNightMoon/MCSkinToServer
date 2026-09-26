@@ -198,6 +198,24 @@ test('http: /api/yggdrasil 返回元数据', async () => {
   assert.equal(meta.implementation.name, 'MCSTS');
 });
 
+test('http: /.well-known/authlib-injector 三个前缀都返回 AI 元数据（HMCL 命名）', async () => {
+  for (const path of [
+    '/.well-known/authlib-injector',
+    '/api/yggdrasil/.well-known/authlib-injector',
+    '/authserver/.well-known/authlib-injector',
+  ]) {
+    const res = await fetch(`${ctx.baseUrl}${path}`);
+    assert.equal(res.status, 200, path);
+    const body = (await res.json()) as Record<string, any>;
+    // 夹具未注入 runtimeSettings/siteUrlResolver → 走缺省站点名 + publicBaseUrl 反推的站点根
+    assert.equal(body.serverName, 'Minecraft Skin Server', path);
+    assert.equal(body.openregistration, true, path);
+    assert.equal(body.root, 'http://localhost:3000/api/yggdrasil', path);
+    assert.equal(body.links.register, 'http://localhost:3000/#/register', path);
+    assert.deepEqual(body.features, ['legacy_api'], path);
+  }
+});
+
 test('http: /api/me 未认证 → 401', async () => {
   const res = await fetch(`${ctx.baseUrl}/api/me`);
   assert.equal(res.status, 401);

@@ -61,7 +61,7 @@ node --import tsx src/server/main.ts
 ```nginx
 root /path/to/MCSTS/web/dist;
 location / { try_files $uri $uri/ /index.html; }   # HashRouter 文件入口是 /
-location ~ ^/(api|uploads)/ {                       # 業務介面 + Yggdrasil + 紋理
+location ~ ^/(api|uploads|\.well-known)/ {          # 業務介面 + Yggdrasil + 紋理 + HMCL 命名探測
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -82,7 +82,7 @@ location ~ ^/(api|uploads)/ {                       # 業務介面 + Yggdrasil +
 npm test          # SQLite 基線（無需外部服務，門控用例自動 skip）
 ```
 
-完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**324/324 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**326/326 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## 文件
 
