@@ -1,5 +1,7 @@
 # MCSTS · MCSkinToServer
 
+**简体中文** | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [日本語](README.ja.md)
+
 Minecraft 外置登录 + 皮肤/披风素材服务器（Yggdrasil 协议兼容），`CatTavernSkins`(plan3) 的重制版。
 
 - **当前版本：`2.3.1`**
