@@ -9,15 +9,11 @@ import Editor from '@monaco-editor/react'
 import './SystemSettings.css'
 import { isVideoFile } from '../../utils/media'
 import { settingBool } from '../../utils/settingBool'
+import { parseHomepageButtons, type HomepageButton } from '../../utils/homepageButtons'
 import { SITE_DEFAULTS } from '../../store/siteStore'
 import { useTranslation } from 'react-i18next'
 
 const { TextArea } = Input
-
-interface HomepageButton {
-  text: string
-  link: string
-}
 
 /* ============================================================
    全局自动更新 Switch（复用组件）
@@ -166,15 +162,9 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
       })
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
-      const buttons: HomepageButton[] = (() => {
-        try {
-          const parsed = JSON.parse(data.HOMEPAGE_BUTTONS || '[]')
-          return Array.isArray(parsed) ? parsed : []
-        } catch {
-          return []
-        }
-      })()
-      setExtraButtons(buttons)
+      // 后端可能返回已解析数组（早期/手工写入，生产域名服务器即此形态）或 JSON 字符串，
+      // 统一交给 parseHomepageButtons，杜绝 JSON.parse(数组) 抛错回落空数组的假「未保存」。
+      setExtraButtons(parseHomepageButtons(data.HOMEPAGE_BUTTONS))
       // 后端以 JSON 文本存取，布尔或字符串两种历史形态都兼容
       setCustomEnabled(
         data.HOMEPAGE_CUSTOM_ENABLED === true || String(data.HOMEPAGE_CUSTOM_ENABLED) === 'true',

@@ -9,12 +9,8 @@ import { useTranslation } from 'react-i18next'
 import { useSiteStore } from '../../store/siteStore'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { TopNav } from '../../components/TopNav/TopNav'
+import { parseHomepageButtons, type HomepageButton } from '../../utils/homepageButtons'
 import './Landing.css'
-
-interface HomepageButton {
-  text: string
-  link: string
-}
 
 /* ---------- component ---------- */
 export function Landing() {
@@ -56,7 +52,9 @@ export function Landing() {
             HOMEPAGE_TITLE_TEXT: String(data.HOMEPAGE_TITLE_TEXT || t('landing.welcomePrefix')),
             HOMEPAGE_TEXT: String(data.HOMEPAGE_TEXT || t('landing.welcomeText')),
             HOMEPAGE_BUTTON_TEXT: String(data.HOMEPAGE_BUTTON_TEXT || t('landing.enterProfile')),
-            HOMEPAGE_BUTTONS: String(data.HOMEPAGE_BUTTONS || '[]'),
+            // 后端可能直出已解析数组（生产域名服务器即此形态）；先归一化再存，
+            // 老写法 String(数组) 会得到 "[object Object]"，按钮全丢
+            HOMEPAGE_BUTTONS: JSON.stringify(parseHomepageButtons(data.HOMEPAGE_BUTTONS)),
             // 后端以 JSON 文本存取，布尔或字符串两种历史形态都兼容
             HOMEPAGE_CUSTOM_ENABLED: String(
               data.HOMEPAGE_CUSTOM_ENABLED === true || data.HOMEPAGE_CUSTOM_ENABLED === 'true',
@@ -75,15 +73,10 @@ export function Landing() {
   // 判断是否有自定义背景（从全局 store 读取，根据主题选择）
   const hasCustomBg = currentBgImage && currentBgImage.trim() !== ''
 
-  // 解析自定义按钮
-  const extraButtons: HomepageButton[] = (() => {
-    try {
-      const parsed = JSON.parse(siteSettings.HOMEPAGE_BUTTONS || '[]')
-      return Array.isArray(parsed) ? parsed.filter((b: any) => b.text && b.link) : []
-    } catch {
-      return []
-    }
-  })()
+  // 解析自定义按钮（数组/字符串两形态都吃；只渲染 text 与 link 都填了的）
+  const extraButtons: HomepageButton[] = parseHomepageButtons(siteSettings.HOMEPAGE_BUTTONS).filter(
+    (b) => b.text && b.link,
+  )
 
   // 高度自定义首页：开关开启**且**确实写入了 HTML 时才接管。
   // HTML 为空时不接管，否则开关一开首页会变成一片空白，管理员将无从下手（也给自己留了后路）。
