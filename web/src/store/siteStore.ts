@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { settingBool } from '../utils/settingBool'
 
 /**
  * 站点设置 store（适配 MSCTS 后端）。
@@ -20,6 +21,13 @@ export const SITE_DEFAULTS = {
   description: 'MINECRAFT SKIN SERVER',
   copyrightText: '© 2024 MSCTS',
   copyrightProject: 'Powered by MSCTS',
+  /**
+   * 允许注册的缺省值。
+   * 必须与后端 `RUNTIME_SETTING_DEFAULTS.allowRegistration` 一致：
+   * 页面按 true 渲染注册表单、后端按 false 拒绝注册，就会出现
+   * 「表单能填、提交必失败」的诡异体验。
+   */
+  allowRegistration: true,
 } as const
 
 interface SiteState {
@@ -27,6 +35,13 @@ interface SiteState {
   description: string
   /** 站点图标（顶栏徽标）。空串时顶栏回退到内置的 CSS "S" 方块 */
   logo: string
+
+  /**
+   * 是否允许注册（ALLOW_REGISTRATION）。
+   * 关闭时注册页不再展示表单，改为提示「本站已关闭注册」——
+   * 让用户填完整个表单才被 403 拒绝是很差的做法。
+   */
+  allowRegistration: boolean
 
   // 主题
   theme: 'light' | 'dark'
@@ -57,6 +72,7 @@ interface SiteState {
   setTitle: (title: string) => void
   setDescription: (description: string) => void
   setLogo: (url: string) => void
+  setAllowRegistration: (allow: boolean) => void
   setTheme: (theme: 'light' | 'dark') => void
   toggleTheme: () => void
   setLightBgImage: (url: string) => void
@@ -78,6 +94,7 @@ export const useSiteStore = create<SiteState>()(
       title: SITE_DEFAULTS.title,
       description: SITE_DEFAULTS.description,
       logo: '',
+      allowRegistration: SITE_DEFAULTS.allowRegistration,
 
       theme: 'dark', // 默认暗色
 
@@ -99,6 +116,7 @@ export const useSiteStore = create<SiteState>()(
       setTitle: (title) => set({ title }),
       setDescription: (description) => set({ description }),
       setLogo: (url) => set({ logo: url }),
+      setAllowRegistration: (allow) => set({ allowRegistration: allow }),
       setTheme: (theme) => set({ theme }),
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
@@ -124,6 +142,11 @@ export const useSiteStore = create<SiteState>()(
             title: data.SITE_TITLE || SITE_DEFAULTS.title,
             description: data.SITE_DESCRIPTION || SITE_DEFAULTS.description,
             logo: data.SITE_LOGO || '',
+            // 用容错解析：库里可能是布尔 false 或字符串 'false'，见 utils/settingBool.ts
+            allowRegistration: settingBool(
+              data.ALLOW_REGISTRATION,
+              SITE_DEFAULTS.allowRegistration,
+            ),
             ...(data.THEME
               ? { theme: data.THEME === 'light' ? 'light' : 'dark' }
               : {}),

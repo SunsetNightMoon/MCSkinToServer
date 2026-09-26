@@ -11,9 +11,18 @@ import type { StoragePort } from './types.js';
  */
 export class LocalDiskStorage implements StoragePort {
   private readonly root: string;
+  private readonly publicBaseUrlProvider: () => string;
 
-  constructor(root: string, private readonly publicBaseUrl: string) {
+  /**
+   * @param publicBaseUrl 素材前缀。传函数而不是字符串，是为了让站点根（BASE_URL）
+   *   在**运行期**被管理员改动后，新生成的素材 URL 立即跟着变 —— 传字符串会把
+   *   启动那一刻的值冻死，改域名后老实例仍在吐旧地址。
+   *   仍然兼容直接传字符串（测试与简单装配不需要动态性）。
+   */
+  constructor(root: string, publicBaseUrl: string | (() => string)) {
     this.root = resolve(root);
+    this.publicBaseUrlProvider =
+      typeof publicBaseUrl === 'function' ? publicBaseUrl : () => publicBaseUrl;
   }
 
   private pathFor(objectKey: string): string {
@@ -52,7 +61,7 @@ export class LocalDiskStorage implements StoragePort {
   }
 
   publicUrl(objectKey: string): string {
-    const base = this.publicBaseUrl.replace(/\/+$/, '');
+    const base = this.publicBaseUrlProvider().replace(/\/+$/, '');
     return `${base}/${objectKey}`;
   }
 }

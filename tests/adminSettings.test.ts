@@ -195,6 +195,7 @@ async function seedUser(
       new Date(),
     );
   }
+  assert.ok(res.token, '注册应当签发会话令牌');
   return { id: res.user.id, token: res.token.token };
 }
 
@@ -635,4 +636,43 @@ test('settings: 高度自定义首页相关键可保存并经公开端点保真�
   for (const [key, value] of Object.entries(payload)) {
     assert.deepEqual(pub.body[key], value, `${key} 未能经公开端点保真回读`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// 敏感键与部署键不得进公开白名单（P5）
+//
+// 白名单是「谁能看到这个键」的唯一闸门。漏进一个凭据键，密文/账号就会随
+// /api/settings/public 下发给每一位访客 —— 而前端并不会用到它，没有症状。
+// ---------------------------------------------------------------------------
+
+test('settings: 凭据类与部署类键不进公开白名单，写入后公开端点也看不到', async () => {
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('SMTP_PASS'), 'SMTP_PASS 绝不能公开');
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('SMTP_USER'));
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('SMTP_HOST'));
+  // BASE_URL 是站点根（部署形态），前端从 window.location 取，无需下发
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('BASE_URL'));
+
+  const put = await api('/api/admin/settings', {
+    method: 'PUT',
+    token: env().adminToken,
+    body: {
+      SMTP_HOST: 'smtp.secret.test',
+      SMTP_USER: 'noreply@secret.test',
+      SMTP_PASS: 'should-never-leak',
+      BASE_URL: 'https://secret.test',
+    },
+  });
+  assert.equal(put.status, 200);
+
+  const pub = await api('/api/settings/public');
+  assert.equal(pub.body.SMTP_HOST, undefined);
+  assert.equal(pub.body.SMTP_USER, undefined);
+  assert.equal(pub.body.SMTP_PASS, undefined);
+  assert.equal(pub.body.BASE_URL, undefined);
+
+  // 管理端能读到：BASE_URL 保真，SMTP_PASS 只回「已配置」标志 + 空串
+  const admin = await api('/api/admin/settings', { token: env().adminToken });
+  assert.equal(admin.body.BASE_URL, 'https://secret.test');
+  assert.equal(admin.body.SMTP_PASS, '');
+  assert.equal(admin.body.SMTP_PASS_SET, true);
 });

@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import type { IdentityService } from '../../auth/identity.js';
 import type { TokenService } from '../../auth/tokens.js';
+import type { EmailFlow } from '../../account/emailFlow.js';
+import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
 import { requireAuth } from '../middleware.js';
 import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
 import { RateLimitKeys } from '../../cache/keys.js';
+import { AppError } from '../../errors.js';
 
 /**
  * Web 身份 HTTP 适配层：
@@ -25,6 +28,14 @@ import { RateLimitKeys } from '../../cache/keys.js';
 export interface IdentityRouteDependencies {
   identity: IdentityService;
   tokenService: TokenService;
+  /**
+   * 站点运行期设置（注册开关 / 邮箱验证开关）。
+   * 未注入时按「允许注册、不要求验证」处理 —— 与 RUNTIME_SETTING_DEFAULTS 一致，
+   * 使未接线的测试与嵌入式用法行为不变。
+   */
+  runtimeSettings?: RuntimeSettings;
+  /** 邮箱流程；仅在开启「要求邮箱验证」时用到，未注入则该开关无法生效 */
+  emailFlow?: EmailFlow;
   /** 限流器；未注入则不做限流（测试场景） */
   rateLimiter?: RateLimiterPort;
   /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
@@ -73,16 +84,57 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
 
   router.post('/api/auth/register', ...registerLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+
+    // 注册总开关：关闭时不建号（管理员仍可用管理端接口/直接改库加人）
+    if (deps.runtimeSettings && !(await deps.runtimeSettings.allowRegistration())) {
+      throw new AppError('REGISTRATION_DISABLED', '本站已关闭注册');
+    }
+
+    const requiresVerification = deps.runtimeSettings
+      ? await deps.runtimeSettings.requireEmailVerification()
+      : false;
+
+    // 预检发信能力：宁可现在拒绝，也不要把用户建成「登不进去、也收不到验证信」的账号。
+    // 那种账号既占邮箱又只能靠人工放行，是最糟的失败形态。
+    if (requiresVerification) {
+      if (!deps.emailFlow) {
+        throw new AppError(
+          'SMTP_ERROR',
+          '本站要求邮箱验证，但邮件发送能力未启用，请联系管理员',
+        );
+      }
+      await deps.emailFlow.assertMailReady();
+    }
+
     const result = await deps.identity.register({
       email: String(body['email'] ?? ''),
       password: String(body['password'] ?? ''),
       profileName: String(body['profileName'] ?? ''),
+      // 要求验证时不签发会话：否则「必须验证邮箱」形同虚设
+      issueSession: !requiresVerification,
     });
+
+    let verificationEmailSent = false;
+    if (requiresVerification && deps.emailFlow) {
+      try {
+        verificationEmailSent = (await deps.emailFlow.sendVerification(result.user.id)).sent;
+      } catch (err) {
+        // 账号已经建好，此时回滚代价更大（用户会卡在「邮箱已被注册」）。
+        // 如实把失败回报给前端，让用户能点重发、或由管理员在用户管理页手动放行。
+        console.error(
+          '[register] 验证邮件发送失败:',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     res.status(201).json({
       user: result.user,
       profile: result.profile,
-      token: result.token.token,
-      expiresAt: result.token.expiresAt,
+      token: result.token?.token ?? null,
+      expiresAt: result.token?.expiresAt ?? null,
+      requiresVerification,
+      verificationEmailSent,
     });
   });
 
@@ -91,12 +143,15 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
     const result = await deps.identity.loginWeb({
       email: String(body['email'] ?? ''),
       password: String(body['password'] ?? ''),
+      requireEmailVerified: deps.runtimeSettings
+        ? await deps.runtimeSettings.requireEmailVerification()
+        : false,
     });
     res.json({
       user: result.user,
       profile: result.profile,
-      token: result.token.token,
-      expiresAt: result.token.expiresAt,
+      token: result.token?.token ?? null,
+      expiresAt: result.token?.expiresAt ?? null,
     });
   });
 
@@ -121,8 +176,8 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
     res.json({
       user: result.user,
       profile: result.profile,
-      token: result.token.token,
-      expiresAt: result.token.expiresAt,
+      token: result.token?.token ?? null,
+      expiresAt: result.token?.expiresAt ?? null,
     });
   });
 

@@ -4,6 +4,13 @@ import { createDatabase } from '../db/index.js';
 import { createCacheLayer } from '../cache/index.js';
 import { runMigrations } from '../migrate/runner.js';
 import { createStoragePort } from '../storage/index.js';
+import { SiteUrlResolver } from '../site/siteUrl.js';
+import { RuntimeSettings } from '../site/runtimeSettings.js';
+import { SecretBox, MASTER_SECRET_ENV } from '../util/secretBox.js';
+import { AccountTokenRepository } from '../repositories/accountTokenRepository.js';
+import { SmtpMailer } from '../mail/smtpMailer.js';
+import { MailService } from '../mail/mailService.js';
+import { EmailFlow } from '../account/emailFlow.js';
 import { TokenService } from '../auth/tokens.js';
 import { IdentityService } from '../auth/identity.js';
 import { purgeExpiredAccounts } from '../auth/accountLifecycle.js';
@@ -46,9 +53,29 @@ async function main(): Promise<void> {
     return;
   }
 
-  const storage = createStoragePort(config);
   // P5 可选依赖：有 REDIS_URL 走 Redis，否则/连不上时降级进程内存（进程照常启动）
   const cacheLayer = await createCacheLayer({ redisUrl: config.redisUrl });
+
+  // 站点设置必须先于存储创建：素材 URL 前缀要跟着站点根（BASE_URL）走。
+  // 注意 PUBLIC_BASE_URL 这里读**真实环境变量**而不是 config.publicBaseUrl ——
+  // config 里那个字段带了 `http://localhost:3000/uploads` 的缺省值，
+  // 分不清「运维显式配了」和「吃了缺省」，会导致管理员设了 BASE_URL 后素材地址仍指向 localhost。
+  const explicitAssetBaseUrl = process.env['PUBLIC_BASE_URL']?.trim() || undefined;
+  const settingRepository = new SettingRepository(
+    db,
+    cacheLayer.cache,
+    config.settingsCacheTtlMs,
+  );
+  const siteUrlResolver = new SiteUrlResolver({
+    settings: settingRepository,
+    envPublicBaseUrl: explicitAssetBaseUrl,
+    envSkinDomains: config.skinDomains,
+  });
+  await siteUrlResolver.refresh();
+
+  const storage = createStoragePort(config, () =>
+    siteUrlResolver.assetBaseUrlSync(),
+  );
   const rsaKeyPair = loadOrCreateKeyPair(config.rsaPrivateKeyPath);
   const tokenRepository = new TokenRepository(db);
   const tokenService = new TokenService(tokenRepository);
@@ -80,11 +107,35 @@ async function main(): Promise<void> {
     users: userRepository,
     resolver: assetUrlResolver,
   });
-  const settingRepository = new SettingRepository(
+  // ---- P5：注册开关 / 邮箱验证 / 邮件发送 ----
+  const secretBox = SecretBox.fromEnv();
+  if (!secretBox) {
+    console.warn(
+      `[mscts] 未设置 ${MASTER_SECRET_ENV}：SMTP 密码将以明文存入 system_settings`,
+    );
+  }
+  const runtimeSettings = new RuntimeSettings({
+    settings: settingRepository,
+    secretBox,
+  });
+  await runtimeSettings.refresh();
+
+  const accountTokens = new AccountTokenRepository(db);
+  const smtpMailer = new SmtpMailer(runtimeSettings);
+  const mailService = new MailService({
+    mailer: smtpMailer,
+    runtime: runtimeSettings,
+  });
+  const emailFlow = new EmailFlow({
     db,
-    cacheLayer.cache,
-    config.settingsCacheTtlMs,
-  );
+    users: userRepository,
+    tokens: accountTokens,
+    tokenService,
+    mail: mailService,
+    siteUrl: siteUrlResolver,
+    // 复用 IdentityService 的密码规则与 bcrypt cost，避免重置路径强度漂移
+    passwords: identity,
+  });
 
   // 账号宽限期到期清理（注销生命周期）：启动时执行一次，失败不阻塞启动
   try {
@@ -102,6 +153,17 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error(
       '[mscts] account purge failed (non-fatal):',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // 过期的一次性令牌（邮箱验证 / 密码重置）顺手清掉：这两张表只增不减，
+  // 不清就会随「用户反复点重发」一直长。失败同样不阻塞启动。
+  try {
+    await emailFlow.purgeExpiredTokens();
+  } catch (err) {
+    console.error(
+      '[mscts] account token purge failed (non-fatal):',
       err instanceof Error ? err.message : err,
     );
   }
@@ -126,6 +188,12 @@ async function main(): Promise<void> {
     rateLimitSettings: resolveRateLimit(config),
     cache: cacheLayer.cache,
     settingsCacheTtlMs: config.settingsCacheTtlMs,
+    // P5：站点地址 / 开关 / 邮件
+    siteUrlResolver,
+    runtimeSettings,
+    emailFlow,
+    mailService,
+    secretBox,
   });
   const port = Number(process.env['PORT'] ?? 3000);
   const server = app.listen(port, () => {

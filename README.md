@@ -228,6 +228,65 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
     - 无头截图（dev :5173，简中）：首页自定义 HTML 与 CSS 生效且顶栏保留、管理端开关两种状态（开启时显示风险提示 + Monaco 带语法高亮的编辑器）、站标替换为自定义图片、披风库搜索框出现、个人中心三行说明消失
   - **附带发现（本轮未改，待决策）**：后端**从不读取任何站点设置键** —— `ALLOW_REGISTRATION` / `REQUIRE_EMAIL_VERIFICATION` / `ENABLE_CAPTCHA` 只出现在白名单里，没有任何业务调用点。因此注册开关、邮箱验证开关、验证码开关目前是**纯装饰**（存了也没人消费）。是否接线需单独决策。
 
+- 2026-09-24 P5 第三批：**三个注册开关接线 + 站点地址双口径（`BASE_URL` / `PUBLIC_BASE_URL`）+ 邮件子系统（SMTP / 邮箱验证 / 密码重置）**。（承接第二批的两项遗留：开关是纯装饰、`BASE_URL` 是死字段。）
+  - **先决策，再动手**（用户两轮确认）：验证码走**自托管数学题**（不引 Turnstile，本批未做）；邮箱验证做**完整实现**（含 SMTP、模板、令牌生命周期、页面）；`BASE_URL` 接上做「站点根」；`SMTP_PASS` **AES 加密入库**；**分两批**执行（批 1 = 地址 + 开关 + 邮件；批 2 = 验证码）。
+  - **地址双口径（这是本批的核心概念，两个地址不能合并）**：
+
+    | | 站点根 `BASE_URL` | 素材前缀 `PUBLIC_BASE_URL` |
+    |---|---|---|
+    | 权威来源 | **后台设置**（管理员换域名不该要求运维改 .env 重启） | **环境变量**（静态挂载点是部署形态的一部分：本地磁盘 / 将来 S3+CDN） |
+    | 用途 | 邮件里的验证/重置链接、派生 `skinDomains` | 纹理等静态资源的对外 URL |
+    | 未设置时 | 回落到 `PUBLIC_BASE_URL` 反推 / `http://localhost:3000` | 由站点根推导 `${origin}/uploads` |
+
+    合并成一个字段就无法表达「站点 URL 是域名 A、资源由 CDN 域名 B 提供」这种真实形态。实现在 `src/site/siteUrl.ts`（`SiteUrlResolver`）。
+  - **同步/异步的分工（关键设计）**：`StoragePort.publicUrl()` 是**同步**方法，被 Yggdrasil 纹理 builder 等大量同步路径调用，不可能为了读一次库改成 async。因此把「读设置」收敛到显式的 `refresh()`（结果写进进程内缓存，getter 同步读缓存），TTL 30s，且**管理端保存设置后主动 refresh** → 改完立即生效，TTL 只是兜底。
+  - **`SiteUrlResolver.link()` 必须生成 HashRouter 形态**：`https://host/#/verify-email?token=xxx`。写成 `https://host/verify-email` 会被静态托管 404（那里只有 `index.html`）。
+  - **三个开关（含硬 bug 修复）**：
+    - 新增 `src/site/runtimeSettings.ts` 作为站设置的**运行期读取器**（一次性 `getAll()` + 30s 缓存），业务层不再直接碰键名字符串：`allowRegistration()` / `requireEmailVerification()` / `enableCaptcha()` / `siteTitle()` / `smtp()` / `mailTemplate()`。
+    - **修复布尔形态歧义（真 bug）**：同一个开关可能是 AntD `Switch` 提交的**布尔** `false`、旧前端提交的**字符串** `'false'`、或手工 SQL 写入的 `1`。前后端原先都用 `data.X !== 'false'` 判断，布尔 `false` 会被判成 true → **「关掉注册后重新加载，开关又显示成开启」**，而库里其实存的是 `false`。这类 bug 不报错、只在界面上撒谎。现在前端 `web/src/utils/settingBool.ts` 与后端 `toSettingBool()` 是**唯一解析入口**，并有对拍测试逐项比对两侧结果。
+    - 接线点：`POST /api/auth/register` 先查 `ALLOW_REGISTRATION`（false → **403 `REGISTRATION_DISABLED`**，且**不建号**）；`POST /api/auth/login` 传 `requireEmailVerified`（未验证 → **403 `EMAIL_NOT_VERIFIED`**，前端据此展示「重发验证邮件」）。检查点刻意放在**密码校验之后、签发令牌之前** —— 放前会让未持密码者探出「这个邮箱注册过但没验证」。
+    - **开启邮箱验证但 SMTP 没配时会先预检并 502 拒绝注册**：宁可现在拒绝，也不要把用户建成「登不进去、也收不到验证信」的账号（那种账号既占邮箱又只能人工放行，是最糟的失败形态）。
+    - 要求邮箱验证时注册**不签发会话**（`issueSession: false`，`RegisterResult.token` 因此改为可空）。
+  - **邮件子系统（全新）**：
+    - `src/util/secretBox.ts`：AES-256-GCM，密文格式 `enc:v1:<iv:b64>:<tag:b64>:<ct:b64>`，密钥来自 `MSCTS_SECRET`（sha256 拉伸）。带版本前缀是为了将来换算法能识别并迁移；**容错读取**：不带前缀的历史明文原样返回（否则升级一次 SMTP 就废了），只有格式正确但认证失败才抛错。
+    - `src/mail/`：`MailPort` 窄端口（测试注入内存实现即可断言「注册后确实发了一封带验证链接的邮件」）→ `MailService`（渲染）→ `SmtpMailer`（nodemailer）。**transport 按配置指纹缓存**（口令只参与 sha256 指纹），避免管理员改一次 SMTP 就重建连接池。
+    - 敏感值只在 **HTTP 边界**处理：`PUT /api/admin/settings` 明文 → 密文（`encryptIfNeeded`，重复提交同一密文不会二次套娃）；`GET` 把密文换成**空串 + `SMTP_PASS_SET` 布尔**（把密文回传给浏览器毫无用处，只会让密文跟着日志、截图、前端状态到处跑）。空串回传**不覆盖**库里的真值 —— 否则管理员改个别的字段保存一次，SMTP 密码就被静默清空。
+    - `src/mail/templates.ts`：**内置模板以「占位符原文」形式保存**（管理端编辑器要拿带占位符的原文，拿渲染成品等于拿一封填好某个邮箱的样例邮件）。占位符 `{{EMAIL}}` / `{{VERIFY_URL}}` / `{{RESET_URL}}` / `{{SITE_TITLE}}` / `{{YEAR}}`；宽容规则：重置邮件里出现 `{{VERIFY_URL}}` 也填入重置链接（宁可给一个能用的链接，也不要寄出含字面占位符的死信）。
+    - `src/account/emailFlow.ts`：一次性令牌的两条铁律 —— **明文只出现在邮件里**（库里只存 `sha256`，32 字节随机杜绝枚举）、**消费必须原子**（判定与置位写进同一条 `UPDATE ... WHERE used_at IS NULL AND expires_at > ? RETURNING`，避免邮件客户端预取链接 + 用户点击并发命中 → 同一个令牌改两次密码）。TTL：验证 30 分钟（与邮件文案绑定）、重置 1 小时。发新链接前**作废该用户同类旧令牌**（否则连点几次「重发」，历史邮件里的链接全部有效，攻击面只增不减）。
+    - **防账号枚举**：`send-verification` / `send-reset-email` 无论邮箱是否注册都返回同一个 `{ ok: true }`；这两条免认证端点分别按**收件邮箱**、消费端点按**来源 IP** 限流。
+    - **重置密码顺带完成邮箱验证**（同一事务）：能点开这封邮件就已证明邮箱归属，同时也是用户卡在「未验证」状态时的自救路径（管理员没配好 SMTP 时尤其重要）。改密后在事务外 `revokeAllForUser` —— 密码变了，旧凭据（含 Yggdrasil 令牌）必须立刻失效。
+  - **新增端点**：
+
+    | 端点 | 认证 | 说明 |
+    |---|---|---|
+    | `POST /api/auth/send-verification` | 可选 | 已登录按会话身份、匿名按请求体 `email` |
+    | `POST /api/auth/verify-email` | 匿名 | 消费验证链接；成功即表示邮箱已验证 |
+    | `POST /api/auth/send-reset-email` | 可选 | 同上口径 |
+    | `POST /api/auth/reset-password` | 匿名 | 同时收 `token`/`code` 与 `password`/`newPassword`（旧前端字段名分歧只支持一个的表现是「提交没反应」，极难排查） |
+    | `GET /api/me/email-status` | 需登录 | 个人中心展示邮箱与验证状态 |
+    | `POST /api/admin/users/:id/send-verification` | 管理员 | 代用户重发（收不到信是常态） |
+    | `PUT /api/admin/users/:id/verify-email` | 管理员 | 手动放行 / 收回（`{verified:false}`） |
+    | `POST /api/admin/test-smtp` | 管理员 | **失败也回 200 + `{success:false}`** —— 这是诊断按钮，用 4xx/5xx 表达「连不上」会被前端 fetch 层压成通用报错，管理员就看不到「自签证书」「认证失败」这些真正有用的原因 |
+    | `GET\|PUT /api/admin/email-template` | 管理员 | GET 未配置时返回**带占位符的**内置默认 + `isDefault` |
+  - **前端**：新增 `AuthLayout`（五个认证页共用外壳）+ 三个页面 `VerifyEmail`（进入即自动提交，`ref` 加锁防 React 严格模式双提交）/ `ForgotPassword`（无论邮箱是否注册都显示「已发送」）/ `ResetPassword`（二次确认用 `dependencies` + validator）。`App.tsx` 里这三条路由**不随登录态重定向** —— 否则已登录用户从邮件链接回来会被弹回首页。`Login.tsx` 增加 `EMAIL_NOT_VERIFIED` 分支 + 重发弹窗 + 「忘记密码」入口；`UserProfile.tsx` 的找回密码改为**单步发链接**（删掉原来的验证码两段式表单）。
+  - **顺带修复的四个真缺陷（都不在原始需求里，是实施过程中暴露的）**：
+    1. **前端开关回读口径错**（如上）：`!== 'false'` 对布尔 `false` 判为 true。
+    2. **管理端 `/api/admin/email-template`、`/api/admin/test-smtp` 后端根本不存在**，且适配层没有降级 → 必然是 404（改动前 `apiCompat` 里这两条路径没有任何处理）。
+    3. **`compatFetch` 把任何 401 都当成「会话失效」**：认证流端点（验证/重置/发送）的 401 是**业务结果**（令牌无效/过期/已用），接管后 `handleAuthFailure()` 会改写 hash 到 `#/login` → **点一封过期邮件里的验证链接会被踢回登录页，页面上的「链接已过期」错误卡片根本没机会渲染**；已登录用户还会被顺手清掉会话。这个缺陷是**靠截图发现的**（错误页截出来是登录页）。修在 `apiCompat` 层（`BUSINESS_401_PATHS` 白名单），所有认证流页面同时受益。
+    4. **`RuntimeSettings` 缓存与仓储返回的对象共享引用**：仓储返回的对象归它自己所有，直接持有引用意味着对方原地改值会穿透进本缓存的「只读快照」语义（表现为「TTL 还没到，读到的却已是新值」）。现在入缓存前拷贝一份。
+  - **验收（数字均为实际输出）**：
+    - `tsc --noEmit` 后端 + 前端均**零错误**；`vite build` 通过（15.97s），三个新页面各自独立分包（`VerifyEmail` / `ForgotPassword` / `ResetPassword`）。
+    - `npm test`（仅 SQLite）：**152 tests / 136 pass / 0 fail / 16 skipped**（新增 4 个测试文件共 57 项）
+    - `TEST_DATABASE_URL` + `TEST_REDIS_URL` 全开：**152 tests / 152 pass / 0 fail / 0 skipped**（连续 3 次复跑一致）
+    - 新增测试：`tests/emailFlow.test.ts`（端到端 HTTP：开关 403、SMTP 未配 502 且不建号、注册不签发会话、邮件链接是 `origin/#/...` 形态、令牌只存 sha256、重复消费 401、过期令牌、防枚举、重置改密 + 顺带验证 + 吊销全部会话、弱密码不消耗令牌、管理端四个端点、模板默认值带占位符、`test-smtp` 失败仍 200、PG 方言令牌仓储全流程）；`tests/siteUrl.test.ts`（11 项）；`tests/secretBox.test.ts`（9 项）；`tests/runtimeSettings.test.ts`（含前后端 `settingBool` 逐项对拍）。
+    - **修了一个测试自身的抖动**：`secretBox: 密文被篡改则认证失败` 原先篡改 base64 **末位**字符 —— 末位有若干比特只用于补位、不参与解码，改动它们得到的密文字节与原文完全相同，约 1/16 概率验签通过。改为篡改**段首**（必定参与解码）并补了 tag/IV 两个用例，连续 25 次复跑稳定通过。
+    - **无头截图验收（生产构建 `vite preview` + 隔离实例，非 dev server）**：注册开关关闭 → 注册页显示「本站已关闭注册」且无表单；重新开启 → 完整表单（A/B 对照）。管理端「系统设置」：**库里存布尔 `false`，界面如实显示为「关」**（这正是修复前的 bug 表现）＋ 邮箱设置卡片上 SMTP 密码输入框显示「已设置，留空表示不修改」并带「已保存的密码以密文存储，不会回显」提示（即后端回 `SMTP_PASS=''` + `SMTP_PASS_SET=true`）＋ `SMTP 安全连接` 开关正确显示为「是」。验证链接页：无效令牌显示「邮箱验证失败 / 链接无效或已被清理，请重新获取」+ 「前往登录页重新发送」（修复 #3 前这里截出来是登录页）。另：忘记密码页、重置密码页、登录页（含「忘记密码」「立即注册」入口）均正常渲染，无 i18n 缺键。
+  - **遗留 / 待决策（本批未做）**：
+    1. **验证码（批 2）未开始**：`ENABLE_CAPTCHA` 目前只有读取器、**无校验调用点**；`/api/captcha/*` 的 `apiCompat` 降级（`{type:'none'}` / `{question:''}`）**保留中**，待批 2 摘除。批 2 需新迁移 `0003_captcha_challenges.sql` + 仓储 + 服务 + 路由 + 前端数学题组件。
+    2. **前后端密码长度口径不一致（既有缺陷，未改）**：后端要求 **8-128** 位，而前端 `Register.tsx:317`、`SetupWizard.tsx:636` 的校验规则是 `min: 6`，文案也写「至少6位」（`auth.passwordMin` / `profile.enterNewPassword` / `profile.enterNewPasswordMin6` / `profile.passwordMinLength` / `setup.validation.passwordMin`，四语言共 20 处）。后果：用户填 6-7 位密码前端放行、后端拒绝（`VALIDATION_ERROR`）。修它涉及 4 语言 × 5 键 + 2 处规则，需单独确认后再动。
+    3. **`web/src/i18n/locales/nul`**（Git Bash 重定向造出的垃圾文件，内容是一份 TCH 语系重复 JSON）：普通路径、`\\?\` 扩展路径的删除与改名**全部被拒（WinError 5）**，疑似被某个进程持有句柄，需在真实终端执行 `del \\?\G:\Skin2.catnight.top\MSCTS\web\src\i18n\locales\nul`。`.gitignore` 已含 `nul`，因此不影响提交与构建，仅为整洁。
+    4. **Yggdrasil `POST /refresh` 仍未接限流**：按用户名计数会误伤 HMCL 的定期刷新，要接必须按 IP 计。
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。
@@ -259,10 +318,13 @@ location ~ ^/(api|uploads)/ {
 }
 ```
 
-### 与服务端环境变量相关的两个注意点
+### 与服务端环境变量相关的注意点
 
 1. **`TRUST_PROXY`**：上面的配置带了 `X-Forwarded-For`，后端要设 `TRUST_PROXY=1`（或反代层数）才会采信，否则 `req.ip` 拿到的是**反代自身地址** → 按 IP 限流的注册端点会把所有用户算进同一个桶。反过来，**没有可信反代却开了 `TRUST_PROXY`**，客户端就能伪造 XFF 绕过限流。两者都要避免。
-2. **`PUBLIC_BASE_URL` 与 `YGGDRASIL_SKIN_DOMAINS`**：`PUBLIC_BASE_URL` 决定纹理对外 URL 的前缀（本地默认 `http://localhost:3000/uploads`，生产必须改成 `https://<你的域名>/uploads`）；`YGGDRASIL_SKIN_DOMAINS` 留空时回落到 `PUBLIC_BASE_URL` 的 hostname。这两个都是**环境变量**，不是后台设置项。
+2. **`MSCTS_SECRET`（P5 第三批新增，生产必配）**：站点设置里 `SMTP_PASS` 的主密钥（AES-256-GCM）。**未设置时口令按明文落库**并打印一条 warn —— 功能可用但等于裸奔。至少 16 个字符，建议与 `.env` 同权限保管；**轮换主密钥后旧密文无法解密**（`decrypt` 会抛「密文解密失败」而不是静默返回空口令，这是刻意的：静默降级只会让人以为 SMTP 坏了）。
+3. **`PUBLIC_BASE_URL` 与 `YGGDRASIL_SKIN_DOMAINS`**：`PUBLIC_BASE_URL` 是**素材前缀**（纹理对外 URL，如 `https://<域名>/uploads`），不是站点根；`YGGDRASIL_SKIN_DOMAINS` 留空时由**站点根**的 hostname 派生（站点根来自后台设置 `BASE_URL`，不再是本变量）。这两个都是环境变量，不是后台设置项。
+4. **`SMTP_ALLOW_SELF_SIGNED=true`**（可选）：允许 SMTP 服务端使用自签证书（内网邮件网关常见）。缺省关闭，因为放行自签证书会让中间人攻击变简单。
+5. **`BASE_URL`（后台设置，不是环境变量）**：站点根，是**邮件里验证/重置链接的权威来源**，也用于派生 `skinDomains`。必须填成用户实际访问的地址（`https://<域名>`，不要带路径）。漏填的后果是邮件链接指向 `http://localhost:3000`，用户点了必然打不开 —— 管理端该字段的默认值已改为「管理员当前访问的地址」，就是为了避开这个坑。
 
 ### 「认证服务器地址」是怎么算出来的（个人中心那张卡片）
 

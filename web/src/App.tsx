@@ -17,6 +17,16 @@ import { Landing } from './pages/Landing/Landing'
  */
 const Login = lazy(() => import('./pages/Auth/Login').then((m) => ({ default: m.Login })))
 const Register = lazy(() => import('./pages/Auth/Register').then((m) => ({ default: m.Register })))
+// 邮箱验证 / 忘记密码 / 重置密码：都由邮件里的链接落地，属于低频入口，懒加载
+const VerifyEmail = lazy(() =>
+  import('./pages/Auth/VerifyEmail').then((m) => ({ default: m.VerifyEmail })),
+)
+const ForgotPassword = lazy(() =>
+  import('./pages/Auth/ForgotPassword').then((m) => ({ default: m.ForgotPassword })),
+)
+const ResetPassword = lazy(() =>
+  import('./pages/Auth/ResetPassword').then((m) => ({ default: m.ResetPassword })),
+)
 const SkinLibrary = lazy(() =>
   import('./pages/Library/SkinLibrary').then((m) => ({ default: m.SkinLibrary })),
 )
@@ -90,6 +100,14 @@ function App() {
         {/* 认证路由 */}
         <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <Login />} />
         <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <Register />} />
+        {/*
+          以下三条**不随登录态重定向**（与 /login、/register 不同）：
+          用户可能已登录却仍需验证邮箱或重置密码（例如登录被 EMAIL_NOT_VERIFIED 拦下后
+          从邮件链接回来），把他弹回首页会让验证链接彻底失效。
+        */}
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* 带布局的路由 */}
         <Route element={<Layout />}>

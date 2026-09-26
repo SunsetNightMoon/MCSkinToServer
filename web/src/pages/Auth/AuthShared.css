@@ -331,6 +331,14 @@
   color: #fff;
 }
 
+/* 站点图标（SITE_LOGO）替换内置 "S" 方块时的形态：
+   去掉渐变底与内边距，避免把方形的 logo 图裁掉一圈 */
+.auth-page__logo-icon--img {
+  background: transparent;
+  object-fit: contain;
+  padding: 0;
+}
+
 .auth-page__logo-text {
   font-size: 22px;
   font-weight: 700;

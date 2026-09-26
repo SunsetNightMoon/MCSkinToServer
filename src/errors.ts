@@ -23,7 +23,16 @@ export type AppErrorCode =
   | 'DOWNLOAD_FORBIDDEN'
   | 'FORBIDDEN'
   | 'ACCOUNT_DELETED'
-  | 'TOO_MANY_REQUESTS';
+  | 'TOO_MANY_REQUESTS'
+  // ---- P5：注册开关 / 邮箱验证 / 验证码 / 发信 ----
+  /** 站点设置关闭了注册（ALLOW_REGISTRATION=false） */
+  | 'REGISTRATION_DISABLED'
+  /** 站点要求邮箱验证，但该账号尚未验证 */
+  | 'EMAIL_NOT_VERIFIED'
+  /** 验证码缺失、错误或已过期；为防自动化探测，三者不区分错误码 */
+  | 'CAPTCHA_INVALID'
+  /** SMTP 连接或投递失败（上游故障，非请求方错误） */
+  | 'SMTP_ERROR';
 
 export class AppError extends Error {
   constructor(

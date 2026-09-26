@@ -70,13 +70,20 @@ export function UserProfile() {
   const [changingPassword, setChangingPassword] = useState(false)
 
   // 功能区 - 找回密码
-  const [forgotPwdStep, setForgotPwdStep] = useState<0 | 1>(0)
+  /**
+   * 找回密码弹窗。
+   *
+   * 流程为「发链接」而非「页面内输入验证码」：重置邮件里带的是一次性链接，
+   * 用户点链接进入 /reset-password 页设置新密码。
+   *
+   * 为什么不做站内验证码：那需要在库里另存一份短码并配尝试次数上限，
+   * 而短码空间小、可被在线爆破，安全性明显低于 256 bit 的链接令牌。
+   * 旧版规划过 8 位验证码（i18n 里还留着 enter8DigitCode 等键），但后端从未实现。
+   */
   const [forgotPwdModalOpen, setForgotPwdModalOpen] = useState(false)
-  const [resetCode, setResetCode] = useState('')
-  const [forgotNewPassword, setForgotNewPassword] = useState('')
-  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('')
+  /** 本次弹窗里重置邮件是否已成功发出 */
+  const [resetEmailSent, setResetEmailSent] = useState(false)
   const [sendingResetEmail, setSendingResetEmail] = useState(false)
-  const [resettingPassword, setResettingPassword] = useState(false)
 
   // 获取角色信息和最新用户数据
   useEffect(() => {
@@ -247,7 +254,7 @@ export function UserProfile() {
     }
   }
 
-  // 发送密码重置邮件
+  // 发送密码重置邮件（已登录：后端按会话身份取邮箱，无需再填）
   const handleSendResetEmail = async () => {
     setSendingResetEmail(true)
     try {
@@ -261,53 +268,11 @@ export function UserProfile() {
       if (!res.ok) throw new Error(data.errorMessage || t('profile.sendFailed'))
 
       message.success(t('profile.resetEmailSent'))
-      setForgotPwdStep(1)
+      setResetEmailSent(true)
     } catch (err: any) {
       message.error(err.message || t('profile.sendFailed'))
     } finally {
       setSendingResetEmail(false)
-    }
-  }
-
-  // 使用验证码重置密码
-  const handleResetPassword = async () => {
-    if (!resetCode || !forgotNewPassword || !forgotConfirmPassword) {
-      message.error(t('profile.fillAllFields'))
-      return
-    }
-    if (forgotNewPassword.length < 6) {
-      message.error(t('profile.passwordMinLength'))
-      return
-    }
-    if (forgotNewPassword !== forgotConfirmPassword) {
-      message.error(t('profile.passwordMismatch'))
-      return
-    }
-
-    setResettingPassword(true)
-    try {
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ code: resetCode, newPassword: forgotNewPassword }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.errorMessage || t('profile.resetFailed'))
-
-      message.success(t('profile.passwordReset'))
-      setForgotPwdModalOpen(false)
-      setForgotPwdStep(0)
-      setResetCode('')
-      setForgotNewPassword('')
-      setForgotConfirmPassword('')
-      clearAuth()
-      navigate('/login')
-    } catch (err: any) {
-      message.error(err.message || t('profile.resetFailed'))
-    } finally {
-      setResettingPassword(false)
     }
   }
 
@@ -671,10 +636,7 @@ export function UserProfile() {
               icon={<KeyOutlined />}
               size="large"
               onClick={() => {
-                setForgotPwdStep(0)
-                setResetCode('')
-                setForgotNewPassword('')
-                setForgotConfirmPassword('')
+                setResetEmailSent(false)
                 setForgotPwdModalOpen(true)
               }}
               style={{ fontWeight: 500, justifyContent: 'flex-start' }}
@@ -829,83 +791,74 @@ export function UserProfile() {
         </Form>
       </Modal>
 
-      {/* 找回密码弹窗 */}
+      {/* 找回密码弹窗（发链接流程，见 resetEmailSent 的注释） */}
       <Modal
-        title={<span><KeyOutlined style={{ marginRight: 8 }} />{forgotPwdStep === 0 ? t('profile.retrievePassword') : t('profile.enterVerificationCode')}</span>}
+        title={<span><KeyOutlined style={{ marginRight: 8 }} />{t('profile.retrievePassword')}</span>}
         open={forgotPwdModalOpen}
         onCancel={() => {
           setForgotPwdModalOpen(false)
-          setForgotPwdStep(0)
-          setResetCode('')
-          setForgotNewPassword('')
-          setForgotConfirmPassword('')
+          setResetEmailSent(false)
         }}
-        footer={forgotPwdStep === 0 ? [
-          <Button key="cancel" onClick={() => {
-            setForgotPwdModalOpen(false)
-            setForgotPwdStep(0)
-          }}>
-            {t('profile.cancel')}
-          </Button>,
-          <Button
-            key="send"
-            type="primary"
-            loading={sendingResetEmail}
-            onClick={handleSendResetEmail}
-          >
-            {t('profile.sendResetEmail')}
-          </Button>,
-        ] : [
-          <Button key="back" onClick={() => setForgotPwdStep(0)}>
-            {t('profile.previousStep')}
-          </Button>,
-          <Button
-            key="reset"
-            type="primary"
-            loading={resettingPassword}
-            disabled={!resetCode || !forgotNewPassword || !forgotConfirmPassword}
-            onClick={handleResetPassword}
-          >
-            {t('profile.confirmReset')}
-          </Button>,
-        ]}
+        footer={
+          resetEmailSent
+            ? [
+                <Button
+                  key="close"
+                  type="primary"
+                  onClick={() => {
+                    setForgotPwdModalOpen(false)
+                    setResetEmailSent(false)
+                  }}
+                >
+                  {t('profile.gotIt')}
+                </Button>,
+              ]
+            : [
+                <Button
+                  key="cancel"
+                  onClick={() => {
+                    setForgotPwdModalOpen(false)
+                    setResetEmailSent(false)
+                  }}
+                >
+                  {t('profile.cancel')}
+                </Button>,
+                <Button
+                  key="send"
+                  type="primary"
+                  loading={sendingResetEmail}
+                  onClick={handleSendResetEmail}
+                >
+                  {t('profile.sendResetEmail')}
+                </Button>,
+              ]
+        }
       >
-        {forgotPwdStep === 0 ? (
-          <div style={{ marginTop: 16 }}>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
-              {t('profile.weWillSendResetEmail')}<Text strong>{user.email}</Text>{t('profile.sendResetEmailMessage')}
-            </p>
-            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-              {t('profile.verificationCodeValidity')}
-            </p>
-          </div>
-        ) : (
-          <Form layout="vertical" style={{ marginTop: 16 }}>
-            <Form.Item label={t('profile.verificationCode')} required>
-              <Input
-                value={resetCode}
-                onChange={(e) => setResetCode(e.target.value)}
-                placeholder={t('profile.enter8DigitCode')}
-                maxLength={8}
+        <div style={{ marginTop: 16 }}>
+          {resetEmailSent ? (
+            <>
+              <Alert
+                type="success"
+                showIcon
+                message={t('profile.resetLinkSentTitle')}
+                description={t('profile.resetLinkSentDesc')}
+                style={{ marginBottom: 12 }}
               />
-            </Form.Item>
-            <Form.Item label={t('profile.newPassword')} required>
-              <Input.Password
-                value={forgotNewPassword}
-                onChange={(e) => setForgotNewPassword(e.target.value)}
-                placeholder={t('profile.enterNewPasswordMin6')}
-              />
-            </Form.Item>
-            <Form.Item label={t('profile.confirmNewPassword')} required>
-              <Input.Password
-                value={forgotConfirmPassword}
-                onChange={(e) => setForgotConfirmPassword(e.target.value)}
-                placeholder={t('profile.reenterNewPassword')}
-                onPressEnter={handleResetPassword}
-              />
-            </Form.Item>
-          </Form>
-        )}
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 0 }}>
+                {t('profile.resetLinkValidity')}
+              </p>
+            </>
+          ) : (
+            <>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
+                {t('profile.weWillSendResetEmail')}<Text strong>{user.email}</Text>{t('profile.sendResetEmailMessage')}
+              </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 0 }}>
+                {t('profile.resetLinkHint')}
+              </p>
+            </>
+          )}
+        </div>
       </Modal>
 
       {/* 编辑名称弹窗 */}

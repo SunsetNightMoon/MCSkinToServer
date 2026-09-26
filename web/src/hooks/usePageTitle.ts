@@ -1,6 +1,7 @@
 import { compatFetch as fetch } from "../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
 import { useEffect, useState, useRef } from 'react';
 import { useSiteStore } from '../store/siteStore';
+import { settingBool } from '../utils/settingBool';
 
 const STORAGE_KEY = 'catTavernSkins-site-settings';
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -23,6 +24,8 @@ interface CachedSettings {
   favicon: string;
   // 站点图标（顶栏徽标）
   logo: string;
+  // 是否允许注册（决定注册页展示表单还是「已关闭注册」提示）
+  allowRegistration: boolean;
 }
 
 interface StoredCache {
@@ -63,6 +66,8 @@ const defaultSettings: CachedSettings = {
   darkBgOverlayOpacity: 30,
   favicon: '/favicon.svg',
   logo: '',
+  // 与后端 RUNTIME_SETTING_DEFAULTS.allowRegistration 一致
+  allowRegistration: true,
 };
 
 let cachedSettings: CachedSettings | null = readPersistentCache();
@@ -106,6 +111,8 @@ async function fetchSiteSettings(): Promise<CachedSettings> {
           darkBgOverlayOpacity: parseInt(data.DARK_BG_OVERLAY_OPACITY) || 30,
           favicon: String(data.SITE_FAVICON || '/favicon.svg'),
           logo: String(data.SITE_LOGO || ''),
+          // 容错解析：库里可能是布尔 false 或字符串 'false'，见 utils/settingBool.ts
+          allowRegistration: settingBool(data.ALLOW_REGISTRATION, true),
         };
       } else {
         cachedSettings = { ...defaultSettings };
@@ -139,6 +146,7 @@ export function usePageTitle(pageTitle: string | null = null): string {
     setVideoMuted,
     setLightBgOverlayOpacity,
     setDarkBgOverlayOpacity,
+    setAllowRegistration,
   } = useSiteStore();
 
   useEffect(() => {
@@ -164,9 +172,10 @@ export function usePageTitle(pageTitle: string | null = null): string {
       setVideoMuted(settings.videoMuted);
       setLightBgOverlayOpacity(settings.lightBgOverlayOpacity);
       setDarkBgOverlayOpacity(settings.darkBgOverlayOpacity);
+      setAllowRegistration(settings.allowRegistration);
       setFavicon(settings.favicon);
     });
-  }, [pageTitle, siteTitle, setTitle, setDescription, setLogo, setLightBgImage, setDarkBgImage, setLoginBgImage, setLoginEmbedImage, setVideoMuted, setLightBgOverlayOpacity, setDarkBgOverlayOpacity]);
+  }, [pageTitle, siteTitle, setTitle, setDescription, setLogo, setLightBgImage, setDarkBgImage, setLoginBgImage, setLoginEmbedImage, setVideoMuted, setLightBgOverlayOpacity, setDarkBgOverlayOpacity, setAllowRegistration]);
 
   return siteTitle;
 }

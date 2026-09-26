@@ -213,6 +213,29 @@ export class UserRepository {
     );
   }
 
+  /**
+   * 标记邮箱已验证（P5）。幂等：重复调用不改变结果。
+   *
+   * 由两条路径触发 —— 用户点邮件里的验证链接，或管理员在用户管理页手动放行
+   * （用户收不到信时的兜底手段）。
+   */
+  async setEmailVerified(
+    userId: string,
+    verified: boolean,
+    at: Date,
+  ): Promise<void> {
+    await this.db.run(
+      `UPDATE users SET email_verified = ${phAt(this.db.dialect, 0)},
+         updated_at = ${phAt(this.db.dialect, 1)}
+       WHERE id = ${phAt(this.db.dialect, 2)}`,
+      [
+        this.db.dialect === 'postgres' ? verified : verified ? 1 : 0,
+        at.toISOString(),
+        userId,
+      ],
+    );
+  }
+
   /** 注销：置 deleted_at，进入可恢复宽限期 */
   async markDeleted(userId: string, at: Date): Promise<void> {
     await this.db.run(

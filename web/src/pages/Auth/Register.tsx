@@ -59,7 +59,7 @@ export function Register() {
     form.setFieldValue('email', value)
     setEmailOptions([])
   }
-  const { title, loginBgImage, loginEmbedImage, videoMuted, theme } = useSiteStore()
+  const { title, loginBgImage, loginEmbedImage, videoMuted, theme, allowRegistration } = useSiteStore()
 
   const hasCustomBg = loginBgImage && loginBgImage.trim() !== ''
   const hasEmbedImage = loginEmbedImage && loginEmbedImage.trim() !== ''
@@ -136,6 +136,22 @@ export function Register() {
       }
 
       const result = await authService.register(registerData)
+
+      // 站点要求邮箱验证：后端刻意不下发会话，此时不能提示「注册成功」就完事 ——
+      // 用户会以为已经登录，实际还得去点邮件里的链接。
+      if (result.requiresVerification) {
+        if (result.verificationEmailSent === false) {
+          // 账号已建成但信没发出去。如实告知，并给出重发入口所在的页面。
+          message.warning(t('auth.registerVerificationMailFailed'), 8)
+        } else {
+          message.success(
+            t('auth.registerVerificationSent', { email: values.email }),
+            8,
+          )
+        }
+        navigate('/login')
+        return
+      }
 
       if (result.isFirstUser) {
         message.success(t('auth.registerSuccessFirst'))
@@ -241,6 +257,22 @@ export function Register() {
           <div className="auth-card">
           <h2 className="auth-card__title">{t('auth.register')}</h2>
 
+          {/* 站点关闭注册时不渲染表单：让用户填完整张表再被 403 拒绝是最差的体验 */}
+          {!allowRegistration ? (
+            <Alert
+              message={t('auth.registerClosedTitle')}
+              description={
+                <>
+                  {t('auth.registerClosedDesc')}{' '}
+                  <Link to="/login">{t('auth.loginNow')}</Link>
+                </>
+              }
+              type="warning"
+              showIcon
+              style={{ marginBottom: 24 }}
+            />
+          ) : (
+            <>
           <Alert
             message={t('auth.registerGuideTitle')}
             description={t('auth.registerGuideDesc')}
@@ -332,6 +364,8 @@ export function Register() {
               <Link to="/login">{t('auth.loginNow')}</Link>
             </div>
           </Form>
+            </>
+          )}
 
           {(oauthProviders.github || oauthProviders.microsoft) && (
             <>

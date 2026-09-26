@@ -49,7 +49,15 @@ export interface ProfileSummary {
 export interface RegisterResult {
   user: PublicUser;
   profile: ProfileRow;
-  token: IssuedToken;
+  /**
+   * 会话令牌。
+   *
+   * **可空是必要的**：站点开启「要求邮箱验证」时，注册成功但不得签发会话 ——
+   * 否则「必须验证邮箱」就成了摆设，用户拿着刚注册的 token 照样能用全部功能。
+   * 把这一点写进类型而不是悄悄返回一个空串，是为了让每个消费方都必须显式处理
+   * 「这次没有会话」的情况（HTTP 层据此回 `requiresVerification: true`）。
+   */
+  token: IssuedToken | null;
 }
 
 /** Yggdrasil 会话响应（authenticate / refresh 共用结构） */
@@ -122,6 +130,16 @@ export class IdentityService {
     }
   }
 
+  /**
+   * 密码哈希（P5）。公开出来给「重置密码」复用 —— 重置与注册必须使用同一个
+   * bcrypt cost，否则两条路径的强度会各自漂移，而这类不一致在生产里几乎发现不了。
+   * 内置强度校验，调用方不需要（也不应该）自己再校验一次。
+   */
+  async hashPassword(password: string): Promise<string> {
+    this.assertValidPassword(password);
+    return bcrypt.hash(password, BCRYPT_COST);
+  }
+
   // ---- 封禁与凭据 ----
 
   private assertNotBanned(user: UserRow): void {
@@ -181,10 +199,17 @@ export class IdentityService {
 
   // ---- 注册 / Web 登录 ----
 
+  /**
+   * 注册。
+   *
+   * `issueSession: false` 由「要求邮箱验证」场景使用：用户与默认角色照常创建，
+   * 但不签发会话，必须点完验证链接才能登录。默认 true 保持原行为不变。
+   */
   async register(input: {
     email: string;
     password: string;
     profileName: string;
+    issueSession?: boolean;
   }): Promise<RegisterResult> {
     this.assertValidEmail(input.email);
     this.assertValidPassword(input.password);
@@ -239,14 +264,28 @@ export class IdentityService {
       deletedAt: null,
       purgedAt: null,
     };
-    const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });
+    const token =
+      input.issueSession === false
+        ? null
+        : await this.tokens.issue({ tokenType: 'web', userId: user.id });
     const profile = (await this.profiles.findById(created.profileId))!;
     return { user: toPublicUser(user), profile, token };
   }
 
+  /**
+   * Web 登录。
+   *
+   * `requireEmailVerified` 由站点的 REQUIRE_EMAIL_VERIFICATION 开关决定：
+   * 开启时未验证账号被拒（403 EMAIL_NOT_VERIFIED），前端据此展示「重发验证邮件」。
+   *
+   * 检查点刻意放在**密码校验与状态检查之后、签发令牌之前**：
+   * - 放在密码校验之前 → 未持密码的人也能探出「这个邮箱注册过但没验证」
+   * - 放在签发之后 → 只能作废刚发的令牌，多一次写库且容易漏掉某条返回路径
+   */
   async loginWeb(input: {
     email: string;
     password: string;
+    requireEmailVerified?: boolean;
   }): Promise<RegisterResult> {
     const user = await this.loadUserForAuth(input.email);
     await this.assertPassword(user, input.password);
@@ -256,6 +295,12 @@ export class IdentityService {
       throw new AppError('USER_DISABLED', '账号已被停用');
     }
     this.assertNotBanned(user);
+    if (input.requireEmailVerified === true && !user.emailVerified) {
+      throw new AppError(
+        'EMAIL_NOT_VERIFIED',
+        '邮箱尚未验证，请先完成邮箱验证后再登录',
+      );
+    }
 
     await this.users.updateLastLogin(user.id, this.now());
     const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });

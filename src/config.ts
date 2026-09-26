@@ -15,11 +15,23 @@ export interface AppConfig {
   migrationsRoot: string;
   /** 本地存储根目录（StoragePort 的 local provider 使用） */
   uploadDir: string;
-  /** 对外公开 URL 前缀（含静态挂载点，如 https://skin.example/uploads） */
+  /**
+   * **素材**对外前缀（含静态挂载点，如 https://skin.example/uploads）。
+   *
+   * 注意这里不是「站点根」：站点根由后台设置 `BASE_URL` 决定，见 site/siteUrl.ts。
+   * 本字段只作为站点根不可用时的兜底，以及素材前缀的部署形态来源。
+   */
   publicBaseUrl: string;
   /** Yggdrasil RSA 私钥路径；不存在时启动自动生成 */
   rsaPrivateKeyPath: string;
-  /** Yggdrasil skinDomains（逗号分隔）；缺省用 publicBaseUrl 的 hostname */
+  /**
+   * Yggdrasil skinDomains（逗号分隔），来自环境变量 YGGDRASIL_SKIN_DOMAINS。
+   *
+   * **留空是正常状态**：空数组表示「未显式配置」，此时由 SiteUrlResolver
+   * 取站点根的 hostname 派生（buildMetadataDto 也有兜底）。
+   * 改动前的注释写成「缺省用 publicBaseUrl 的 hostname」，但实现只做了 split，
+   * 派生逻辑其实在元数据构建处 —— 注释与实现不符，已在此更正。
+   */
   skinDomains: string[];
   /**
    * Redis 连接串（如 redis://127.0.0.1:63799）。

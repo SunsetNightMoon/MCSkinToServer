@@ -16,6 +16,8 @@ import { YggdrasilError } from '../yggdrasil/errors.js';
 export function mapAppErrorStatus(code: AppErrorCode): number {
   switch (code) {
     case 'VALIDATION_ERROR':
+    // 验证码错误属于请求内容问题，前端要允许用户重试
+    case 'CAPTCHA_INVALID':
       return 400;
     case 'TOKEN_INVALID':
     case 'TOKEN_EXPIRED':
@@ -26,7 +28,14 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     case 'USER_BANNED':
     case 'NAME_COOLDOWN':
     case 'ACCOUNT_DELETED':
+    // 关闭注册：请求方无权创建账号（而不是请求格式错）
+    case 'REGISTRATION_DISABLED':
+    // 未验证邮箱：凭据正确但账号状态不允许登录，前端据此展示「重发验证邮件」
+    case 'EMAIL_NOT_VERIFIED':
       return 403;
+    // SMTP 是上游依赖，故障归 502 而不是 500（区分「我们写错了」与「邮件服务不通」）
+    case 'SMTP_ERROR':
+      return 502;
     case 'EMAIL_TAKEN':
     case 'NAME_TAKEN':
       return 409;

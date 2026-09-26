@@ -8,6 +8,8 @@ import { SendOutlined, EditOutlined, CloseOutlined, UploadOutlined, PlusOutlined
 import Editor from '@monaco-editor/react'
 import './SystemSettings.css'
 import { isVideoFile } from '../../utils/media'
+import { settingBool } from '../../utils/settingBool'
+import { SITE_DEFAULTS } from '../../store/siteStore'
 import { useTranslation } from 'react-i18next'
 
 const { TextArea } = Input
@@ -49,10 +51,19 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
       })
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
+      // 必须用容错解析：这三个开关由 AntD Switch 提交，库里是 **JSON 布尔**，
+      // 而旧代码用 `!== 'false'` / `=== 'true'` 跟字符串比较 —— 布尔 false 会被判成 true，
+      // 表现为「关掉注册后重新加载又显示成开启」。见 utils/settingBool.ts。
       form.setFieldsValue({
-        ALLOW_REGISTRATION: data.ALLOW_REGISTRATION !== 'false',
-        REQUIRE_EMAIL_VERIFICATION: data.REQUIRE_EMAIL_VERIFICATION === 'true',
-        ENABLE_CAPTCHA: data.ENABLE_CAPTCHA !== 'false',
+        ALLOW_REGISTRATION: settingBool(
+          data.ALLOW_REGISTRATION,
+          SITE_DEFAULTS.allowRegistration,
+        ),
+        REQUIRE_EMAIL_VERIFICATION: settingBool(
+          data.REQUIRE_EMAIL_VERIFICATION,
+          false,
+        ),
+        ENABLE_CAPTCHA: settingBool(data.ENABLE_CAPTCHA, false),
       })
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
@@ -984,6 +995,8 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  /** 库里是否已有 SMTP 密码（后端只回传该布尔，不回传密文） */
+  const [smtpPassSet, setSmtpPassSet] = useState(false)
 
   // 邮件模板弹窗
   const [templateModalVisible, setTemplateModalVisible] = useState(false)
@@ -1000,15 +1013,21 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
       form.setFieldsValue({
-        BASE_URL: String(data.BASE_URL || 'http://localhost:3000'),
+        // 未设置时用「管理员当前访问的地址」而不是写死 localhost:3000：
+        // BASE_URL 是邮件链接的权威来源，若这里默认成 localhost，管理员填完 SMTP
+        // 直接保存，就会把线上站点的验证链接永久写成 http://localhost:3000。
+        BASE_URL: String(data.BASE_URL || window.location.origin),
         SMTP_HOST: String(data.SMTP_HOST || ''),
         SMTP_PORT: parseInt(data.SMTP_PORT) || 587,
-        SMTP_SECURE: data.SMTP_SECURE === 'true',
+        // 同上：Switch 存的是布尔，不能跟字符串比较
+        SMTP_SECURE: settingBool(data.SMTP_SECURE, false),
         SMTP_USER: String(data.SMTP_USER || ''),
+        // 后端永不回传密文，只给 SMTP_PASS_SET 标志；留空即「不修改」
         SMTP_PASS: '',
         SMTP_FROM: String(data.SMTP_FROM || ''),
         SMTP_FROM_NAME: String(data.SMTP_FROM_NAME || ''),
       })
+      setSmtpPassSet(data.SMTP_PASS_SET === true)
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
     } finally {
@@ -1219,8 +1238,19 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
             label={t('admin.smtpPass')}
             name="SMTP_PASS"
             tooltip={t('admin.smtpPassTooltip')}
+            extra={
+              // 密码以密文入库、永不回显，所以必须明确告诉管理员「已保存」，
+              // 否则输入框看着是空的，他会以为没存上而反复重填
+              smtpPassSet ? t('admin.smtpPassSavedHint') : undefined
+            }
           >
-            <Input.Password placeholder={t('admin.smtpPassPlaceholder')} />
+            <Input.Password
+              placeholder={
+                smtpPassSet
+                  ? t('admin.smtpPassPlaceholderSaved')
+                  : t('admin.smtpPassPlaceholder')
+              }
+            />
           </Form.Item>
 
           <Form.Item

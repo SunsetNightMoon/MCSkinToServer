@@ -45,6 +45,33 @@ async function passthroughError(res: Response): Promise<Response> {
   )
 }
 
+/**
+ * 这些端点的 401 是**业务结果**，不是「会话失效」：
+ * 一次性令牌无效/过期/已被使用、凭据不正确。它们必须原样交给页面展示，
+ * 绝不能让全局登出处理接管。
+ *
+ * 接管了会怎样（真出现过）：用户点一封过期邮件里的验证链接 →
+ * `/api/auth/verify-email` 返回 401 TOKEN_EXPIRED → handleAuthFailure() 把 hash
+ * 改写成 `#/login` → 页面上的「链接已过期，请重新获取」错误卡片根本没机会渲染，
+ * 用户看到的是「点链接后莫名其妙回到了登录页」。已登录的用户还会被顺手清掉会话。
+ *
+ * 注意 `change-password` / `delete-account` / `logout` **不在**此列：
+ * 它们返回 401 时确实是登录态已死，应当走全局登出。
+ */
+const BUSINESS_401_PATHS: ReadonlySet<string> = new Set([
+  '/api/auth/login',
+  '/api/auth/restore-account',
+  '/api/auth/register',
+  '/api/auth/verify-email',
+  '/api/auth/reset-password',
+  '/api/auth/send-verification',
+  '/api/auth/send-reset-email',
+]);
+
+function isBusiness401(url: string): boolean {
+  return BUSINESS_401_PATHS.has(url.split('?')[0]!.split('#')[0]!);
+}
+
 async function rawFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   const token = getStoredToken()
@@ -52,7 +79,7 @@ async function rawFetch(url: string, init: RequestInit = {}): Promise<Response> 
     headers.set('Authorization', `Bearer ${token}`)
   }
   const res = await fetch(url, { ...init, headers })
-  if (res.status === 401) handleAuthFailure()
+  if (res.status === 401 && !isBusiness401(url)) handleAuthFailure()
   return res
 }
 
@@ -530,10 +557,6 @@ export async function compatFetch(
     if (!res.ok) return passthroughError(res)
     return json(await res.json().catch(() => ({})))
   }
-  if (path.match(/^\/api\/admin\/users\/[^/]+\/(send-verification|verify-email)$/)) {
-    return notSupported()
-  }
-
   // ── 管理后台：黑名单（无后端支持） ──
   if (path === '/api/admin/blacklist' && method === 'GET') {
     return json([])
@@ -543,8 +566,18 @@ export async function compatFetch(
     return notSupported()
   }
 
-  // ── 站点设置已有 MSCTS 端点（GET/PUT /api/admin/settings），不在此拦截 ──
-  if (path.startsWith('/api/admin/') && !path.startsWith('/api/admin/settings')) {
+  // ── 已有 MSCTS 后端端点的 /api/admin/* 直接透传，其余仍未支持 ──
+  // 注意：这条兜底是按前缀拦截的，新增任何 /api/admin 端点都必须同时加进白名单，
+  // 否则新端点在开发环境永远返回「敬请期待」而看不出原因（后端其实是对的）。
+  const ADMIN_PASSTHROUGH = [
+    '/api/admin/settings',
+    '/api/admin/test-smtp',
+    '/api/admin/email-template',
+  ]
+  if (
+    path.startsWith('/api/admin/') &&
+    !ADMIN_PASSTHROUGH.some((prefix) => path.startsWith(prefix))
+  ) {
     return notSupported()
   }
 
@@ -560,15 +593,8 @@ export async function compatFetch(
   }
 
   // ── 账号安全 ──
-  // 改密码 / 注销账号 / 恢复账号 已有 MSCTS 端点，走下方 fallback 原样透传；
-  // 依赖 SMTP 的邮箱验证与密码重置仍无后端，返回「敬请期待」。
-  if (
-    path.match(
-      /^\/api\/auth\/(send-verification|send-reset-email|reset-password|verify-email)$/,
-    )
-  ) {
-    return notSupported()
-  }
+  // 改密码 / 注销账号 / 恢复账号 / 邮箱验证 / 密码重置 均已有 MSCTS 端点，
+  // 全部走下方 fallback 原样透传（原此处对后两者返回 notSupported 的降级已移除）。
 
   // ── 安装向导（未挂路由，兜底） ──
   if (path.startsWith('/api/setup/')) {

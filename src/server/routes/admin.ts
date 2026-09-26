@@ -2,6 +2,11 @@ import { Router } from 'express';
 import type { TokenService } from '../../auth/tokens.js';
 import type { LibraryService } from '../../library/libraryService.js';
 import type { IdentityService } from '../../auth/identity.js';
+import type { EmailFlow } from '../../account/emailFlow.js';
+import type { MailService } from '../../mail/mailService.js';
+import type { RuntimeSettings } from '../../site/runtimeSettings.js';
+import type { SettingRepository } from '../../repositories/settingRepository.js';
+import { defaultSubject, builtinTemplateHtml } from '../../mail/templates.js';
 import type {
   AssetRepository,
   AssetKind,
@@ -11,7 +16,7 @@ import { requireAdmin, requireAuth } from '../middleware.js';
 import { AppError } from '../../errors.js';
 
 /**
- * 管理员 HTTP 适配层（蓝图 P3/P4）：
+ * 管理员 HTTP 适配层（蓝图 P3/P4/P5）：
  * - GET   /api/admin/assets?kind=&status=&search=  全量素材（含私有/待审）
  * - GET   /api/admin/reviews?kind=     待审核列表
  * - GET   /api/admin/assets/:id/reviews  审核历史
@@ -19,7 +24,16 @@ import { AppError } from '../../errors.js';
  * - PATCH /api/admin/assets/:id          管理员警告 / AI 生成标记
  * - GET   /api/admin/users             用户列表（分页/搜索）
  * - PATCH /api/admin/users/:id         角色（仅 super_admin）/ 封禁 / 激活
+ * - POST  /api/admin/users/:id/send-verification  代用户重发验证邮件
+ * - PUT   /api/admin/users/:id/verify-email       手动放行/收回邮箱验证
+ * - POST  /api/admin/test-smtp         测试 SMTP 连接
+ * - GET   /api/admin/email-template    读取邮件模板（未配置时返回内置默认）
+ * - PUT   /api/admin/email-template    保存邮件模板
  * 全部要求 admin 及以上（requireRole(1)）。
+ *
+ * 用户管理那三个端点（send-verification / verify-email）不是可有可无的补充：
+ * 用户收不到邮件（进垃圾箱、企业邮箱拦截、SMTP 临时故障）是常态，
+ * 没有手动放行的兜底，用户就会永久卡在「未验证」且没有任何自救路径。
  */
 
 export interface AdminRouteDependencies {
@@ -27,6 +41,14 @@ export interface AdminRouteDependencies {
   library: LibraryService;
   assets: AssetRepository;
   identity: IdentityService;
+  /** 邮箱流程（用户管理页重发验证 / 手动放行）；未注入则相关端点返回 502 */
+  emailFlow?: EmailFlow;
+  /** 邮件服务（测试 SMTP 连接）；未注入则相关端点返回 502 */
+  mailService?: MailService;
+  /** 站点设置（读写邮件模板）；未注入则模板端点返回 502 */
+  settings?: SettingRepository;
+  /** 站点运行期设置（取站点名做默认主题、保存后刷新缓存） */
+  runtimeSettings?: RuntimeSettings;
 }
 
 const REVIEW_STATUSES: ReadonlySet<string> = new Set(['approved', 'rejected']);
@@ -192,6 +214,113 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
       },
     );
     res.json({ user });
+  });
+
+  // ---- 邮箱验证（P5）----
+
+  /** 邮箱流程缺失时统一报「本实例未启用邮件能力」，而不是抛 500 让人以为代码炸了 */
+  const requireEmailFlow = (): EmailFlow => {
+    if (!deps.emailFlow) {
+      throw new AppError('SMTP_ERROR', '本实例未启用邮件发送能力（未配置 SMTP）');
+    }
+    return deps.emailFlow;
+  };
+
+  /** 代用户重发验证邮件（用户反馈收不到信时使用） */
+  router.post(
+    '/api/admin/users/:id/send-verification',
+    auth,
+    admin,
+    async (req, res) => {
+      const result = await requireEmailFlow().sendVerification(
+        String(req.params['id'] ?? ''),
+      );
+      res.json({ ok: true, alreadyVerified: result.alreadyVerified });
+    },
+  );
+
+  /**
+   * 手动放行 / 收回邮箱验证。
+   * 默认置为已验证；请求体传 `{ verified: false }` 可收回（排查误放行时用）。
+   */
+  router.put('/api/admin/users/:id/verify-email', auth, admin, async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const verified = body['verified'] === undefined ? true : Boolean(body['verified']);
+    const result = await requireEmailFlow().adminSetEmailVerified(
+      String(req.params['id'] ?? ''),
+      verified,
+    );
+    res.json({ ok: true, ...result });
+  });
+
+  // ---- 邮件设置（P5）----
+
+  /**
+   * 测试 SMTP 连接。
+   *
+   * **失败也回 200 + `{ success: false }`**：这是台「诊断按钮」，不是业务写操作。
+   * 用 4xx/5xx 表达「连不上」会让前端 fetch 层把消息压成通用报错，
+   * 管理员就看不到「自签证书」「认证失败」这些真正有用的原因。
+   */
+  router.post('/api/admin/test-smtp', auth, admin, async (_req, res) => {
+    if (!deps.mailService) {
+      res.json({
+        success: false,
+        error: '本实例未启用邮件发送能力（未配置 SMTP）',
+      });
+      return;
+    }
+    try {
+      await deps.mailService.verifyConnection();
+      res.json({ success: true, message: 'SMTP 连接成功' });
+    } catch (err) {
+      res.json({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
+  /** 读取邮件模板；管理员从未配置过时返回**带占位符的**内置默认，供其在上手点上修改 */
+  router.get('/api/admin/email-template', auth, admin, async (_req, res) => {
+    if (!deps.settings) {
+      throw new AppError('SMTP_ERROR', '本实例未启用站点设置存储');
+    }
+    const siteTitle = deps.runtimeSettings
+      ? await deps.runtimeSettings.siteTitle()
+      : 'Minecraft Skin Server';
+    const all = await deps.settings.getAll();
+    const subject = String(all['EMAIL_TEMPLATE_SUBJECT'] ?? '').trim();
+    const html = String(all['EMAIL_TEMPLATE_HTML'] ?? '');
+    res.json({
+      subject: subject !== '' ? subject : defaultSubject('verify', siteTitle),
+      html: html.trim() !== '' ? html : builtinTemplateHtml('verify'),
+      /** 便于前端提示「当前用的是内置模板」 */
+      isDefault: subject === '' || html.trim() === '',
+    });
+  });
+
+  /** 保存邮件模板（主题与正文都必填；要恢复内置模板请清空后重新保存） */
+  router.put('/api/admin/email-template', auth, admin, async (req, res) => {
+    if (!deps.settings) {
+      throw new AppError('SMTP_ERROR', '本实例未启用站点设置存储');
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const subject = String(body['subject'] ?? '').trim();
+    const html = String(body['html'] ?? '');
+    if (subject === '') {
+      throw new AppError('VALIDATION_ERROR', '邮件主题不能为空');
+    }
+    if (html.trim() === '') {
+      throw new AppError('VALIDATION_ERROR', '邮件正文不能为空');
+    }
+    await deps.settings.setMany(
+      { EMAIL_TEMPLATE_SUBJECT: subject, EMAIL_TEMPLATE_HTML: html },
+      new Date(),
+    );
+    // 缓存里还留着旧模板，不刷新的话下一封信仍是旧的
+    await deps.runtimeSettings?.refresh();
+    res.json({ ok: true });
   });
 
   return router;

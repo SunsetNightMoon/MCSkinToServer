@@ -13,11 +13,17 @@ import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { TextureService } from '../textures/ingest.js';
 import type { LibraryService } from '../library/libraryService.js';
 import type { SettingRepository } from '../repositories/settingRepository.js';
+import type { EmailFlow } from '../account/emailFlow.js';
+import type { MailService } from '../mail/mailService.js';
+import type { RuntimeSettings } from '../site/runtimeSettings.js';
+import type { SiteUrlResolver } from '../site/siteUrl.js';
+import type { SecretBox } from '../util/secretBox.js';
 import type { RateLimiterPort, CachePort } from '../cache/types.js';
 import type { RateLimitSettings } from '../config.js';
 import { buildMetadataDto } from '../yggdrasil/metadata.js';
 import { createYggdrasilRouter } from './routes/yggdrasil.js';
 import { createIdentityRouter } from './routes/identity.js';
+import { createAccountRouter } from './routes/account.js';
 import { createAssetRouter } from './routes/assets.js';
 import { createLibraryRouter } from './routes/library.js';
 import { createAdminRouter } from './routes/admin.js';
@@ -60,6 +66,20 @@ export interface AppDependencies {
   cache?: CachePort;
   /** 站点设置缓存 TTL（毫秒）；缺省 30s */
   settingsCacheTtlMs?: number;
+  // ---- P5 站点地址 / 开关 / 邮件（全部可选：未注入 = 该能力不启用）----
+  /**
+   * 站点地址解析（BASE_URL 站点根 + PUBLIC_BASE_URL 素材前缀）。
+   * 未注入时元数据与素材 URL 回落 config.publicBaseUrl 的旧行为。
+   */
+  siteUrlResolver?: SiteUrlResolver;
+  /** 注册开关 / 邮箱验证开关 / SMTP 配置的读取器 */
+  runtimeSettings?: RuntimeSettings;
+  /** 邮箱验证与密码重置流程；未注入则账号辅助端点不挂载 */
+  emailFlow?: EmailFlow;
+  /** 邮件服务（管理端测试 SMTP 连接） */
+  mailService?: MailService;
+  /** 敏感设置加解密（SMTP_PASS）；缺省从 MSCTS_SECRET 环境变量取 */
+  secretBox?: SecretBox | null;
 }
 
 const EMPTY_BYTES = new Uint8Array(0);
@@ -127,12 +147,20 @@ export function createApp(deps: AppDependencies): Express {
 
   // ---- Yggdrasil 元数据（协议入口，P1 扩展端点本体）----
   // 同时挂 /api/yggdrasil（规范路径）与根路径：HMCL 填裸 http://host:port 时会在根上找元数据。
-  const metadataHandler = (_req: express.Request, res: express.Response): void => {
+  const siteUrl = deps.siteUrlResolver;
+  const metadataHandler = async (
+    _req: express.Request,
+    res: express.Response,
+  ): Promise<void> => {
+    // TTL 内直接用缓存值；到点才查一次库，故这里的 await 不会给每个请求都带来查询
+    await siteUrl?.ensureFresh();
     res.json(
       buildMetadataDto({
-        baseUrl: config.publicBaseUrl,
+        // 元数据里的地址是给启动器下载纹理用的，因此用**素材前缀**而不是站点根
+        baseUrl: siteUrl ? siteUrl.assetBaseUrlSync() : config.publicBaseUrl,
         publicKeyPem: rsaKeyPair.publicKeyPem,
-        skinDomains: config.skinDomains,
+        // skinDomains 未显式配置时由站点根 hostname 派生（未注入解析器时沿用环境变量）
+        skinDomains: siteUrl ? siteUrl.skinDomains() : config.skinDomains,
       }),
     );
   };
@@ -174,10 +202,24 @@ export function createApp(deps: AppDependencies): Express {
     createIdentityRouter({
       identity: deps.identity,
       tokenService,
+      runtimeSettings: deps.runtimeSettings,
+      emailFlow: deps.emailFlow,
       rateLimiter: deps.rateLimiter,
       rateLimit: deps.rateLimitSettings,
     }),
   );
+
+  // ---- 邮箱验证 / 密码重置端点（P5；未注入 EmailFlow 则整体不挂载）----
+  if (deps.emailFlow) {
+    app.use(
+      createAccountRouter({
+        tokenService,
+        emailFlow: deps.emailFlow,
+        rateLimiter: deps.rateLimiter,
+        rateLimit: deps.rateLimitSettings,
+      }),
+    );
+  }
 
   // ---- 素材上传/衣柜端点（P2）----
   app.use(
@@ -199,6 +241,10 @@ export function createApp(deps: AppDependencies): Express {
       library: deps.library,
       assets: deps.assetRepository,
       identity: deps.identity,
+      emailFlow: deps.emailFlow,
+      mailService: deps.mailService,
+      settings: deps.settings,
+      runtimeSettings: deps.runtimeSettings,
     }),
   );
 
@@ -207,6 +253,9 @@ export function createApp(deps: AppDependencies): Express {
     createSettingRouter({
       tokenService,
       settings: deps.settings ?? EMPTY_SETTINGS,
+      secretBox: deps.secretBox,
+      runtimeSettings: deps.runtimeSettings,
+      siteUrlResolver: deps.siteUrlResolver,
     }),
   );
 

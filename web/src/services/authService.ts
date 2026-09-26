@@ -26,8 +26,16 @@ interface MsctsUser {
 interface MsctsAuthResponse {
   user: MsctsUser
   profile: { id: string; name: string } | null
-  token: string
-  expiresAt: string
+  /**
+   * 会话令牌。**可为 null**：站点开启「要求邮箱验证」时，注册成功但不签发会话，
+   * 必须点完邮件里的验证链接才能登录（见后端 routes/identity.ts 的 register）。
+   */
+  token: string | null
+  expiresAt: string | null
+  /** 本次注册是否处在「需邮箱验证」流程中 */
+  requiresVerification?: boolean
+  /** 验证邮件是否真的发出去了（发信失败时为 false，前端要如实提示） */
+  verificationEmailSent?: boolean
 }
 
 function toLegacyUser(u: MsctsUser): User {

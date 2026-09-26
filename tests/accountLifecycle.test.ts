@@ -159,6 +159,8 @@ async function registerUser(email: string): Promise<{ id: string; token: string 
     password: PASSWORD,
     profileName: `p_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
   });
+  // 未开启「要求邮箱验证」时必须签发会话；token 可空是给该开关留的
+  assert.ok(res.token, '注册应当签发会话令牌');
   return { id: res.user.id, token: res.token.token };
 }
 

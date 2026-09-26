@@ -18,6 +18,22 @@ export const RateLimitKeys = {
     `${KEY_PREFIX}:rl:login:${email.toLowerCase()}`,
   /** Web 注册：按来源地址（无 IP 时退化为 'unknown'） */
   webRegister: (ip: string): string => `${KEY_PREFIX}:rl:register:${ip}`,
+  /**
+   * 发送/重发验证邮件：按收件邮箱。
+   * 这个端点会真的往外发信，不限流就等于给了「用别人邮箱刷信」的免费通道，
+   * 而且会把我们自己的发信域名打成垃圾邮件源。
+   */
+  emailVerification: (email: string): string =>
+    `${KEY_PREFIX}:rl:verify:${email.toLowerCase()}`,
+  /** 发送重置密码邮件：按收件邮箱，理由同上 */
+  passwordReset: (email: string): string =>
+    `${KEY_PREFIX}:rl:reset:${email.toLowerCase()}`,
+  /**
+   * 消费一次性令牌（验证邮箱 / 重置密码）：按来源地址。
+   * 令牌本身是 256 bit 随机值、库里只存哈希，猜不出来；这里限流纯粹是压制
+   * 「拿字典扫令牌」这种没成本但很吵的行为，不承担安全职责。
+   */
+  tokenConsume: (ip: string): string => `${KEY_PREFIX}:rl:token:${ip}`,
 } as const;
 
 /** 缓存键 */

@@ -57,6 +57,12 @@ export function Login() {
   // 账号处于注销宽限期时，登录会被拒（ACCOUNT_DELETED）；此处保留凭据用于一键恢复
   const [deletedAccount, setDeletedAccount] = useState<{ email: string; password: string; message: string } | null>(null)
   const [restoring, setRestoring] = useState(false)
+  /**
+   * 邮箱未验证（EMAIL_NOT_VERIFIED）：此时凭据是对的，但站点要求先验证邮箱。
+   * 用户已经在登录页了，必须能就地重发验证邮件，否则他只能去翻收件箱里那封旧信。
+   */
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null)
+  const [resending, setResending] = useState(false)
 
   const handleEmailSearch = (value: string) => {
     if (!value || value.includes('@')) {
@@ -155,6 +161,9 @@ export function Login() {
           password: values.password,
           message: msg,
         })
+      } else if (code === 'EMAIL_NOT_VERIFIED') {
+        // 不是「登录失败」，而是「还差一步」：弹重发入口而不是报错
+        setUnverifiedEmail(values.email)
       } else {
         message.error(msg)
       }
@@ -216,6 +225,29 @@ export function Login() {
       message.error(err.message || t('auth.restoreFailed'))
     } finally {
       setRestoring(false)
+    }
+  }
+
+  /** 重发验证邮件（未登录状态：后端按请求体邮箱处理） */
+  const handleResendVerification = async () => {
+    if (!unverifiedEmail) return
+    setResending(true)
+    try {
+      const res = await fetch('/api/auth/send-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: unverifiedEmail }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.errorMessage || t('auth.resendVerificationFailed'))
+      }
+      message.success(t('auth.resendVerificationSent'))
+      setUnverifiedEmail(null)
+    } catch (err: any) {
+      message.error(err.message || t('auth.resendVerificationFailed'))
+    } finally {
+      setResending(false)
     }
   }
 
@@ -369,6 +401,10 @@ export function Login() {
             </Form.Item>
 
             <div className="auth-card__footer">
+              <Link to="/forgot-password">{t('auth.forgotPassword')}</Link>
+            </div>
+
+            <div className="auth-card__footer">
               <span>{t('auth.noAccount')} </span>
               <Link to="/register">{t('auth.registerNow')}</Link>
             </div>
@@ -427,6 +463,21 @@ export function Login() {
         onCancel={() => setDeletedAccount(null)}
       >
         <p style={{ marginBottom: 0 }}>{deletedAccount?.message}</p>
+      </Modal>
+
+      {/* 邮箱未验证：就地重发，避免用户只能去翻旧邮件 */}
+      <Modal
+        open={unverifiedEmail !== null}
+        title={t('auth.emailNotVerifiedTitle')}
+        okText={t('auth.resendVerification')}
+        cancelText={t('common.cancel')}
+        confirmLoading={resending}
+        onOk={handleResendVerification}
+        onCancel={() => setUnverifiedEmail(null)}
+      >
+        <p style={{ marginBottom: 0 }}>
+          {t('auth.emailNotVerifiedDesc', { email: unverifiedEmail ?? '' })}
+        </p>
       </Modal>
     </div>
   )
