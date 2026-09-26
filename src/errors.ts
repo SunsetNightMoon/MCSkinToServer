@@ -22,7 +22,8 @@ export type AppErrorCode =
   | 'NOT_FOUND'
   | 'DOWNLOAD_FORBIDDEN'
   | 'FORBIDDEN'
-  | 'ACCOUNT_DELETED';
+  | 'ACCOUNT_DELETED'
+  | 'TOO_MANY_REQUESTS';
 
 export class AppError extends Error {
   constructor(
@@ -32,5 +33,21 @@ export class AppError extends Error {
   ) {
     super(message, { cause: options?.cause });
     this.name = new.target.name;
+  }
+}
+
+/**
+ * 限流拒绝（HTTP 429）。
+ *
+ * 单独成类而非用裸 AppError：错误的响应体除 error/message 外还要带
+ * `retryAfterSeconds` 与标准 `Retry-After` 头，errorHandler 需要据此特判。
+ */
+export class TooManyRequestsError extends AppError {
+  constructor(
+    message: string,
+    /** 建议重试等待秒数（向上取整，最小 1） */
+    readonly retryAfterSeconds: number,
+  ) {
+    super('TOO_MANY_REQUESTS', message);
   }
 }

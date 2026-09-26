@@ -1,6 +1,7 @@
 import { join } from 'node:path';
-import { dialectDirName, loadConfig } from '../config.js';
+import { dialectDirName, loadConfig, resolveRateLimit } from '../config.js';
 import { createDatabase } from '../db/index.js';
+import { createCacheLayer } from '../cache/index.js';
 import { runMigrations } from '../migrate/runner.js';
 import { createStoragePort } from '../storage/index.js';
 import { TokenService } from '../auth/tokens.js';
@@ -46,6 +47,8 @@ async function main(): Promise<void> {
   }
 
   const storage = createStoragePort(config);
+  // P5 可选依赖：有 REDIS_URL 走 Redis，否则/连不上时降级进程内存（进程照常启动）
+  const cacheLayer = await createCacheLayer({ redisUrl: config.redisUrl });
   const rsaKeyPair = loadOrCreateKeyPair(config.rsaPrivateKeyPath);
   const tokenRepository = new TokenRepository(db);
   const tokenService = new TokenService(tokenRepository);
@@ -77,7 +80,11 @@ async function main(): Promise<void> {
     users: userRepository,
     resolver: assetUrlResolver,
   });
-  const settingRepository = new SettingRepository(db);
+  const settingRepository = new SettingRepository(
+    db,
+    cacheLayer.cache,
+    config.settingsCacheTtlMs,
+  );
 
   // 账号宽限期到期清理（注销生命周期）：启动时执行一次，失败不阻塞启动
   try {
@@ -114,6 +121,11 @@ async function main(): Promise<void> {
     textures: textureService,
     library: libraryService,
     settings: settingRepository,
+    // ---- P5 可选依赖：未注入就不做限流、设置读取直连数据库 ----
+    rateLimiter: cacheLayer.rateLimiter,
+    rateLimitSettings: resolveRateLimit(config),
+    cache: cacheLayer.cache,
+    settingsCacheTtlMs: config.settingsCacheTtlMs,
   });
   const port = Number(process.env['PORT'] ?? 3000);
   const server = app.listen(port, () => {
@@ -123,7 +135,11 @@ async function main(): Promise<void> {
   const shutdown = (): void => {
     server.closeAllConnections();
     server.close(() => {
-      void db.close().then(() => process.exit(0));
+      void Promise.all([
+        db.close().catch(() => undefined),
+        // Redis 客户端持有 socket，不显式 quit 会让进程多撑到超时
+        cacheLayer.close().catch(() => undefined),
+      ]).then(() => process.exit(0));
     });
     setTimeout(() => process.exit(0), 3000).unref();
   };

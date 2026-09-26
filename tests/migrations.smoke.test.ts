@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -213,19 +213,32 @@ test(
       /被修改过|checksum/,
     );
 
-    // 阶段 2：失败回滚 —— 清场后用「0001 + 坏 0002」的临时迁移目录重放
+    // 阶段 2：失败回滚 —— 清场后重放「真实的第一个迁移 + 一个必然失败的后续迁移」。
+    //
+    // 这里**不能整目录 cp**：schema 下已有多条迁移，若再塞一个与现有版本号重复的文件，
+    // runMigrations 会在「版本号重复」处直接抛错——那是在应用任何迁移之前，
+    // 于是「0001 的表应保留」变成空转断言，真实回滚行为根本没被验证到。
+    // 因此只取版本号最小的真实迁移，失败用例用 9999 这样不可能撞号的版本。
     await db.exec(PG_DROP_ALL);
     const tmpMigrations = await mkdtemp(join(tmpdir(), 'mscts-pg-'));
     t.after(() => rm(tmpMigrations, { recursive: true, force: true }));
-    await cp(join(SCHEMA_DIR, 'postgresql'), tmpMigrations, { recursive: true });
+
+    const realFiles = (await readdir(join(SCHEMA_DIR, 'postgresql'))).sort();
+    const baseFile = realFiles[0];
+    assert.ok(baseFile, 'schema/postgresql 下必须至少有一条迁移');
+    const baseVersion = baseFile.split('_')[0]!;
+    await cp(
+      join(SCHEMA_DIR, 'postgresql', baseFile),
+      join(tmpMigrations, baseFile),
+    );
     await writeFile(
-      join(tmpMigrations, '0002_broken.sql'),
+      join(tmpMigrations, '9999_broken.sql'),
       'CREATE TABLE pg_half_done (id TEXT PRIMARY KEY); CREATE TABLE pg_bad (;',
     );
 
     await assert.rejects(
       () => runMigrations(db, tmpMigrations),
-      /0002/,
+      /9999/,
       'PG 上失败的迁移必须报错',
     );
 
@@ -236,15 +249,15 @@ test(
     assert.ok(!pgNames.includes('pg_half_done'), 'PG 事务内 DDL 必须整体回滚');
     assert.ok(!pgNames.includes('pg_bad'), 'PG 失败的表不应存在');
     for (const expected of CORE_TABLES) {
-      assert.ok(pgNames.includes(expected), `0001 的表应保留：${expected}`);
+      assert.ok(pgNames.includes(expected), `首个迁移的表应保留：${expected}`);
     }
     const pgVersions = await db.query<{ version: string }>(
       'SELECT version FROM schema_migrations ORDER BY version',
     );
     assert.deepEqual(
       pgVersions.map((v) => v.version),
-      ['0001'],
-      '失败的 0002 不得记录版本',
+      [baseVersion],
+      '失败的后续迁移不得记录版本',
     );
   },
 );

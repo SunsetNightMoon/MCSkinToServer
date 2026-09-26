@@ -13,6 +13,8 @@ import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { TextureService } from '../textures/ingest.js';
 import type { LibraryService } from '../library/libraryService.js';
 import type { SettingRepository } from '../repositories/settingRepository.js';
+import type { RateLimiterPort, CachePort } from '../cache/types.js';
+import type { RateLimitSettings } from '../config.js';
 import { buildMetadataDto } from '../yggdrasil/metadata.js';
 import { createYggdrasilRouter } from './routes/yggdrasil.js';
 import { createIdentityRouter } from './routes/identity.js';
@@ -49,6 +51,15 @@ export interface AppDependencies {
   library: LibraryService;
   /** 站点设置（可选：测试未注入时公开端点返回空对象、管理端点不挂载） */
   settings?: SettingRepository;
+  // ---- P5 可选依赖（未注入 = 关闭该能力，核心功能不受影响）----
+  /** 认证端点限流器；未注入则不做限流 */
+  rateLimiter?: RateLimiterPort;
+  /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
+  rateLimitSettings?: RateLimitSettings;
+  /** 通用缓存；未注入时设置读取直连数据库 */
+  cache?: CachePort;
+  /** 站点设置缓存 TTL（毫秒）；缺省 30s */
+  settingsCacheTtlMs?: number;
 }
 
 const EMPTY_BYTES = new Uint8Array(0);
@@ -70,6 +81,20 @@ export function createApp(deps: AppDependencies): Express {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '2mb' }));
+
+  // 反代后取真实客户端 IP（限流按 IP 计数的场景必需，如注册）。
+  // 生产是 OpenResty + 1Panel，未设置时 req.ip 拿到的是反代自身地址 → 所有用户共用一个限流桶。
+  // 值直接透传给 Express（'1' / 'loopback' / 'true' / IP 列表）。仅在确实位于可信反代之后才可开启，
+  // 否则客户端可伪造 X-Forwarded-For 绕过基于 IP 的限流。
+  const trustProxy = process.env['TRUST_PROXY'];
+  if (trustProxy && trustProxy.trim() !== '') {
+    const raw = trustProxy.trim();
+    const numeric = Number(raw);
+    app.set(
+      'trust proxy',
+      raw === 'true' ? true : Number.isFinite(numeric) ? numeric : raw,
+    );
+  }
 
   // ---- 健康检查（蓝图 §5.3）----
   app.get('/health/live', (_req, res) => {
@@ -126,6 +151,8 @@ export function createApp(deps: AppDependencies): Express {
     profiles: deps.profileRepository,
     textureBuilder: deps.textureBuilder,
     assetUrlResolver: deps.assetUrlResolver,
+    rateLimiter: deps.rateLimiter,
+    rateLimit: deps.rateLimitSettings,
   });
   app.use('/authserver', yggRouter);
   app.use('/api/yggdrasil', yggRouter);
@@ -133,7 +160,12 @@ export function createApp(deps: AppDependencies): Express {
 
   // ---- Web 身份端点（P1：注册/登录/登出 + 角色管理）----
   app.use(
-    createIdentityRouter({ identity: deps.identity, tokenService }),
+    createIdentityRouter({
+      identity: deps.identity,
+      tokenService,
+      rateLimiter: deps.rateLimiter,
+      rateLimit: deps.rateLimitSettings,
+    }),
   );
 
   // ---- 素材上传/衣柜端点（P2）----

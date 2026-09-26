@@ -151,6 +151,35 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
     - 旧版（plan3）Web 接口错误体是 `{ error, errorMessage }`，移植过来的前端有 20+ 处按 `data.errorMessage` 取文案；MSCTS 只返回 `{ error, message }` → 全部落到 `|| t('...操作失败')` 兜底，用户看不到「密码不正确」等真实原因。
     - 修法选在**服务端**：`errorHandler` 的 `AppError` 与 500 分支冗余输出 `errorMessage: err.message`。纯增量（不影响既有 `error`/`message` 消费方），一次修好全部 20+ 处，且**不动任何页面 JSX**（符合「旧版界面一字未改」的约束）。
     - 实测：`POST /api/auth/login` 错密码返回 `{"error":"INVALID_CREDENTIALS","message":"邮箱或密码不正确","errorMessage":"邮箱或密码不正确"}`。
+- 2026-09-24 P5 第一批：Redis 分布式限流 + 站点设置缓存（可选依赖，关闭时核心功能不受影响）。
+  - **范围取舍**：本轮只做 Redis 限流 + 缓存。P5 蓝图里的 SMTP / Turnstile / OAuth / S3-MinIO / Docker 镜像与反代备份**本轮不做**（Docker 与既有约定冲突：生产是 OpenResty + 1Panel + PM2）。
+  - **便携 Redis**：`INDEV/redis/`（zkteco-home 移植版 8.10.2，端口 63799，不入 git），`start-redis.cmd` / `stop-redis.cmd` / `ping-redis.cmd`；详见 `INDEV/README.md`（含「启动时会写 384MB 内存转储」的已知问题与规避）。
+  - **端口模式**（沿用 `StoragePort` 的做法：窄接口 + 多实现 + 装配层负责降级）
+    - `src/cache/types.ts`：`RateLimiterPort` / `CachePort` / `CacheLayer`。两个端口**错误契约刻意不同**——限流器允许抛错（调用方要知情并按 fail-open 放行），缓存实现**不得抛错**（缓存是非权威数据源，读不到就当未命中，不能让读接口 500）。
+    - `src/cache/keys.ts` 单独成文件（只放键名常量）：仓储层要键名，但不该因为一个字符串常量就把 Redis 客户端拉进自己的 import 图。
+    - `src/cache/memory.ts`：进程内存实现（懒清理阈值 1024，时钟可注入）。
+    - `src/cache/redis.ts`：`RedisRateLimiter`（固定窗口 Lua）/ `RedisCache` / `createRedisCacheLayer`。
+    - `src/cache/index.ts`：`createCacheLayer` 按 `REDIS_URL` 决定用哪个实现。
+  - **固定窗口必须用 Lua**：`INCR` 与 `PEXPIRE` 分两条命令发，一旦 INCR 之后进程中断，该 key 永不过期、**被永久锁定**（等于把某个用户/邮箱永久封在 401 里）。脚本里 `INCR` + 首次 `PEXPIRE` + `PTTL` 一次原子完成。
+  - **限流接入**（`src/server/rateLimit.ts` + `src/server/routes/{yggdrasil,identity}.ts`）
+    - Yggdrasil `/authenticate`、`/signout` 按用户名（邮箱）计数；Web `/api/auth/login` 按邮箱、`/api/auth/register` 按来源 IP。
+    - **显式注入才启用**：`AppDependencies.rateLimiter?` / `rateLimitSettings?` 缺省时不挂任何中间件，路由行为与加限流前完全一致——这正是既有测试（大量重复登录调用）无需改动的原因，并已用测试固化。
+    - **fail-open**：计数器故障时放行并记 warning。限流是防滥用的加固层、不是鉴权本身；因缓存故障导致全站无法登录，代价远大于短时间失去限流保护。
+    - `clientIp()` 用 `req.ip` 而非直接读 `X-Forwarded-For`：后者可被客户端伪造绕过按 IP 的限流。反代后取真实 IP 需设 `TRUST_PROXY`（生产 OpenResty + 1Panel 必需，`createApp` 里解析）。
+    - 429 响应体：`{ error: 'TOO_MANY_REQUESTS', message, errorMessage, retryAfterSeconds }` + 标准 `Retry-After` 头。`errorMessage` 沿用 P4 的旧前端兼容约定。**未改动前端 `UserProfile.tsx` 的 429 分支**（那是旧站改名冷却语义），仅服务端统一输出。
+  - **站点设置缓存**：`SettingRepository(db, cache?, publicTtlMs?)`。`getPublic()` 读穿透 + 回填，`setMany()` 主动 `del` 失效，`getAll()` **不缓存**（管理端必须看到刚写入的值）。
+  - **一个真实的启动卡死缺陷（本轮发现并修复）**：node-redis 缺省 `reconnectStrategy` 无限重连，Redis 不可达时 `connect()` **永不 settle** —— 进程不报错退出，而是安静地挂着不监听端口（容器/PM2 下表现为「进程活着但服务不可用」，极难排查）。修复：`socket.reconnectStrategy` 上限 2 次重试 + `connectTimeout: 2000`，失败后 `destroy()` 清掉残留重连定时器再抛错由上层降级；`error` 事件按 5s 节流（否则重连期间刷满日志）。已固化为回归测试（断言「在有界时间内降级 + 进程仍可服务」）。
+  - **测试与验收**
+    - 新增 `tests/cache.test.ts`（21 项）：内存限流窗口行为与边界、内存缓存 TTL 与假值（0/false/''/null 不得当未命中）、限流中间件 429 与响应头、`enabled=false` 开关、`keyOf` 为 null 时跳过不耗配额、**fail-open**、真实 `POST /api/auth/login` 接线（第 4 次 429 且按邮箱隔离）、未注入限流器时不出现 429、设置缓存读穿透+写失效+管理端不走缓存、`RedisCache` 故障不抛错、装配降级、Redis 实现真实读写（`TEST_REDIS_URL` 门控）。
+    - **修正一处此前的空转断言（重要）**：`tests/migrations.smoke.test.ts` 的 PG 分支把整个 `schema/postgresql` 目录 `cp` 到临时目录再塞一个 `0002_broken.sql`；上一批新增 `0002_account_lifecycle.sql` 后出现**版本号重复**，`runMigrations` 在应用任何迁移之前就抛错——错误信息里恰好含 "0002" 让 `assert.rejects(/0002/)` 通过，而下方的「0001 的表应保留」变成**空转断言**（表根本不存在）。因 PG 用例一直被 skip（未设 `TEST_DATABASE_URL`）所以从未暴露。修复：只复制版本号最小的真实迁移 + 用 `9999_broken.sql`，并断言 `schema_migrations` 只记录该基础版本。
+    - 顺带发现并修正：`tests/assets.test.ts` 与 `tests/library.test.ts` **从未被 `npm test` 引用**（等于没在跑）；已纳入脚本，确认双方言可跑通。
+    - `npm test`（SQLite）**94 tests / 79 pass / 0 fail / 15 skipped**（skip = 未设 `TEST_DATABASE_URL` / `TEST_REDIS_URL` 的门控用例）；`TEST_DATABASE_URL=… TEST_REDIS_URL=… npm run test:pg`（PG + Redis 全开）**94 pass / 0 fail / 0 skipped**。后端 `tsc --noEmit` 零错误。
+    - 端到端实测（后端连真实 Redis 63799）：启动日志 `[cache] 已连接 Redis`；`AUTH_RATE_LIMIT_MAX=3` 下连续错误登录前 3 次 401、第 4 次起 429 + `Retry-After: 54` + `retryAfterSeconds`；`redis-cli keys 'mscts:*'` 可见 `mscts:rl:login:…` 与 `mscts:cache:settings:public`（PTTL≈30s，与 `SETTINGS_CACHE_TTL_MS` 一致），客户端信息显示 `lib-name=node-redis`、`cmd=eval`（确认走 Lua 脚本）；管理端 PUT 设置后缓存键被删除（`exists` 1→0）且公开端点立即返回新值。
+    - 降级实测：不设 `REDIS_URL` → 内存实现 + 限流照常生效（401/401/429）；`REDIS_URL` 指向关闭端口 → 1 秒内启动完成（修复前会永久挂住），仅 1 条错误日志 + 1 条降级 warning，功能正常。
+- 2026-09-24 P5 第一批装配收尾（与上条同批）。
+  - `src/server/main.ts`：`createCacheLayer({ redisUrl: config.redisUrl })` → `new SettingRepository(db, cacheLayer.cache, config.settingsCacheTtlMs)` → `createApp` 传 `rateLimiter` / `rateLimitSettings: resolveRateLimit(config)` / `cache` / `settingsCacheTtlMs` → `shutdown` 里 `cacheLayer.close()`（Redis 持有 socket，不显式 quit 会让进程多撑到 3s 超时兜底）。
+  - 配置项：`REDIS_URL`、`RATE_LIMIT_DISABLED`、`AUTH_RATE_LIMIT_MAX`（默认 5）、`AUTH_RATE_LIMIT_WINDOW_MS`（默认 300000）、`SETTINGS_CACHE_TTL_MS`（默认 30000）、`TRUST_PROXY`；已全部写入 `.env.example`。
+  - `INDEV/run-tests.cmd`：先 `redis-cli ping` 探测，**只在 Redis 真的应答时才设 `TEST_REDIS_URL`** —— 否则 Redis 没起时门控用例会 FAIL 而不是 SKIP，属于假警报。
 
 ## 结论摘要
 

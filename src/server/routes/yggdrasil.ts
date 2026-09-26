@@ -4,9 +4,13 @@ import type { MinecraftSessionRepository } from '../../repositories/minecraftSes
 import type { ProfileRepository } from '../../repositories/profileRepository.js';
 import type { TextureProfileBuilder } from '../../yggdrasil/textures.js';
 import type { AssetUrlResolver } from '../../storage/assetUrl.js';
+import type { RateLimiterPort } from '../../cache/types.js';
+import type { RateLimitSettings } from '../../config.js';
 import { illegalArgument } from '../../yggdrasil/errors.js';
 import { normalizeUuid, toShortUuid } from '../../yggdrasil/uuid.js';
 import { buildForProfile } from '../../yggdrasil/buildForProfile.js';
+import { bodyKey, rateLimit } from '../rateLimit.js';
+import { RateLimitKeys } from '../../cache/keys.js';
 
 /**
  * Yggdrasil 协议 HTTP 适配层（蓝图 §3.2）。
@@ -27,6 +31,10 @@ export interface YggdrasilRouteDependencies {
   assetUrlResolver: AssetUrlResolver;
   /** hasJoined 短会话过期判断用时钟 */
   now?: () => Date;
+  /** 限流器；未注入则不做限流（测试场景） */
+  rateLimiter?: RateLimiterPort;
+  /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
+  rateLimit?: RateLimitSettings;
 }
 
 const MAX_BATCH_NAMES = 10;
@@ -46,9 +54,26 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
   const router = Router();
   const now = deps.now ?? (() => new Date());
 
+  /**
+   * 凭据类端点限流（authenticate / signout）。按用户名（邮箱）计数，
+   * 与 plan3 的行为对齐：5 次 / 5 分钟。未注入限流器时返回恒放行的空中间件。
+   */
+  const credentialLimit: ReturnType<typeof rateLimit>[] =
+    deps.rateLimiter && deps.rateLimit
+      ? [
+          rateLimit({
+            limiter: deps.rateLimiter,
+            settings: deps.rateLimit,
+            keyOf: bodyKey('username', (v) => RateLimitKeys.yggdrasilAccount(v)),
+            message: (seconds) =>
+              `请求过于频繁，请在 ${seconds} 秒后重试`,
+          }),
+        ]
+      : [];
+
   // ---- 认证五端点（相对路径，挂载前缀见文件头注释）----
 
-  router.post('/authenticate', async (req, res) => {
+  router.post('/authenticate', ...credentialLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const session = await deps.identity.authenticateYggdrasil({
       email: requireString(body['username'], 'username'),
@@ -86,7 +111,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     res.status(204).end();
   });
 
-  router.post('/signout', async (req, res) => {
+  router.post('/signout', ...credentialLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     await deps.identity.signoutYggdrasil({
       username: requireString(body['username'], 'username'),

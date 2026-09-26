@@ -12,14 +12,15 @@
     "start": "tsx src/server/main.ts",
     "gen:vector": "tsx scripts/generate-yggdrasil-vector.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test --test-concurrency=1 tests/migrations.smoke.test.ts tests/auth-storage.test.ts tests/yggdrasil.test.ts tests/http.test.ts tests/identity.test.ts tests/accountLifecycle.test.ts tests/adminSettings.test.ts",
-    "test:pg": "node --import tsx --test --test-concurrency=1 tests/migrations.smoke.test.ts tests/auth-storage.test.ts tests/yggdrasil.test.ts tests/http.test.ts tests/identity.test.ts tests/accountLifecycle.test.ts tests/adminSettings.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 tests/migrations.smoke.test.ts tests/auth-storage.test.ts tests/yggdrasil.test.ts tests/http.test.ts tests/identity.test.ts tests/assets.test.ts tests/library.test.ts tests/accountLifecycle.test.ts tests/adminSettings.test.ts tests/cache.test.ts",
+    "test:pg": "node --import tsx --test --test-concurrency=1 tests/migrations.smoke.test.ts tests/auth-storage.test.ts tests/yggdrasil.test.ts tests/http.test.ts tests/identity.test.ts tests/assets.test.ts tests/library.test.ts tests/accountLifecycle.test.ts tests/adminSettings.test.ts tests/cache.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.10.0",
     "express": "^5.1.0",
     "pg": "^8.13.0",
+    "redis": "^6.2.1",
     "sharp": "^0.35.4"
   },
   "devDependencies": {

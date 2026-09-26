@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { AppErrorCode } from '../errors.js';
-import { AppError } from '../errors.js';
+import { AppError, TooManyRequestsError } from '../errors.js';
 import { YggdrasilError } from '../yggdrasil/errors.js';
 
 /**
@@ -35,6 +35,8 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     case 'DOWNLOAD_FORBIDDEN':
     case 'FORBIDDEN':
       return 403;
+    case 'TOO_MANY_REQUESTS':
+      return 429;
     default:
       return 500;
   }
@@ -54,6 +56,17 @@ export function errorHandler(
     return;
   }
   if (err instanceof AppError) {
+    // 限流拒绝：除通用字段外补 retryAfterSeconds + 标准 Retry-After 头
+    if (err instanceof TooManyRequestsError) {
+      res.setHeader('Retry-After', String(err.retryAfterSeconds));
+      res.status(429).json({
+        error: err.code,
+        message: err.message,
+        errorMessage: err.message,
+        retryAfterSeconds: err.retryAfterSeconds,
+      });
+      return;
+    }
     res.status(mapAppErrorStatus(err.code)).json({
       error: err.code,
       message: err.message,

@@ -1,5 +1,8 @@
 import type { DatabaseConnection } from '../types.js';
 import { phAt } from '../db/rows.js';
+import type { CachePort } from '../cache/types.js';
+import { CacheKeys } from '../cache/keys.js';
+import { DEFAULT_SETTINGS_CACHE_TTL_MS } from '../config.js';
 
 /**
  * system_settings 键值表 repository（表已存在于 0001_init，无需新迁移）。
@@ -42,9 +45,17 @@ function parseValue(raw: unknown): unknown {
 }
 
 export class SettingRepository {
-  constructor(private readonly db: DatabaseConnection) {}
+  /**
+   * @param cache 可选缓存端口（P5）。未注入时所有读取直连数据库，行为与本类引入缓存前完全一致。
+   * @param publicTtlMs 公开设置的缓存 TTL
+   */
+  constructor(
+    private readonly db: DatabaseConnection,
+    private readonly cache?: CachePort,
+    private readonly publicTtlMs: number = DEFAULT_SETTINGS_CACHE_TTL_MS,
+  ) {}
 
-  /** 全部设置（管理端读取） */
+  /** 全部设置（管理端读取）。**不缓存**：管理端必须看到刚写入的值 */
   async getAll(): Promise<Record<string, unknown>> {
     const rows = await this.db.query<Record<string, unknown>>(
       'SELECT key, value FROM system_settings',
@@ -56,12 +67,27 @@ export class SettingRepository {
     return result;
   }
 
-  /** 公开白名单子集（/api/settings/public），只返回已显式设置过的键 */
+  /**
+   * 公开白名单子集（/api/settings/public），只返回已显式设置过的键。
+   *
+   * 走缓存：该端点是每次页面加载都会命中的高频读、且键值极少变更，
+   * 写路径（setMany）会主动失效，因此不存在读到自己刚写的旧值的风险。
+   */
   async getPublic(): Promise<Record<string, unknown>> {
+    const cacheKey = CacheKeys.publicSettings();
+    if (this.cache) {
+      const cached = await this.cache.get<Record<string, unknown>>(cacheKey);
+      if (cached !== undefined) return cached;
+    }
+
     const all = await this.getAll();
     const result: Record<string, unknown> = {};
     for (const key of PUBLIC_SETTING_KEYS) {
       if (all[key] !== undefined) result[key] = all[key];
+    }
+
+    if (this.cache) {
+      await this.cache.set(cacheKey, result, this.publicTtlMs);
     }
     return result;
   }
@@ -94,5 +120,8 @@ export class SettingRepository {
         [key, json, iso],
       );
     }
+    // 写入后失效公开缓存，避免读到旧值。缓存只用于 getPublic 的读穿透，
+    // 管理端 getAll 不缓存，因此只需清这一个键。
+    await this.cache?.del(CacheKeys.publicSettings());
   }
 }

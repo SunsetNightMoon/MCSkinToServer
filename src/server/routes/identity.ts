@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import type { IdentityService } from '../../auth/identity.js';
 import type { TokenService } from '../../auth/tokens.js';
+import type { RateLimiterPort } from '../../cache/types.js';
+import type { RateLimitSettings } from '../../config.js';
 import { requireAuth } from '../middleware.js';
+import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
+import { RateLimitKeys } from '../../cache/keys.js';
 
 /**
  * Web 身份 HTTP 适配层：
@@ -21,6 +25,10 @@ import { requireAuth } from '../middleware.js';
 export interface IdentityRouteDependencies {
   identity: IdentityService;
   tokenService: TokenService;
+  /** 限流器；未注入则不做限流（测试场景） */
+  rateLimiter?: RateLimiterPort;
+  /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
+  rateLimit?: RateLimitSettings;
 }
 
 const Bearer = 'bearer' as const;
@@ -35,7 +43,35 @@ function bearerToken(header: string | undefined): string | null {
 export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   const router = Router();
 
-  router.post('/api/auth/register', async (req, res) => {
+  /**
+   * 登录按邮箱限流（防定向撞库）；注册按来源 IP 限流（防批量注册）。
+   * 未注入限流器时为空数组，路由行为与加限流前完全一致。
+   */
+  const loginLimit: ReturnType<typeof rateLimit>[] =
+    deps.rateLimiter && deps.rateLimit
+      ? [
+          rateLimit({
+            limiter: deps.rateLimiter,
+            settings: deps.rateLimit,
+            keyOf: bodyKey('email', (v) => RateLimitKeys.webLogin(v)),
+            message: (seconds) => `登录尝试过于频繁，请在 ${seconds} 秒后重试`,
+          }),
+        ]
+      : [];
+
+  const registerLimit: ReturnType<typeof rateLimit>[] =
+    deps.rateLimiter && deps.rateLimit
+      ? [
+          rateLimit({
+            limiter: deps.rateLimiter,
+            settings: deps.rateLimit,
+            keyOf: (req) => RateLimitKeys.webRegister(clientIp(req)),
+            message: (seconds) => `注册请求过于频繁，请在 ${seconds} 秒后重试`,
+          }),
+        ]
+      : [];
+
+  router.post('/api/auth/register', ...registerLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const result = await deps.identity.register({
       email: String(body['email'] ?? ''),
@@ -50,7 +86,7 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
     });
   });
 
-  router.post('/api/auth/login', async (req, res) => {
+  router.post('/api/auth/login', ...loginLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const result = await deps.identity.loginWeb({
       email: String(body['email'] ?? ''),
