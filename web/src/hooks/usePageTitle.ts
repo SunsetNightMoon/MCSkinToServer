@@ -3,10 +3,20 @@ import { useEffect, useState, useRef } from 'react';
 import { useSiteStore } from '../store/siteStore';
 import { settingBool } from '../utils/settingBool';
 
-const STORAGE_KEY = 'catTavernSkins-site-settings';
-const CACHE_TTL_MS = 5 * 60 * 1000;
+/**
+ * 旧版本曾把整份站点设置写进 localStorage（5 分钟 TTL）并在命中时直接返回。
+ * 现在不再读写，只在启动时清掉残留 —— 否则老访客浏览器里那份「背景图为空」的旧缓存
+ * 会一直存在，而清掉的活儿只能由显式的清理函数来做。
+ */
+const LEGACY_STORAGE_KEY = 'catTavernSkins-site-settings';
 
-interface CachedSettings {
+// 本模块加载时清一次：老访客浏览器里那份缓存不会再被读取，但留着只会一直躺在
+// localStorage 里（下次谁再引入缓存就会被同一份脏数据咬到）。
+try {
+  if (typeof window !== 'undefined') window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+} catch { /* storage disabled */ }
+
+interface SiteSettings {
   title: string;
   description: string;
   // 主题设置
@@ -28,33 +38,7 @@ interface CachedSettings {
   allowRegistration: boolean;
 }
 
-interface StoredCache {
-  data: CachedSettings;
-  ts: number;
-}
-
-function readPersistentCache(): CachedSettings | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored) as StoredCache;
-      if (Date.now() - parsed.ts < CACHE_TTL_MS) {
-        return parsed.data;
-      }
-    }
-  } catch { /* storage disabled */ }
-  return null;
-}
-
-function writePersistentCache(settings: CachedSettings) {
-  try {
-    const payload: StoredCache = { data: settings, ts: Date.now() };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch { /* storage disabled */ }
-}
-
-const defaultSettings: CachedSettings = {
+const defaultSettings: SiteSettings = {
   title: 'CatTavernSkins',
   description: 'Minecraft Skin Server',
   lightBgImage: '',
@@ -70,15 +54,24 @@ const defaultSettings: CachedSettings = {
   allowRegistration: true,
 };
 
-let cachedSettings: CachedSettings | null = readPersistentCache();
-let fetchPromise: Promise<CachedSettings> | null = null;
+/**
+ * 上一次拉到的设置，**只用于首屏标题的初始值**（避免标签页标题闪一下默认名）。
+ * 绝不能拿它短路网络请求：背景图/图标是走 `/api/admin/upload-theme-image` 写的，
+ * 缓存命中会让管理员刚上传的图迟迟不生效，界面还在展示旧的「背景图为空」。
+ */
+let latestSettings: SiteSettings | null = null;
+/** 同一次挂载里多个页面组件共用一份请求（并发去重），不是缓存。 */
+let inflight: Promise<SiteSettings> | null = null;
 
-/** 清除站点设置缓存（修改设置后调用） */
+/**
+ * 站点设置发生写入后调用：丢弃内存里的旧值，并清掉历史遗留的 localStorage 缓存。
+ * 之后任何页面挂载都会重新走网络拿最新值。
+ */
 export function clearSiteTitleCache() {
-  cachedSettings = null;
-  fetchPromise = null;
+  latestSettings = null;
+  inflight = null;
   try {
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch { /* storage disabled */ }
 }
 
@@ -89,16 +82,15 @@ function setFavicon(url: string) {
   }
 }
 
-async function fetchSiteSettings(): Promise<CachedSettings> {
-  if (cachedSettings !== null) return cachedSettings;
-  if (fetchPromise !== null) return fetchPromise;
+async function fetchSiteSettings(): Promise<SiteSettings> {
+  if (inflight !== null) return inflight;
 
-  fetchPromise = (async () => {
+  inflight = (async () => {
     try {
       const res = await fetch(`/api/settings/public?_t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
-        cachedSettings = {
+        latestSettings = {
           title: String(data.SITE_TITLE || 'CatTavernSkins'),
           description: String(data.SITE_DESCRIPTION || 'Minecraft Skin Server'),
           // 主题设置（向后兼容：darkBgImage 为空时回退到 HOMEPAGE_BG_IMAGE）
@@ -115,16 +107,16 @@ async function fetchSiteSettings(): Promise<CachedSettings> {
           allowRegistration: settingBool(data.ALLOW_REGISTRATION, true),
         };
       } else {
-        cachedSettings = { ...defaultSettings };
+        // 非 2xx 回落默认值，不沿用上一次的旧值：否则首屏标题会继续冒充已同步
+        latestSettings = { ...defaultSettings };
       }
     } catch {
-      cachedSettings = { ...defaultSettings };
+      latestSettings = { ...defaultSettings };
     }
-    writePersistentCache(cachedSettings);
-    fetchPromise = null;
-    return cachedSettings;
+    inflight = null;
+    return latestSettings;
   })();
-  return fetchPromise;
+  return inflight;
 }
 
 /**
@@ -133,7 +125,7 @@ async function fetchSiteSettings(): Promise<CachedSettings> {
  * @returns 当前站点标题（可用于页面内显示）
  */
 export function usePageTitle(pageTitle: string | null = null): string {
-  const [siteTitle, setSiteTitle] = useState<string>(cachedSettings?.title || 'CatTavernSkins');
+  const [siteTitle, setSiteTitle] = useState<string>(latestSettings?.title || 'CatTavernSkins');
   const prevTitleRef = useRef<string>('');
   const {
     setTitle,
@@ -149,6 +141,7 @@ export function usePageTitle(pageTitle: string | null = null): string {
     setAllowRegistration,
   } = useSiteStore();
 
+  // 标题同步：纯本地计算，不发请求
   useEffect(() => {
     const fullTitle =
       pageTitle && pageTitle.trim()
@@ -159,8 +152,13 @@ export function usePageTitle(pageTitle: string | null = null): string {
       document.title = fullTitle;
       prevTitleRef.current = fullTitle;
     }
+  }, [pageTitle, siteTitle]);
 
+  // 站点设置：每次挂载拉一次网络，落到 store 的值一律来自后端（不设本地缓存）
+  useEffect(() => {
+    let cancelled = false;
     fetchSiteSettings().then((settings) => {
+      if (cancelled) return;
       setSiteTitle(settings.title);
       setTitle(settings.title);
       setDescription(settings.description);
@@ -175,7 +173,11 @@ export function usePageTitle(pageTitle: string | null = null): string {
       setAllowRegistration(settings.allowRegistration);
       setFavicon(settings.favicon);
     });
-  }, [pageTitle, siteTitle, setTitle, setDescription, setLogo, setLightBgImage, setDarkBgImage, setLoginBgImage, setLoginEmbedImage, setVideoMuted, setLightBgOverlayOpacity, setDarkBgOverlayOpacity, setAllowRegistration]);
+    return () => {
+      cancelled = true;
+    };
+    // setter 来自 zustand，引用稳定：这条 effect 只在挂载时跑一次
+  }, [setTitle, setDescription, setLogo, setLightBgImage, setDarkBgImage, setLoginBgImage, setLoginEmbedImage, setVideoMuted, setLightBgOverlayOpacity, setDarkBgOverlayOpacity, setAllowRegistration]);
 
   return siteTitle;
 }

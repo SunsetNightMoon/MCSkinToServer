@@ -83,6 +83,7 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
         throw new Error(data.errorMessage || t('common.operationFailed'))
       }
       message.success(t('admin.registrationSettingsSaved'))
+      clearSiteTitleCache()
       if (autoApply) {
         useSiteStore.getState().loadSettings()
       }
@@ -215,6 +216,9 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setPreview(data.url);
       form.setFieldsValue({ [formKey]: data.url });
+      // 上传端点不走 PUT /api/admin/settings，必须自己失效站点设置缓存，
+      // 否则页面会拿着旧值继续展示「没有图标」。
+      clearSiteTitleCache();
       message.success(successMsg);
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -236,6 +240,7 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
       }
       setPreview('');
       form.setFieldsValue({ [formKey]: '' });
+      clearSiteTitleCache();
       message.success(successMsg);
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -663,6 +668,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         throw new Error(data.errorMessage || t('common.saveFailed'))
       }
       message.success(t('admin.themeSettingsSaved'))
+      clearSiteTitleCache()
       if (autoApply) {
         useSiteStore.getState().loadSettings()
       }
@@ -685,6 +691,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setLightBgPreview(data.url);
       form.setFieldsValue({ LIGHT_BG_IMAGE: data.url });
+      clearSiteTitleCache();
       message.success(t('admin.lightBgUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -701,6 +708,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       }
       setLightBgPreview('');
       form.setFieldsValue({ LIGHT_BG_IMAGE: '' });
+      clearSiteTitleCache();
       message.success(t('admin.lightBgRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -719,6 +727,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setDarkBgPreview(data.url);
       form.setFieldsValue({ DARK_BG_IMAGE: data.url });
+      clearSiteTitleCache();
       message.success(t('admin.darkBgUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -735,6 +744,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       }
       setDarkBgPreview('');
       form.setFieldsValue({ DARK_BG_IMAGE: '' });
+      clearSiteTitleCache();
       message.success(t('admin.darkBgRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -753,6 +763,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setLoginBgPreview(data.url);
       form.setFieldsValue({ LOGIN_BG_IMAGE: data.url });
+      clearSiteTitleCache();
       message.success(t('admin.loginBgUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -769,6 +780,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       }
       setLoginBgPreview('');
       form.setFieldsValue({ LOGIN_BG_IMAGE: '' });
+      clearSiteTitleCache();
       message.success(t('admin.loginBgRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -787,6 +799,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setLoginEmbedPreview(data.url);
       form.setFieldsValue({ LOGIN_EMBED_IMAGE: data.url });
+      clearSiteTitleCache();
       message.success(t('admin.loginEmbedUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -803,6 +816,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       }
       setLoginEmbedPreview('');
       form.setFieldsValue({ LOGIN_EMBED_IMAGE: '' });
+      clearSiteTitleCache();
       message.success(t('admin.loginEmbedRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
