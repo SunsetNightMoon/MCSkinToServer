@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ import { ProfileRepository } from '../src/repositories/profileRepository.js';
 import { MinecraftSessionRepository } from '../src/repositories/minecraftSessionRepository.js';
 import { BlobRepository } from '../src/repositories/blobRepository.js';
 import { AssetRepository } from '../src/repositories/assetRepository.js';
-import { SettingRepository } from '../src/repositories/settingRepository.js';
+import { SettingRepository, PUBLIC_SETTING_KEYS } from '../src/repositories/settingRepository.js';
 import { TextureService } from '../src/textures/ingest.js';
 import { LibraryService } from '../src/library/libraryService.js';
 import { FavoriteRepository } from '../src/repositories/favoriteRepository.js';
@@ -565,4 +565,74 @@ test('admin/settings: PostgreSQL 方言', { skip: TEST_DATABASE_URL ? false : '�
 
   await db.run('DELETE FROM system_settings');
   await db.close();
+});
+
+// ---------------------------------------------------------------------------
+// 键名口径防回归
+//
+// 历史缺陷：管理端表单 Form.Item name 写的是 snake_case（site_title），
+// 后端 setMany 原样入库，而读取一律走 SCREAMING_SNAKE_CASE（白名单 + 前端 data.SITE_TITLE）
+// → 保存返回 200、页面刷新却永远是默认值，且 94 个测试全绿（因为后端测试只用大写键）。
+// 下面两项做静态与端到端双重守卫。
+// ---------------------------------------------------------------------------
+
+test('settings: 管理端表单键名必须全大写，且访客可见键都在公开白名单内', async () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const src = await readFile(
+    join(repoRoot, 'web', 'src', 'pages', 'Admin', 'SystemSettings.tsx'),
+    'utf8',
+  );
+  const names = [...src.matchAll(/name="([A-Za-z0-9_]+)"/g)].map((m) => m[1] as string);
+  assert.ok(names.length >= 20, `应能提取到全部表单字段名，实际 ${names.length} 个`);
+
+  const lowercase = names.filter((n) => n !== n.toUpperCase());
+  assert.deepEqual(lowercase, [], '管理端表单存在非全大写的字段名，写入后读不回来');
+
+  // 访客可见的键必须列入公开白名单，否则 getPublic 不导出 → 前端永远回落默认值
+  const mustBePublic = [
+    'SITE_TITLE',
+    'SITE_DESCRIPTION',
+    'SITE_FAVICON',
+    'SITE_LOGO',
+    'HOMEPAGE_TITLE_TEXT',
+    'HOMEPAGE_TEXT',
+    'HOMEPAGE_BUTTON_TEXT',
+    'HOMEPAGE_BUTTONS',
+    'HOMEPAGE_CUSTOM_ENABLED',
+    'HOMEPAGE_CUSTOM_HTML',
+    'HOMEPAGE_CUSTOM_CSS',
+  ];
+  for (const key of mustBePublic) {
+    assert.ok(
+      PUBLIC_SETTING_KEYS.includes(key),
+      `${key} 未列入 PUBLIC_SETTING_KEYS，保存后将无法通过 /api/settings/public 回读`,
+    );
+  }
+});
+
+test('settings: 高度自定义首页相关键可保存并经公开端点保真回读', async () => {
+  const payload = {
+    SITE_LOGO: '/logo.png',
+    SITE_FAVICON: '/icon.svg',
+    HOMEPAGE_TITLE_TEXT: '欢迎来到',
+    HOMEPAGE_TEXT: 'WELCOME',
+    HOMEPAGE_BUTTON_TEXT: '进入个人中心',
+    HOMEPAGE_BUTTONS: '[{"text":"A","link":"/a"}]',
+    HOMEPAGE_CUSTOM_ENABLED: true,
+    HOMEPAGE_CUSTOM_HTML: '<section class="my-hero">hello</section>',
+    HOMEPAGE_CUSTOM_CSS: '.my-hero{color:red}',
+  };
+  const saved = await api('/api/admin/settings', {
+    method: 'PUT',
+    token: env().adminToken,
+    body: payload,
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.saved, Object.keys(payload).length);
+
+  const pub = await api('/api/settings/public');
+  assert.equal(pub.status, 200);
+  for (const [key, value] of Object.entries(payload)) {
+    assert.deepEqual(pub.body[key], value, `${key} 未能经公开端点保真回读`);
+  }
 });

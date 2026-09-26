@@ -14,10 +14,22 @@ import { DEFAULT_SETTINGS_CACHE_TTL_MS } from '../config.js';
  * 这样 /api/settings/public 的形状与旧站一致，前端 siteStore 无需改协议。
  */
 
-/** 对外公开可读的设置键（站点外观与文案；凭据类键永不入此表导出） */
+/**
+ * 对外公开可读的设置键（站点外观与文案；凭据类键永不入此表导出）。
+ *
+ * ⚠️ 这里漏一个键，症状就是「管理端保存成功、刷新页面却还是旧值」——
+ * 因为 getPublic 只导出白名单内的键，未列入的键写进去了但读不出来。
+ * 新增任何「访客可见」的设置项时，必须同时加到这里，
+ * 否则 /api/settings/public 不返回它，前端只会默默回落到默认值。
+ *
+ * 注意与本文件的「键名大小写」约定：全大写 SCREAMING_SNAKE_CASE。
+ * 管理端表单的 Form.Item name 必须使用同样的拼写，写入与读取才能对上。
+ */
 export const PUBLIC_SETTING_KEYS: readonly string[] = [
   'SITE_TITLE',
   'SITE_DESCRIPTION',
+  'SITE_FAVICON',
+  'SITE_LOGO',
   'THEME',
   'LIGHT_BG_IMAGE',
   'DARK_BG_IMAGE',
@@ -32,6 +44,15 @@ export const PUBLIC_SETTING_KEYS: readonly string[] = [
   'ALLOW_REGISTRATION',
   'REQUIRE_EMAIL_VERIFICATION',
   'ENABLE_CAPTCHA',
+  // 首页文案
+  'HOMEPAGE_TITLE_TEXT',
+  'HOMEPAGE_TEXT',
+  'HOMEPAGE_BUTTON_TEXT',
+  'HOMEPAGE_BUTTONS',
+  // 首页高度自定义（HTML/CSS 由管理员撰写，本来就随页面公开下发）
+  'HOMEPAGE_CUSTOM_ENABLED',
+  'HOMEPAGE_CUSTOM_HTML',
+  'HOMEPAGE_CUSTOM_CSS',
 ];
 
 function parseValue(raw: unknown): unknown {

@@ -3,7 +3,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useSiteStore } from '../../store/siteStore'
 import { clearSiteTitleCache } from '../../hooks/usePageTitle'
 import { fetchWithAuth } from '../../utils/api'
-import { Form, Input, Switch, Button, message, Card, Spin, Modal, Upload, Space, Slider } from 'antd'
+import { Form, Input, Switch, Button, message, Card, Spin, Modal, Upload, Space, Slider, Alert } from 'antd'
 import { SendOutlined, EditOutlined, CloseOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
 import './SystemSettings.css'
@@ -50,9 +50,9 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
       form.setFieldsValue({
-        allow_registration: data.ALLOW_REGISTRATION !== 'false',
-        require_email_verification: data.REQUIRE_EMAIL_VERIFICATION === 'true',
-        enable_captcha: data.ENABLE_CAPTCHA !== 'false',
+        ALLOW_REGISTRATION: data.ALLOW_REGISTRATION !== 'false',
+        REQUIRE_EMAIL_VERIFICATION: data.REQUIRE_EMAIL_VERIFICATION === 'true',
+        ENABLE_CAPTCHA: data.ENABLE_CAPTCHA !== 'false',
       })
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
@@ -95,7 +95,7 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
       <Form form={form} layout="vertical" onFinish={handleSave}>
         <Form.Item
           label={t('admin.allowRegistration')}
-          name="allow_registration"
+          name="ALLOW_REGISTRATION"
           valuePropName="checked"
           tooltip={t('admin.allowRegistrationTooltip')}
         >
@@ -104,7 +104,7 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
 
         <Form.Item
           label={t('admin.requireEmailVerification')}
-          name="require_email_verification"
+          name="REQUIRE_EMAIL_VERIFICATION"
           valuePropName="checked"
           tooltip={t('admin.requireEmailVerificationTooltip')}
         >
@@ -113,7 +113,7 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
 
         <Form.Item
           label={t('admin.enableCaptcha')}
-          name="enable_captcha"
+          name="ENABLE_CAPTCHA"
           valuePropName="checked"
           tooltip={t('admin.enableCaptchaTooltip')}
         >
@@ -140,6 +140,10 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
   const [loading, setLoading] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
   const [extraButtons, setExtraButtons] = useState<HomepageButton[]>([])
+  /** 「高度自定义首页」总开关：关闭 = 原版选项；开启 = HTML/CSS 编辑器 */
+  const [customEnabled, setCustomEnabled] = useState(false)
+  const [customHtml, setCustomHtml] = useState('')
+  const [customCss, setCustomCss] = useState('')
 
   const loadSettings = async () => {
     setLoadingSettings(true)
@@ -157,13 +161,20 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
         }
       })()
       setExtraButtons(buttons)
+      // 后端以 JSON 文本存取，布尔或字符串两种历史形态都兼容
+      setCustomEnabled(
+        data.HOMEPAGE_CUSTOM_ENABLED === true || String(data.HOMEPAGE_CUSTOM_ENABLED) === 'true',
+      )
+      setCustomHtml(String(data.HOMEPAGE_CUSTOM_HTML || ''))
+      setCustomCss(String(data.HOMEPAGE_CUSTOM_CSS || ''))
       form.setFieldsValue({
-        site_title: String(data.SITE_TITLE || t('landing.welcomePrefix')),
-        site_description: String(data.SITE_DESCRIPTION || t('admin.defaultSiteDescription')),
-        site_favicon: String(data.SITE_FAVICON || '/favicon.svg'),
-        homepage_title_text: String(data.HOMEPAGE_TITLE_TEXT || t('landing.welcomePrefix')),
-        homepage_text: String(data.HOMEPAGE_TEXT || t('landing.welcomeText')),
-        homepage_button_text: String(data.HOMEPAGE_BUTTON_TEXT || t('landing.enterProfile')),
+        SITE_TITLE: String(data.SITE_TITLE || t('landing.welcomePrefix')),
+        SITE_DESCRIPTION: String(data.SITE_DESCRIPTION || t('admin.defaultSiteDescription')),
+        SITE_FAVICON: String(data.SITE_FAVICON || '/favicon.svg'),
+        SITE_LOGO: String(data.SITE_LOGO || ''),
+        HOMEPAGE_TITLE_TEXT: String(data.HOMEPAGE_TITLE_TEXT || t('landing.welcomePrefix')),
+        HOMEPAGE_TEXT: String(data.HOMEPAGE_TEXT || t('landing.welcomeText')),
+        HOMEPAGE_BUTTON_TEXT: String(data.HOMEPAGE_BUTTON_TEXT || t('landing.enterProfile')),
       })
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
@@ -179,7 +190,13 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
     try {
       const payload = {
         ...values,
-        homepage_buttons: JSON.stringify(extraButtons),
+        HOMEPAGE_BUTTONS: JSON.stringify(extraButtons),
+        HOMEPAGE_CUSTOM_ENABLED: customEnabled,
+        // 仅在开启时提交正文：关闭开关不该把已经写好的 HTML/CSS 抹掉，
+        // 这样管理员可以随时切回自定义模式继续编辑
+        ...(customEnabled
+          ? { HOMEPAGE_CUSTOM_HTML: customHtml, HOMEPAGE_CUSTOM_CSS: customCss }
+          : {}),
       }
       const res = await fetchWithAuth('/api/admin/settings', {
         method: 'PUT',
@@ -227,107 +244,206 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
   return (
     <Card title={t('admin.siteSettings')} style={{ marginBottom: 16 }}>
       <Form form={form} layout="vertical" onFinish={handleSave}>
+        {/* 总开关：关闭 → 原版选项；开启 → HTML/CSS 自定义 */}
         <Form.Item
-          label={t('admin.siteTitle')}
-          name="site_title"
-          rules={[{ required: true, message: t('admin.pleaseEnterSiteTitle') }]}
+          label={t('admin.customHomepage')}
+          tooltip={t('admin.customHomepageTooltip')}
         >
-          <Input placeholder="CatTavernSkins" />
+          <Switch
+            checked={customEnabled}
+            onChange={setCustomEnabled}
+            checkedChildren={t('common.on')}
+            unCheckedChildren={t('common.off')}
+          />
         </Form.Item>
 
-        <Form.Item
-          label={t('admin.siteDescription')}
-          name="site_description"
-          rules={[{ required: true, message: t('admin.pleaseEnterSiteDescription') }]}
-        >
-          <TextArea rows={3} placeholder={t('admin.defaultSiteDescription')} />
-        </Form.Item>
+        {customEnabled ? (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={t('admin.customHomepageWarning')}
+            />
 
-        <Form.Item
-          label={t('admin.siteFavicon')}
-          name="site_favicon"
-        >
-          <Input placeholder="/favicon.svg" />
-        </Form.Item>
-
-        <Form.Item
-          label={t('admin.homepageTitlePrefix')}
-          name="homepage_title_text"
-          rules={[{ required: true, message: t('admin.pleaseEnterHomepageTitlePrefix') }]}
-          tooltip={t('admin.homepageTitlePrefixTooltip')}
-        >
-          <Input placeholder={t('admin.welcomeTo')} />
-        </Form.Item>
-
-        <Form.Item
-          label={t('admin.homepageSubtitle')}
-          name="homepage_text"
-          rules={[{ required: true, message: t('admin.pleaseEnterHomepageSubtitle') }]}
-          tooltip={t('admin.homepageSubtitleTooltip')}
-        >
-          <Input placeholder="WELCOME TO SKIN2!" />
-        </Form.Item>
-
-        <Form.Item
-          label={t('admin.homepageMainButton')}
-          name="homepage_button_text"
-          rules={[{ required: true, message: t('admin.pleaseEnterMainButtonText') }]}
-          tooltip={t('admin.homepageMainButtonTooltip')}
-        >
-          <Input placeholder={t('admin.enterPersonalCenter')} />
-        </Form.Item>
-
-        <Form.Item label={t('admin.homepageExtraButtons')}>
-          <div className="homepage-extra-buttons">
-            <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-subtle)' }}>
-              {t('admin.maxButtonsHint', { current: extraButtons.length })}
-            </div>
-            <Space direction="vertical" style={{ width: '100%' }}>
-            {extraButtons.map((btn, idx) => (
-              <Card
-                key={idx}
-                size="small"
-                style={{ background: 'var(--bg-inner)', border: '1px solid var(--border-color)', boxShadow: 'none' }}
-                bodyStyle={{ padding: 12, background: 'transparent' }}
-              >
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.buttonNumber', { number: idx + 1 })}</span>
-                    <Button
-                      type="text"
-                      danger
-                      size="small"
-                      icon={<MinusCircleOutlined />}
-                      onClick={() => removeButton(idx)}
-                    >
-                      {t('common.delete')}
-                    </Button>
-                  </Space>
-                  <Input
-                    placeholder={t('admin.buttonText')}
-                    value={btn.text}
-                    onChange={(e) => updateButton(idx, 'text', e.target.value)}
-                  />
-                  <Input
-                    placeholder={t('admin.buttonLink')}
-                    value={btn.link}
-                    onChange={(e) => updateButton(idx, 'link', e.target.value)}
-                  />
-                </Space>
-              </Card>
-            ))}
-            {extraButtons.length < 4 && (
-              <div
-                className="admin-add-btn-square"
-                onClick={addButton}
-                title={t('admin.addButton')}
-              >
-                <PlusOutlined />
+            <Form.Item
+              label={t('admin.customHomepageHtml')}
+              tooltip={t('admin.customHomepageHtmlTooltip')}
+            >
+              <div className="custom-homepage-editor">
+                <Editor
+                  height="45vh"
+                  language="html"
+                  theme="vs-dark"
+                  value={customHtml}
+                  onChange={(value) => setCustomHtml(value || '')}
+                  loading={
+                    <div style={{ color: '#ccc', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e' }}>
+                      {t('admin.loadingEditor')}
+                    </div>
+                  }
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    roundedSelection: false,
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    tabSize: 2,
+                    wordWrap: 'on',
+                    padding: { top: 12, bottom: 12 },
+                    renderLineHighlight: 'all',
+                  }}
+                />
               </div>
-            )}
-            </Space>
-          </div>
-        </Form.Item>
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.customHomepageCss')}
+              tooltip={t('admin.customHomepageCssTooltip')}
+            >
+              <div className="custom-homepage-editor">
+                <Editor
+                  height="32vh"
+                  language="css"
+                  theme="vs-dark"
+                  value={customCss}
+                  onChange={(value) => setCustomCss(value || '')}
+                  loading={
+                    <div style={{ color: '#ccc', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e' }}>
+                      {t('admin.loadingEditor')}
+                    </div>
+                  }
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    roundedSelection: false,
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    tabSize: 2,
+                    wordWrap: 'on',
+                    padding: { top: 12, bottom: 12 },
+                    renderLineHighlight: 'all',
+                  }}
+                />
+              </div>
+            </Form.Item>
+          </>
+        ) : (
+          <>
+            <Form.Item
+              label={t('admin.siteTitle')}
+              name="SITE_TITLE"
+              rules={[{ required: true, message: t('admin.pleaseEnterSiteTitle') }]}
+            >
+              <Input placeholder="CatTavernSkins" />
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.siteDescription')}
+              name="SITE_DESCRIPTION"
+              rules={[{ required: true, message: t('admin.pleaseEnterSiteDescription') }]}
+            >
+              <TextArea rows={3} placeholder={t('admin.defaultSiteDescription')} />
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.siteFavicon')}
+              name="SITE_FAVICON"
+              tooltip={t('admin.siteFaviconTooltip')}
+            >
+              <Input placeholder="/favicon.svg" />
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.siteLogo')}
+              name="SITE_LOGO"
+              tooltip={t('admin.siteLogoTooltip')}
+            >
+              <Input placeholder="/logo.png" />
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.homepageTitlePrefix')}
+              name="HOMEPAGE_TITLE_TEXT"
+              rules={[{ required: true, message: t('admin.pleaseEnterHomepageTitlePrefix') }]}
+              tooltip={t('admin.homepageTitlePrefixTooltip')}
+            >
+              <Input placeholder={t('admin.welcomeTo')} />
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.homepageSubtitle')}
+              name="HOMEPAGE_TEXT"
+              rules={[{ required: true, message: t('admin.pleaseEnterHomepageSubtitle') }]}
+              tooltip={t('admin.homepageSubtitleTooltip')}
+            >
+              <Input placeholder="WELCOME TO SKIN2!" />
+            </Form.Item>
+
+            <Form.Item
+              label={t('admin.homepageMainButton')}
+              name="HOMEPAGE_BUTTON_TEXT"
+              rules={[{ required: true, message: t('admin.pleaseEnterMainButtonText') }]}
+              tooltip={t('admin.homepageMainButtonTooltip')}
+            >
+              <Input placeholder={t('admin.enterPersonalCenter')} />
+            </Form.Item>
+
+            <Form.Item label={t('admin.homepageExtraButtons')}>
+              <div className="homepage-extra-buttons">
+                <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-subtle)' }}>
+                  {t('admin.maxButtonsHint', { current: extraButtons.length })}
+                </div>
+                <Space direction="vertical" style={{ width: '100%' }}>
+                {extraButtons.map((btn, idx) => (
+                  <Card
+                    key={idx}
+                    size="small"
+                    style={{ background: 'var(--bg-inner)', border: '1px solid var(--border-color)', boxShadow: 'none' }}
+                    bodyStyle={{ padding: 12, background: 'transparent' }}
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t('admin.buttonNumber', { number: idx + 1 })}</span>
+                        <Button
+                          type="text"
+                          danger
+                          size="small"
+                          icon={<MinusCircleOutlined />}
+                          onClick={() => removeButton(idx)}
+                        >
+                          {t('common.delete')}
+                        </Button>
+                      </Space>
+                      <Input
+                        placeholder={t('admin.buttonText')}
+                        value={btn.text}
+                        onChange={(e) => updateButton(idx, 'text', e.target.value)}
+                      />
+                      <Input
+                        placeholder={t('admin.buttonLink')}
+                        value={btn.link}
+                        onChange={(e) => updateButton(idx, 'link', e.target.value)}
+                      />
+                    </Space>
+                  </Card>
+                ))}
+                {extraButtons.length < 4 && (
+                  <div
+                    className="admin-add-btn-square"
+                    onClick={addButton}
+                    title={t('admin.addButton')}
+                  >
+                    <PlusOutlined />
+                  </div>
+                )}
+                </Space>
+              </div>
+            </Form.Item>
+          </>
+        )}
 
         <Form.Item>
           <Button type="primary" htmlType="submit" loading={loading}>
@@ -368,13 +484,13 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
       form.setFieldsValue({
-        light_bg_image: String(data.LIGHT_BG_IMAGE || ''),
-        dark_bg_image: String(data.DARK_BG_IMAGE || ''),
-        login_bg_image: String(data.LOGIN_BG_IMAGE || ''),
-        login_embed_image: String(data.LOGIN_EMBED_IMAGE || ''),
-        video_muted: String(data.VIDEO_MUTED || 'true').toLowerCase() === 'true',
-        light_bg_overlay_opacity: parseInt(data.LIGHT_BG_OVERLAY_OPACITY) || 30,
-        dark_bg_overlay_opacity: parseInt(data.DARK_BG_OVERLAY_OPACITY) || 30,
+        LIGHT_BG_IMAGE: String(data.LIGHT_BG_IMAGE || ''),
+        DARK_BG_IMAGE: String(data.DARK_BG_IMAGE || ''),
+        LOGIN_BG_IMAGE: String(data.LOGIN_BG_IMAGE || ''),
+        LOGIN_EMBED_IMAGE: String(data.LOGIN_EMBED_IMAGE || ''),
+        VIDEO_MUTED: String(data.VIDEO_MUTED || 'true').toLowerCase() === 'true',
+        LIGHT_BG_OVERLAY_OPACITY: parseInt(data.LIGHT_BG_OVERLAY_OPACITY) || 30,
+        DARK_BG_OVERLAY_OPACITY: parseInt(data.DARK_BG_OVERLAY_OPACITY) || 30,
       })
       if (data.LIGHT_BG_IMAGE) {
         setLightBgPreview(data.LIGHT_BG_IMAGE);
@@ -401,13 +517,13 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
     setLoading(true)
     try {
       const payload = {
-        light_bg_image: values.light_bg_image || '',
-        dark_bg_image: values.dark_bg_image || '',
-        login_bg_image: values.login_bg_image || '',
-        login_embed_image: values.login_embed_image || '',
-        video_muted: values.video_muted !== undefined ? String(values.video_muted) : 'true',
-        light_bg_overlay_opacity: values.light_bg_overlay_opacity || 30,
-        dark_bg_overlay_opacity: values.dark_bg_overlay_opacity || 30,
+        LIGHT_BG_IMAGE: values.LIGHT_BG_IMAGE || '',
+        DARK_BG_IMAGE: values.DARK_BG_IMAGE || '',
+        LOGIN_BG_IMAGE: values.LOGIN_BG_IMAGE || '',
+        LOGIN_EMBED_IMAGE: values.LOGIN_EMBED_IMAGE || '',
+        VIDEO_MUTED: values.VIDEO_MUTED !== undefined ? String(values.VIDEO_MUTED) : 'true',
+        LIGHT_BG_OVERLAY_OPACITY: values.LIGHT_BG_OVERLAY_OPACITY || 30,
+        DARK_BG_OVERLAY_OPACITY: values.DARK_BG_OVERLAY_OPACITY || 30,
       }
       const res = await fetchWithAuth('/api/admin/settings', {
         method: 'PUT',
@@ -440,7 +556,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       const data = await res.json();
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setLightBgPreview(data.url);
-      form.setFieldsValue({ light_bg_image: data.url });
+      form.setFieldsValue({ LIGHT_BG_IMAGE: data.url });
       message.success(t('admin.lightBgUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -456,7 +572,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         throw new Error(data.errorMessage || t('admin.deleteFailed'));
       }
       setLightBgPreview('');
-      form.setFieldsValue({ light_bg_image: '' });
+      form.setFieldsValue({ LIGHT_BG_IMAGE: '' });
       message.success(t('admin.lightBgRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -474,7 +590,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       const data = await res.json();
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setDarkBgPreview(data.url);
-      form.setFieldsValue({ dark_bg_image: data.url });
+      form.setFieldsValue({ DARK_BG_IMAGE: data.url });
       message.success(t('admin.darkBgUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -490,7 +606,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         throw new Error(data.errorMessage || t('admin.deleteFailed'));
       }
       setDarkBgPreview('');
-      form.setFieldsValue({ dark_bg_image: '' });
+      form.setFieldsValue({ DARK_BG_IMAGE: '' });
       message.success(t('admin.darkBgRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -508,7 +624,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       const data = await res.json();
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setLoginBgPreview(data.url);
-      form.setFieldsValue({ login_bg_image: data.url });
+      form.setFieldsValue({ LOGIN_BG_IMAGE: data.url });
       message.success(t('admin.loginBgUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -524,7 +640,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         throw new Error(data.errorMessage || t('admin.deleteFailed'));
       }
       setLoginBgPreview('');
-      form.setFieldsValue({ login_bg_image: '' });
+      form.setFieldsValue({ LOGIN_BG_IMAGE: '' });
       message.success(t('admin.loginBgRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -542,7 +658,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       const data = await res.json();
       if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
       setLoginEmbedPreview(data.url);
-      form.setFieldsValue({ login_embed_image: data.url });
+      form.setFieldsValue({ LOGIN_EMBED_IMAGE: data.url });
       message.success(t('admin.loginEmbedUploaded'));
     } catch (err: any) {
       message.error(err.message || t('admin.uploadFailed'));
@@ -558,7 +674,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         throw new Error(data.errorMessage || t('admin.deleteFailed'));
       }
       setLoginEmbedPreview('');
-      form.setFieldsValue({ login_embed_image: '' });
+      form.setFieldsValue({ LOGIN_EMBED_IMAGE: '' });
       message.success(t('admin.loginEmbedRemoved'));
     } catch (err: any) {
       message.error(err.message || t('admin.deleteFailed'));
@@ -573,7 +689,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
     <Card title={t('admin.themeSettings')} style={{ marginBottom: 16 }}>
       <Form form={form} layout="vertical" onFinish={handleSave}>
         {/* 亮色模式背景图 */}
-        <Form.Item label={t('admin.lightModeBgImage')} name="light_bg_image" tooltip={t('admin.lightModeBgImageTooltip')}>
+        <Form.Item label={t('admin.lightModeBgImage')} name="LIGHT_BG_IMAGE" tooltip={t('admin.lightModeBgImageTooltip')}>
           <Input
             placeholder="https://example.com/light-bg.jpg"
             addonAfter={
@@ -638,7 +754,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         )}
 
         {/* 暗色模式背景图 */}
-        <Form.Item label={t('admin.darkModeBgImage')} name="dark_bg_image" tooltip={t('admin.darkModeBgImageTooltip')}>
+        <Form.Item label={t('admin.darkModeBgImage')} name="DARK_BG_IMAGE" tooltip={t('admin.darkModeBgImageTooltip')}>
           <Input
             placeholder="https://example.com/dark-bg.jpg"
             addonAfter={
@@ -703,7 +819,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         )}
 
         {/* 登录/注册页面背景图 */}
-        <Form.Item label={t('admin.loginBgImage')} name="login_bg_image" tooltip={t('admin.loginBgImageTooltip')}>
+        <Form.Item label={t('admin.loginBgImage')} name="LOGIN_BG_IMAGE" tooltip={t('admin.loginBgImageTooltip')}>
           <Input
             placeholder="https://example.com/login-bg.jpg"
             addonAfter={
@@ -768,7 +884,7 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         )}
 
         {/* 登录/注册内嵌图片 */}
-        <Form.Item label={t('admin.loginEmbedImage')} name="login_embed_image" tooltip={t('admin.loginEmbedImageTooltip')}>
+        <Form.Item label={t('admin.loginEmbedImage')} name="LOGIN_EMBED_IMAGE" tooltip={t('admin.loginEmbedImageTooltip')}>
           <Input
             placeholder="https://example.com/embed-image.png"
             addonAfter={
@@ -833,17 +949,17 @@ function ThemeSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         )}
 
         {/* WebM 视频静音 */}
-        <Form.Item label={t('admin.videoMuted')} name="video_muted" valuePropName="checked" tooltip={t('admin.videoMutedTooltip')}>
+        <Form.Item label={t('admin.videoMuted')} name="VIDEO_MUTED" valuePropName="checked" tooltip={t('admin.videoMutedTooltip')}>
           <Switch checkedChildren={t('admin.muted')} unCheckedChildren={t('admin.soundOn')} />
         </Form.Item>
 
         {/* 亮色蒙版透明度 */}
-        <Form.Item label={t('admin.lightOverlayOpacity')} name="light_bg_overlay_opacity" tooltip={t('admin.lightOverlayOpacityTooltip')}>
+        <Form.Item label={t('admin.lightOverlayOpacity')} name="LIGHT_BG_OVERLAY_OPACITY" tooltip={t('admin.lightOverlayOpacityTooltip')}>
           <Slider min={0} max={100} marks={{ 0: '0%', 50: '50%', 100: '100%' }} />
         </Form.Item>
 
         {/* 暗色蒙版透明度 */}
-        <Form.Item label={t('admin.darkOverlayOpacity')} name="dark_bg_overlay_opacity" tooltip={t('admin.darkOverlayOpacityTooltip')}>
+        <Form.Item label={t('admin.darkOverlayOpacity')} name="DARK_BG_OVERLAY_OPACITY" tooltip={t('admin.darkOverlayOpacityTooltip')}>
           <Slider min={0} max={100} marks={{ 0: '0%', 50: '50%', 100: '100%' }} />
         </Form.Item>
 
@@ -884,14 +1000,14 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
       form.setFieldsValue({
-        base_url: String(data.BASE_URL || 'http://localhost:3000'),
-        smtp_host: String(data.SMTP_HOST || ''),
-        smtp_port: parseInt(data.SMTP_PORT) || 587,
-        smtp_secure: data.SMTP_SECURE === 'true',
-        smtp_user: String(data.SMTP_USER || ''),
-        smtp_pass: '',
-        smtp_from: String(data.SMTP_FROM || ''),
-        smtp_from_name: String(data.SMTP_FROM_NAME || ''),
+        BASE_URL: String(data.BASE_URL || 'http://localhost:3000'),
+        SMTP_HOST: String(data.SMTP_HOST || ''),
+        SMTP_PORT: parseInt(data.SMTP_PORT) || 587,
+        SMTP_SECURE: data.SMTP_SECURE === 'true',
+        SMTP_USER: String(data.SMTP_USER || ''),
+        SMTP_PASS: '',
+        SMTP_FROM: String(data.SMTP_FROM || ''),
+        SMTP_FROM_NAME: String(data.SMTP_FROM_NAME || ''),
       })
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
@@ -907,8 +1023,8 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
     setTestResult(null)
     try {
       const payload: any = { ...values }
-      if (!payload.smtp_pass) {
-        delete payload.smtp_pass
+      if (!payload.SMTP_PASS) {
+        delete payload.SMTP_PASS
       }
 
       const res = await fetchWithAuth('/api/admin/settings', {
@@ -1059,7 +1175,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item
             label={t('admin.siteUrl')}
-            name="base_url"
+            name="BASE_URL"
             rules={[{ required: true, message: t('admin.pleaseEnterSiteUrl') }]}
             tooltip={t('admin.siteUrlTooltip')}
           >
@@ -1068,7 +1184,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpHost')}
-            name="smtp_host"
+            name="SMTP_HOST"
             rules={[{ required: true, message: t('admin.pleaseEnterSmtpHost') }]}
           >
             <Input placeholder="smtp.163.com" />
@@ -1076,7 +1192,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpPort')}
-            name="smtp_port"
+            name="SMTP_PORT"
             rules={[{ required: true, message: t('admin.pleaseEnterSmtpPort') }]}
           >
             <Input type="number" placeholder="465 或 587" />
@@ -1084,7 +1200,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpSecure')}
-            name="smtp_secure"
+            name="SMTP_SECURE"
             valuePropName="checked"
           >
             <Switch checkedChildren={t('common.yes')} unCheckedChildren={t('common.no')} />
@@ -1092,7 +1208,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpUser')}
-            name="smtp_user"
+            name="SMTP_USER"
             rules={[{ required: true, message: t('admin.pleaseEnterSmtpUser') }]}
             tooltip={t('admin.smtpUserTooltip')}
           >
@@ -1101,7 +1217,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpPass')}
-            name="smtp_pass"
+            name="SMTP_PASS"
             tooltip={t('admin.smtpPassTooltip')}
           >
             <Input.Password placeholder={t('admin.smtpPassPlaceholder')} />
@@ -1109,7 +1225,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpFrom')}
-            name="smtp_from"
+            name="SMTP_FROM"
             rules={[{ required: true, message: t('admin.pleaseEnterSmtpFrom') }]}
             tooltip={t('admin.smtpFromTooltip')}
           >
@@ -1118,7 +1234,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
 
           <Form.Item
             label={t('admin.smtpFromName')}
-            name="smtp_from_name"
+            name="SMTP_FROM_NAME"
             tooltip={t('admin.smtpFromNameTooltip')}
           >
             <Input placeholder="Minecraft Skin Server" />
@@ -1269,8 +1385,8 @@ function CopyrightSettings({ autoApply, onAutoApplyChange }: { autoApply: boolea
       if (!res.ok) throw new Error(t('admin.loadFailed'))
       const data = await res.json()
       form.setFieldsValue({
-        copyright_text: data.COPYRIGHT_TEXT || '© 2024 Minecraft Skin Server',
-        copyright_beian: data.COPYRIGHT_BEIAN || '',
+        COPYRIGHT_TEXT: data.COPYRIGHT_TEXT || '© 2024 Minecraft Skin Server',
+        COPYRIGHT_BEIAN: data.COPYRIGHT_BEIAN || '',
       })
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
@@ -1285,8 +1401,8 @@ function CopyrightSettings({ autoApply, onAutoApplyChange }: { autoApply: boolea
     setLoading(true)
     try {
       const payload = {
-        copyright_text: values.copyright_text || '',
-        copyright_beian: values.copyright_beian || '',
+        COPYRIGHT_TEXT: values.COPYRIGHT_TEXT || '',
+        COPYRIGHT_BEIAN: values.COPYRIGHT_BEIAN || '',
       }
       const res = await fetchWithAuth('/api/admin/settings', {
         method: 'PUT',
@@ -1317,7 +1433,7 @@ function CopyrightSettings({ autoApply, onAutoApplyChange }: { autoApply: boolea
       <Form form={form} layout="vertical" onFinish={handleSave}>
         <Form.Item
           label={t('admin.customCopyright')}
-          name="copyright_text"
+          name="COPYRIGHT_TEXT"
           rules={[{ required: true, message: t('admin.pleaseEnterCopyright') }]}
           tooltip={t('admin.customCopyrightTooltip')}
         >
@@ -1326,7 +1442,7 @@ function CopyrightSettings({ autoApply, onAutoApplyChange }: { autoApply: boolea
 
         <Form.Item
           label={t('admin.beianInfo')}
-          name="copyright_beian"
+          name="COPYRIGHT_BEIAN"
           tooltip={t('admin.beianInfoTooltip')}
         >
           <Input placeholder={t('admin.beianPlaceholder')} />

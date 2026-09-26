@@ -628,13 +628,6 @@ export function UserProfile() {
           <div>{t('profile.dragInstruction')}</div>
           <div>{t('profile.manualInstruction')}</div>
           <div>{t('profile.afterAdding')}</div>
-          <div style={{ marginTop: 8 }}>{t('profile.addressSourceNote')}</div>
-          <div>{t('profile.deployRequirement')}</div>
-          {import.meta.env.DEV ? (
-            <div style={{ marginTop: 8, color: 'var(--text-muted)' }}>
-              {t('profile.devModeHint')}
-            </div>
-          ) : null}
         </div>
       </div>
 

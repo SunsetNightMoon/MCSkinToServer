@@ -19,8 +19,10 @@ interface CachedSettings {
   videoMuted: boolean;
   lightBgOverlayOpacity: number;
   darkBgOverlayOpacity: number;
-  // 网站图标
+  // 网站图标（浏览器标签页）
   favicon: string;
+  // 站点图标（顶栏徽标）
+  logo: string;
 }
 
 interface StoredCache {
@@ -60,6 +62,7 @@ const defaultSettings: CachedSettings = {
   lightBgOverlayOpacity: 30,
   darkBgOverlayOpacity: 30,
   favicon: '/favicon.svg',
+  logo: '',
 };
 
 let cachedSettings: CachedSettings | null = readPersistentCache();
@@ -102,6 +105,7 @@ async function fetchSiteSettings(): Promise<CachedSettings> {
           lightBgOverlayOpacity: parseInt(data.LIGHT_BG_OVERLAY_OPACITY) || 30,
           darkBgOverlayOpacity: parseInt(data.DARK_BG_OVERLAY_OPACITY) || 30,
           favicon: String(data.SITE_FAVICON || '/favicon.svg'),
+          logo: String(data.SITE_LOGO || ''),
         };
       } else {
         cachedSettings = { ...defaultSettings };
@@ -127,6 +131,7 @@ export function usePageTitle(pageTitle: string | null = null): string {
   const {
     setTitle,
     setDescription,
+    setLogo,
     setLightBgImage,
     setDarkBgImage,
     setLoginBgImage,
@@ -151,6 +156,7 @@ export function usePageTitle(pageTitle: string | null = null): string {
       setSiteTitle(settings.title);
       setTitle(settings.title);
       setDescription(settings.description);
+      setLogo(settings.logo);
       setLightBgImage(settings.lightBgImage);
       setDarkBgImage(settings.darkBgImage);
       setLoginBgImage(settings.loginBgImage);
@@ -160,7 +166,7 @@ export function usePageTitle(pageTitle: string | null = null): string {
       setDarkBgOverlayOpacity(settings.darkBgOverlayOpacity);
       setFavicon(settings.favicon);
     });
-  }, [pageTitle, siteTitle, setTitle, setDescription, setLightBgImage, setDarkBgImage, setLoginBgImage, setLoginEmbedImage, setVideoMuted, setLightBgOverlayOpacity, setDarkBgOverlayOpacity]);
+  }, [pageTitle, siteTitle, setTitle, setDescription, setLogo, setLightBgImage, setDarkBgImage, setLoginBgImage, setLoginEmbedImage, setVideoMuted, setLightBgOverlayOpacity, setDarkBgOverlayOpacity]);
 
   return siteTitle;
 }

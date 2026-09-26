@@ -33,6 +33,10 @@ export function Landing() {
     HOMEPAGE_TEXT: t('landing.welcomeText'),
     HOMEPAGE_BUTTON_TEXT: t('landing.enterProfile'),
     HOMEPAGE_BUTTONS: '[]',
+    // 高度自定义：开启后用管理端撰写的 HTML/CSS 替换首页主体（顶栏仍由系统渲染）
+    HOMEPAGE_CUSTOM_ENABLED: 'false',
+    HOMEPAGE_CUSTOM_HTML: '',
+    HOMEPAGE_CUSTOM_CSS: '',
   })
 
   // 同步主题到 body
@@ -53,6 +57,12 @@ export function Landing() {
             HOMEPAGE_TEXT: String(data.HOMEPAGE_TEXT || t('landing.welcomeText')),
             HOMEPAGE_BUTTON_TEXT: String(data.HOMEPAGE_BUTTON_TEXT || t('landing.enterProfile')),
             HOMEPAGE_BUTTONS: String(data.HOMEPAGE_BUTTONS || '[]'),
+            // 后端以 JSON 文本存取，布尔或字符串两种历史形态都兼容
+            HOMEPAGE_CUSTOM_ENABLED: String(
+              data.HOMEPAGE_CUSTOM_ENABLED === true || data.HOMEPAGE_CUSTOM_ENABLED === 'true',
+            ),
+            HOMEPAGE_CUSTOM_HTML: String(data.HOMEPAGE_CUSTOM_HTML || ''),
+            HOMEPAGE_CUSTOM_CSS: String(data.HOMEPAGE_CUSTOM_CSS || ''),
           })
         }
       } catch (err) {
@@ -74,6 +84,12 @@ export function Landing() {
       return []
     }
   })()
+
+  // 高度自定义首页：开关开启**且**确实写入了 HTML 时才接管。
+  // HTML 为空时不接管，否则开关一开首页会变成一片空白，管理员将无从下手（也给自己留了后路）。
+  const customHtml = siteSettings.HOMEPAGE_CUSTOM_HTML.trim()
+  const customCss = siteSettings.HOMEPAGE_CUSTOM_CSS
+  const useCustomHomepage = siteSettings.HOMEPAGE_CUSTOM_ENABLED === 'true' && customHtml !== ''
 
   // 处理按钮点击：外部URL用新标签页打开，内部路由用 navigate
   const handleButtonClick = (link: string) => {
@@ -116,37 +132,48 @@ export function Landing() {
           ]}
         />
 
-        {/* Hero */}
-        <section className="landing-hero">
-          <div className="landing-hero__content">
-            <h1 className="landing-hero__title">
-              {siteSettings.HOMEPAGE_TITLE_TEXT}
-              <br />
-              <span className="landing-hero__title-accent">{siteTitle}</span>
-            </h1>
-            <p className="landing-hero__subtitle">
-              {siteSettings.HOMEPAGE_TEXT}
-            </p>
-            <div className="landing-hero__cta">
-              <button
-                className="landing-hero__btn landing-hero__btn--primary"
-                onClick={() => navigate('/profile')}
-              >
-                {siteSettings.HOMEPAGE_BUTTON_TEXT} <RightOutlined />
-              </button>
-              {extraButtons.map((btn, idx) => (
+        {/* Hero —— 原版，或由管理端自定义 HTML 接管 */}
+        {useCustomHomepage ? (
+          <>
+            {/* 管理员撰写的 CSS 原样注入（作用域为整页，含顶栏；可在其中用 .landing-page 等选择器收窄） */}
+            {customCss.trim() !== '' ? (
+              <style dangerouslySetInnerHTML={{ __html: customCss }} />
+            ) : null}
+            {/* 原样渲染，不做净化：管理员即站长，与直接改站点模板等价 */}
+            <div className="landing-custom" dangerouslySetInnerHTML={{ __html: customHtml }} />
+          </>
+        ) : (
+          <section className="landing-hero">
+            <div className="landing-hero__content">
+              <h1 className="landing-hero__title">
+                {siteSettings.HOMEPAGE_TITLE_TEXT}
+                <br />
+                <span className="landing-hero__title-accent">{siteTitle}</span>
+              </h1>
+              <p className="landing-hero__subtitle">
+                {siteSettings.HOMEPAGE_TEXT}
+              </p>
+              <div className="landing-hero__cta">
                 <button
-                  key={idx}
-                  className="landing-hero__btn landing-hero__btn--secondary"
-                  onClick={() => handleButtonClick(btn.link)}
+                  className="landing-hero__btn landing-hero__btn--primary"
+                  onClick={() => navigate('/profile')}
                 >
-                  {btn.text}
-                  <LinkOutlined style={{ fontSize: 12, marginLeft: 4 }} />
+                  {siteSettings.HOMEPAGE_BUTTON_TEXT} <RightOutlined />
                 </button>
-              ))}
+                {extraButtons.map((btn, idx) => (
+                  <button
+                    key={idx}
+                    className="landing-hero__btn landing-hero__btn--secondary"
+                    onClick={() => handleButtonClick(btn.link)}
+                  >
+                    {btn.text}
+                    <LinkOutlined style={{ fontSize: 12, marginLeft: 4 }} />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
       </div>
   )

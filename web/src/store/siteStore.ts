@@ -4,10 +4,13 @@ import { persist } from 'zustand/middleware'
 /**
  * 站点设置 store（适配 MSCTS 后端）。
  *
- * MSCTS 没有 `/api/settings/public`，也没有站点设置管理端点，
- * 因此这里改为**本地默认值**：标题/描述/版权为固定文案，
- * 背景图恒为空串 —— 旧 Layout / Landing 的"自定义背景"分支自然不生效，
- * 走既有的星空背景实现。
+ * 数据源 = `GET /api/settings/public`（键名 SCREAMING_SNAKE_CASE，见
+ * 后端 `PUBLIC_SETTING_KEYS`）。该端点只返回「已显式设置过」的键，
+ * 未设置项保持这里的本地默认值。
+ *
+ * ⚠️ 键名必须与后端、管理端表单三处完全一致（全大写）：
+ * 历史上管理端表单用的是 snake_case（site_title），写入后 public 白名单读不到，
+ * 表现为「保存成功但页面不变」。改动键名时三处要同步。
  *
  * 仅 `theme` 持久化，storage key 为 `mscts-site`。
  */
@@ -22,11 +25,13 @@ export const SITE_DEFAULTS = {
 interface SiteState {
   title: string
   description: string
+  /** 站点图标（顶栏徽标）。空串时顶栏回退到内置的 CSS "S" 方块 */
+  logo: string
 
   // 主题
   theme: 'light' | 'dark'
 
-  // 背景图（区分亮暗色）——MSCTS 无站点设置，恒为空串
+  // 背景图（区分亮暗色）；未设置时为空串 → 走星空背景
   lightBgImage: string
   darkBgImage: string
 
@@ -51,6 +56,7 @@ interface SiteState {
   // Actions
   setTitle: (title: string) => void
   setDescription: (description: string) => void
+  setLogo: (url: string) => void
   setTheme: (theme: 'light' | 'dark') => void
   toggleTheme: () => void
   setLightBgImage: (url: string) => void
@@ -71,10 +77,11 @@ export const useSiteStore = create<SiteState>()(
     (set) => ({
       title: SITE_DEFAULTS.title,
       description: SITE_DEFAULTS.description,
+      logo: '',
 
       theme: 'dark', // 默认暗色
 
-      // 无站点设置来源：恒为空串 → 走星空背景
+      // 未设置时恒为空串 → 走星空背景
       lightBgImage: '',
       darkBgImage: '',
       loginBgImage: '',
@@ -91,6 +98,7 @@ export const useSiteStore = create<SiteState>()(
 
       setTitle: (title) => set({ title }),
       setDescription: (description) => set({ description }),
+      setLogo: (url) => set({ logo: url }),
       setTheme: (theme) => set({ theme }),
       toggleTheme: () =>
         set((state) => ({ theme: state.theme === 'dark' ? 'light' : 'dark' })),
@@ -115,6 +123,7 @@ export const useSiteStore = create<SiteState>()(
           set({
             title: data.SITE_TITLE || SITE_DEFAULTS.title,
             description: data.SITE_DESCRIPTION || SITE_DEFAULTS.description,
+            logo: data.SITE_LOGO || '',
             ...(data.THEME
               ? { theme: data.THEME === 'light' ? 'light' : 'dark' }
               : {}),

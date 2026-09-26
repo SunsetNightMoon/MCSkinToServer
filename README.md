@@ -201,6 +201,33 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - **验收**：四语言 `profile` 段键集完全一致（各 115 键，零缺零多）；后端与前端 `tsc --noEmit` 均零错误；`npm run build` 通过；**生产构建内不含 `localhost:3000`**（`UserProfile` chunk 只剩 `window.location.origin`），dev server 注入 `VITE_API_URL: "http://localhost:3000"`；`GET /api/yggdrasil` 200 JSON、`POST /api/yggdrasil/{authenticate,authserver/authenticate}` 均返回 43 位 accessToken、`validate` 403（无效 token 的预期）、`hasJoined` 204、`/api/profiles/minecraft` 200；`npm test` 全开 **94 pass / 0 fail / 0 skipped**；无头截图（dev :5173，简中/英/日）确认地址与三行说明正常渲染。
   - **待处理（本轮未动）**：管理端 `SystemSettings.tsx` 有「站点 URL」字段（`base_url`，默认值硬编码 `http://localhost:3000`），但后端**从不读 `BASE_URL`** —— 该字段目前是死字段（存进 `system_settings` 无人消费）。要么接上（让它成为生成验证链接与认证服务器地址的权威来源），要么移除，需单独决策。
 
+- 2026-09-24 P5 第二批：材质库披风搜索框 + 个人中心说明精简 + 站点设置「高度自定义首页」+ **修复站点设置整体失效**。
+  - **披风库搜索框**：`web/src/pages/Library/SkinLibrary.tsx` 的 `CapeGrid` 补上与皮肤标签页同口径的搜索框（前端过滤当前页的 `id` / `name` / `description`），新增 i18n 键 `library.searchCapePlaceholder` 四语言。
+  - **个人中心说明精简**：移除 `/profile` 上三行部署说明（`addressSourceNote` / `deployRequirement` / `devModeHint`）的渲染与对应 i18n 键（profile 段 115 → 112 键），相关内容只保留在本 README。
+  - **站点设置「高度自定义首页」**：
+    - 新增 4 个设置键：`SITE_LOGO`（顶栏站标）、`HOMEPAGE_CUSTOM_ENABLED`、`HOMEPAGE_CUSTOM_HTML`、`HOMEPAGE_CUSTOM_CSS`。
+    - 管理端 `SiteSettings` 卡片顶部加总开关：**关闭** → 原版选项（站点标题 / 描述 / 标签页图标 / 顶栏站标 / 首页文案 / 额外按钮）；**开启** → Monaco HTML 编辑器 + CSS 编辑器（含「原样渲染」风险提示）。
+    - 首页 `Landing.tsx`：开关开启**且** HTML 非空时，用自定义 HTML 替换**首页主体**（顶栏 TopNav 保留），CSS 注入整页；HTML 为空则仍显示原版首页（避免一脚踩空变全白）。
+    - 顶栏 `TopNav.tsx` 硬编码的 "S" 方块改为读 `SITE_LOGO`（空则回退内置图标）；`siteStore` / `usePageTitle` 同步读取 `SITE_LOGO` 与 `SITE_FAVICON`。
+    - 安全口径（用户决策）：**原样渲染、不做净化** —— 管理员即站长，与直接改站点模板等价；管理端与编辑器均有明确提示。
+  - **顺带修复的阻断性缺陷（本轮最重要的发现）：站点设置整条链路是断的，保存后既不回显也不生效。**
+    - 现象：管理端表单 `Form.Item name` 用的是 **snake_case**（`site_title` / `light_bg_image` / `smtp_host` …），后端 `setMany` 原样入库；而读取一律走 **SCREAMING_SNAKE_CASE**（`PUBLIC_SETTING_KEYS` 白名单 + 前端 `data.SITE_TITLE`）。实测写入小写键后 `getPublic()` 返回 `{}`、`data.SITE_FAVICON` 为 `undefined`。
+    - 影响面：**5 个卡片全部失效** —— 注册设置 3 项、站点设置 6 项、主题设置 7 项、邮件设置 8 项、版权设置 2 项，共 26 个键。
+    - 另外 `PUBLIC_SETTING_KEYS` 还漏了 `SITE_FAVICON` 与 4 个 `HOMEPAGE_*`：favicon 与首页文案即使键名写对也读不出来。
+    - 逃逸原因：`tests/adminSettings.test.ts` 只用大写键断言，测的是后端，从未覆盖前端真实发出的键名 → 94 个测试全绿却漏掉。
+    - 修复：前端 26 个表单键名统一为 `SCREAMING_SNAKE_CASE`（82 处替换）；白名单补齐 `SITE_FAVICON` / `SITE_LOGO` / 4 个 `HOMEPAGE_*` / 3 个 `HOMEPAGE_CUSTOM_*`，并在白名单上加注释说明「漏一个键 = 保存成功但读不回来」。
+  - **新增防回归测试**（`tests/adminSettings.test.ts`）：
+    1. 静态检查 —— 读 `SystemSettings.tsx` 提取全部 `name="..."`，断言必须全大写；同时断言访客可见键都在 `PUBLIC_SETTING_KEYS` 内。
+    2. 端到端 —— 自定义首页 9 个键写入后经 `/api/settings/public` 保真回读（含布尔 `true`）。
+  - **验收（数字均为实际输出）**：
+    - `tsc --noEmit` 后端 + 前端均零错误；`vite build` 通过（21.77s）
+    - `npm test`（仅 SQLite）：**96 tests / 81 pass / 0 fail / 15 skipped**（新增 2 项）
+    - `TEST_DATABASE_URL` + `TEST_REDIS_URL` 全开：**96 tests / 96 pass / 0 fail / 0 skipped**
+    - i18n：四语言叶子键各 **968** 个完全一致；代码引用的 **883** 个键零缺失
+    - 端到端（真实 HTTP）：小写键 → public 返回空（**症状复现**）；大写键 11 项全部保真回读；开关开/关切换正常；`SITE_LOGO=/steve.png` 回读正确
+    - 无头截图（dev :5173，简中）：首页自定义 HTML 与 CSS 生效且顶栏保留、管理端开关两种状态（开启时显示风险提示 + Monaco 带语法高亮的编辑器）、站标替换为自定义图片、披风库搜索框出现、个人中心三行说明消失
+  - **附带发现（本轮未改，待决策）**：后端**从不读取任何站点设置键** —— `ALLOW_REGISTRATION` / `REQUIRE_EMAIL_VERIFICATION` / `ENABLE_CAPTCHA` 只出现在白名单里，没有任何业务调用点。因此注册开关、邮箱验证开关、验证码开关目前是**纯装饰**（存了也没人消费）。是否接线需单独决策。
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

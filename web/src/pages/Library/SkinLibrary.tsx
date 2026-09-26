@@ -183,6 +183,7 @@ function CapeGrid({ page, setPage, activeTab }: { page: number; setPage: (p: num
   const [capes, setCapes] = useState<Cape[]>([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
+  const [search, setSearch] = useState('')
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -197,16 +198,32 @@ function CapeGrid({ page, setPage, activeTab }: { page: number; setPage: (p: num
       .finally(() => setLoading(false))
   }, [page])
 
+  // 与皮肤标签页保持同一口径：只过滤当前页已加载的数据
+  const filtered = search
+    ? capes.filter(c => String(c.id).includes(search) || c.description?.includes(search) || c.name?.includes(search))
+    : capes
+
   return (
     <div>
+      <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
+        <Input
+          placeholder={t('library.searchCapePlaceholder')}
+          prefix={<SearchOutlined />}
+          style={{ width: 260 }}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          allowClear
+        />
+      </div>
+
       {loading ? (
         <div style={{ textAlign: 'center', padding: 50 }}><Spin size="large" /></div>
-      ) : capes.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Empty description={t('library.noCapes')} style={{ padding: 60 }} />
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            {capes.map(cape => (
+            {filtered.map(cape => (
               <Col key={cape.id} xs={24} sm={12} md={8} lg={6} xl={4}>
                 <CapeCard cape={cape} onClick={() => navigate(`/cape/${cape.id}`, { state: { returnTab: activeTab, returnPage: page } })} />
               </Col>

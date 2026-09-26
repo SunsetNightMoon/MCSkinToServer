@@ -159,6 +159,15 @@
 }
 
 /* ---------- Hero Content ---------- */
+/* ---------- 高度自定义首页（HOMEPAGE_CUSTOM_*） ---------- */
+/* 自定义内容区：与 .landing-hero 一样位于背景之上、占满顶栏以下的视口，
+   但**不加** flex 居中/对齐约束，把布局完全交给管理员的 HTML + CSS */
+.landing-custom {
+  position: relative;
+  z-index: 10;
+  min-height: calc(100dvh - 64px);
+}
+
 .landing-hero {
   position: relative;
   z-index: 10;

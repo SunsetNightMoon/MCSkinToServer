@@ -31,3 +31,10 @@
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
+/* 高度自定义首页：Monaco 编辑器容器（与邮件模板编辑器保持同一外观） */
+.custom-homepage-editor {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #30363d;
+}

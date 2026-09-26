@@ -28,7 +28,7 @@ const LANG_ITEMS = [
 
 export function TopNav({ links, brandOnClick }: TopNavProps) {
   const { isAuthenticated, user, skinUrl, profileName } = useAuthStore()
-  const { title, description, theme, toggleTheme } = useSiteStore()
+  const { title, description, logo, theme, toggleTheme } = useSiteStore()
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
@@ -58,7 +58,12 @@ export function TopNav({ links, brandOnClick }: TopNavProps) {
     <nav className="top-nav">
       {/* Brand */}
       <div className="top-nav__brand" onClick={handleBrandClick}>
-        <div className="top-nav__brand-logo">S</div>
+        {/* 站点图标：管理端设置 SITE_LOGO 后用它，未设置则回退到内置的 CSS "S" 方块 */}
+        {logo ? (
+          <img className="top-nav__brand-logo top-nav__brand-logo--img" src={logo} alt={title} />
+        ) : (
+          <div className="top-nav__brand-logo">S</div>
+        )}
         <div>
           <div className="top-nav__brand-text">{title}</div>
           <div className="top-nav__brand-sub">{description}</div>
