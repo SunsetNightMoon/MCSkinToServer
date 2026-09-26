@@ -43,6 +43,10 @@ export interface NewAssetRow {
   name: string;
   description?: string;
   license?: string;
+  /** 上传时指定的可见性；省略则 'private'（安全默认） */
+  visibility?: Visibility;
+  /** 上传时指定的下载策略；省略则 'owner_only'（安全默认） */
+  downloadPolicy?: DownloadPolicy;
   now: Date;
 }
 
@@ -102,8 +106,8 @@ export class AssetRepository {
         asset.name,
         asset.description ?? '',
         asset.license ?? 'CC0',
-        'private',
-        'owner_only',
+        asset.visibility ?? 'private',
+        asset.downloadPolicy ?? 'owner_only',
         'pending',
         0,
         null,

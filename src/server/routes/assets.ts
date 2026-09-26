@@ -24,6 +24,8 @@ export interface AssetRouteDependencies {
 
 const KINDS: ReadonlySet<string> = new Set(['skin', 'cape']);
 const MODELS: ReadonlySet<string> = new Set(['default', 'slim']);
+const VISIBILITIES: ReadonlySet<string> = new Set(['private', 'public']);
+const DOWNLOAD_POLICIES: ReadonlySet<string> = new Set(['owner_only', 'public']);
 
 function requireKind(value: unknown): AssetKind {
   if (typeof value === 'string' && KINDS.has(value)) return value as AssetKind;
@@ -60,6 +62,15 @@ export function createAssetRouter(deps: AssetRouteDependencies): Router {
           ? String(req.query['description'])
           : undefined,
         license: req.query['license'] ? String(req.query['license']) : undefined,
+        // 上传表单的「权限设置」：非法值交给服务层校验后报错，不静默吞掉
+        visibility:
+          req.query['visibility'] !== undefined
+            ? (String(req.query['visibility']) as 'private' | 'public')
+            : undefined,
+        downloadPolicy:
+          req.query['downloadPolicy'] !== undefined
+            ? (String(req.query['downloadPolicy']) as 'owner_only' | 'public')
+            : undefined,
         buffer: req.body as Buffer,
       });
       res.status(201).json({

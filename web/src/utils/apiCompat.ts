@@ -279,6 +279,14 @@ export async function compatFetch(
     if (description) target.set('description', description)
     const license = String(fd.get('license_type') ?? '')
     if (license) target.set('license', license)
+    // 上传表单的「权限设置」：旧版用 permission_level 单字段，MSCTS 拆成
+    // visibility + downloadPolicy 两个字段，这里做翻译
+    const permission = fd.get('permission_level')
+    if (permission) {
+      const { visibility, downloadPolicy } = toPolicy(String(permission))
+      target.set('visibility', visibility)
+      target.set('downloadPolicy', downloadPolicy)
+    }
     if (!isCape) {
       target.set('model', String(fd.get('model_type') ?? 'default') || 'default')
     }

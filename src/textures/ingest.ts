@@ -45,6 +45,10 @@ export interface IngestInput {
   description?: string;
   license?: string;
   aiGenerated?: boolean;
+  /** 上传时即指定可见性（Web 上传表单的「权限设置」）；省略则私有 */
+  visibility?: 'private' | 'public';
+  /** 上传时即指定下载策略；省略则仅本人可下载 */
+  downloadPolicy?: 'owner_only' | 'public';
   buffer: Buffer;
 }
 
@@ -126,6 +130,22 @@ export class TextureService {
       throw new IngestError('素材名称必填且不超过 64 字符');
     }
 
+    // 上传即指定权限（Web 上传表单）；与 updateOwnerFields 的取值域保持一致
+    if (
+      input.visibility !== undefined &&
+      input.visibility !== 'private' &&
+      input.visibility !== 'public'
+    ) {
+      throw new IngestError('visibility 必须为 private 或 public');
+    }
+    if (
+      input.downloadPolicy !== undefined &&
+      input.downloadPolicy !== 'owner_only' &&
+      input.downloadPolicy !== 'public'
+    ) {
+      throw new IngestError('downloadPolicy 必须为 owner_only 或 public');
+    }
+
     // sha256 去重：命中则复用 blob，不重复写文件
     const sha = sha256Hex(buffer);
     const existing = await this.blobs.findBySha256(sha);
@@ -164,6 +184,8 @@ export class TextureService {
       name: input.name.trim(),
       description: input.description,
       license: input.license,
+      visibility: input.visibility,
+      downloadPolicy: input.downloadPolicy,
       now,
     });
 
