@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import { Form, Input, Button, App as AntdApp } from 'antd';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { useAuthStore } from '../store/auth';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { AuthShell } from '../components/AuthShell';
 import type { LoginResponse } from '../api/types';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
+  const { t } = useTranslation();
+  usePageTitle(t('auth.login'));
   const setAuth = useAuthStore((s) => s.setAuth);
   const [loading, setLoading] = useState(false);
 
@@ -20,10 +24,10 @@ export function LoginPage() {
         json: values,
       });
       setAuth(res.token, res.user);
-      message.success('登录成功');
+      message.success(t('auth.loginSuccess'));
       navigate('/wardrobe');
     } catch (err) {
-      message.error(err instanceof ApiError ? err.message : '登录失败，请稍后重试');
+      message.error(err instanceof ApiError ? err.message : t('auth.loginFailedRetry'));
     } finally {
       setLoading(false);
     }
@@ -34,16 +38,23 @@ export function LoginPage() {
       <Form onFinish={(v) => void onFinish(v as never)} layout="vertical">
         <Form.Item
           name="email"
-          label="邮箱"
-          rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '邮箱格式不正确' }]}
+          label={t('auth.emailLabel')}
+          rules={[
+            { required: true, message: t('auth.emailPlaceholder') },
+            { type: 'email', message: t('auth.emailInvalid') },
+          ]}
         >
-          <Input placeholder="you@example.com" autoComplete="email" />
+          <Input placeholder={t('auth.emailPlaceholder')} autoComplete="email" />
         </Form.Item>
-        <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
-          <Input.Password placeholder="密码" autoComplete="current-password" />
+        <Form.Item
+          name="password"
+          label={t('auth.passwordLabel')}
+          rules={[{ required: true, message: t('auth.passwordPlaceholder') }]}
+        >
+          <Input.Password placeholder={t('auth.passwordPlaceholder')} autoComplete="current-password" />
         </Form.Item>
         <Button type="primary" htmlType="submit" block loading={loading} size="large">
-          登录
+          {t('auth.loginButton')}
         </Button>
       </Form>
     </AuthShell>

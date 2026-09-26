@@ -4,21 +4,23 @@
  */
 
 import { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useSiteStore } from '../store/site';
 import { TopNav, type NavItem } from './TopNav';
 
 export const NAV_LINKS: NavItem[] = [
-  { path: '/', label: '首页' },
-  { path: '/library', label: '素材库' },
-  { path: '/wardrobe', label: '我的衣柜', auth: true },
-  { path: '/profiles', label: '我的角色', auth: true },
-  { path: '/profile', label: '个人中心', auth: true },
-  { path: '/admin', label: '管理后台', auth: true, admin: true },
+  { path: '/', label: 'nav.home' },
+  { path: '/library', label: 'nav.library' },
+  { path: '/upload', label: 'nav.upload', auth: true },
+  { path: '/wardrobe', label: 'nav.wardrobe', auth: true },
+  { path: '/profiles', label: 'nav.profiles', auth: true },
+  { path: '/profile', label: 'nav.profile', auth: true },
+  { path: '/admin', label: 'nav.admin', auth: true, admin: true },
 ];
 
 export function AppLayout() {
   const theme = useSiteStore((s) => s.theme);
+  const location = useLocation();
 
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
@@ -39,8 +41,9 @@ export function AppLayout() {
       <div style={{ position: 'relative', zIndex: 10 }}>
         <TopNav links={NAV_LINKS} />
         <main
+          key={location.pathname}
           style={{
-            maxWidth: 1080,
+            maxWidth: 1200,
             margin: '0 auto',
             padding: '24px 24px 48px',
             minHeight: 'calc(100dvh - 64px - 90px)',

@@ -1,6 +1,6 @@
 /**
- * 共享顶部导航（plan3 设计）：brand + 中间链接 + 右侧工具区（主题切换 / 头像 / 登录）
- * 语言切换（GlobalOutlined + Dropdown）待 i18n 批次接入。
+ * 共享顶部导航（plan3 设计）：brand + 中间链接 + 右侧工具区
+ * 语言下拉接 i18n.changeLanguage，持久化 localStorage「cattavern-language」。
  */
 
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -13,7 +13,8 @@ import {
   GlobalOutlined,
 } from '@ant-design/icons';
 import { Dropdown } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/auth';
 import { useSiteStore } from '../store/site';
 import { SkinAvatar } from './SkinAvatar';
@@ -41,9 +42,9 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
   const setSkinUrl = useAuthStore((s) => s.setSkinUrl);
   const isAuthenticated = token !== null;
   const { theme, toggleTheme } = useSiteStore();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const [lang, setLang] = useState('SCH');
 
   // 登录后拉取当前用户默认角色的皮肤（头像显示）
   useEffect(() => {
@@ -61,8 +62,12 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
     };
   }, [token, setSkinUrl, location.pathname]);
 
-  const isActive = (path: string) =>
-    location.pathname === path || location.pathname.startsWith(path + '/');
+  const isActive = (path: string) => {
+    if (path === '/') {
+      return location.pathname === '/';
+    }
+    return location.pathname === path || location.pathname.startsWith(path + '/');
+  };
 
   const visibleLinks = links.filter((link) => {
     if (link.auth && !isAuthenticated) return false;
@@ -100,7 +105,7 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
             to={link.path}
             className={`top-nav__link${isActive(link.path) ? ' top-nav__link--active' : ''}`}
           >
-            {link.label}
+            {t(link.label)}
           </Link>
         ))}
       </div>
@@ -108,20 +113,27 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
       <div className="top-nav__right">
         <Dropdown
           placement="bottomRight"
+          overlayClassName="top-nav__lang-dropdown"
           menu={{
-            items: LANG_ITEMS,
-            onClick: ({ key }) => setLang(key),
-            selectedKeys: [lang],
+            items: LANG_ITEMS.map((item) => ({
+              key: item.key,
+              label: <span>{item.label}</span>,
+            })),
+            onClick: ({ key }) => {
+              void i18n.changeLanguage(key);
+              window.localStorage.setItem('cattavern-language', key);
+            },
+            selectedKeys: [i18n.language || 'SCH'],
           }}
         >
-          <button className="top-nav__icon-btn" title="语言 Language">
+          <button className="top-nav__icon-btn" title={t('common.language')}>
             <GlobalOutlined />
           </button>
         </Dropdown>
         <button
-          className="top-nav__icon-btn"
+          className="top-nav__theme-btn"
           onClick={toggleTheme}
-          title={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
+          title={theme === 'dark' ? t('common.switchToLight') : t('common.switchToDark')}
         >
           {theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
         </button>
@@ -131,18 +143,22 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
               <button
                 className="top-nav__icon-btn"
                 onClick={() => navigate('/admin')}
-                title="管理后台"
+                title={t('nav.admin')}
               >
                 <SettingOutlined />
               </button>
             )}
-            <div className="top-nav__avatar" title="个人中心" onClick={() => navigate('/profile')}>
+            <div
+              className="top-nav__avatar"
+              onClick={() => navigate('/profile')}
+              title={t('nav.profile')}
+            >
               <SkinAvatar skinUrl={skinUrl ?? undefined} size={34} />
             </div>
             <button
               className="top-nav__icon-btn"
               onClick={() => void handleLogout()}
-              title="登出"
+              title={t('auth.logout')}
             >
               <LogoutOutlined />
             </button>
@@ -151,7 +167,7 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
           <button
             className="top-nav__icon-btn"
             onClick={() => navigate('/login')}
-            title="登录"
+            title={t('nav.login')}
           >
             <LoginOutlined />
           </button>

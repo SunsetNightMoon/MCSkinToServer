@@ -10,6 +10,11 @@ import { ProfilesPage } from './pages/Profiles';
 import { WardrobePage } from './pages/Wardrobe';
 import { LibraryPage } from './pages/Library';
 import { ProfilePage } from './pages/Profile';
+import { SkinDetail } from './pages/SkinDetail';
+import { CapeDetail } from './pages/CapeDetail';
+import { UploadPage } from './pages/Upload';
+import MySkins from './pages/MySkins';
+import MyCapes from './pages/MyCapes';
 import AdminPage from './pages/Admin';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -61,11 +66,37 @@ export function App() {
         />
         <Route element={<AppLayout />}>
           <Route path="/library" element={<LibraryPage />} />
+          <Route path="/skin/:id" element={<SkinDetail />} />
+          <Route path="/cape/:id" element={<CapeDetail />} />
+          <Route
+            path="/upload"
+            element={
+              <RequireAuth>
+                <UploadPage />
+              </RequireAuth>
+            }
+          />
           <Route
             path="/wardrobe"
             element={
               <RequireAuth>
                 <WardrobePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/my-skins"
+            element={
+              <RequireAuth>
+                <MySkins />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/my-capes"
+            element={
+              <RequireAuth>
+                <MyCapes />
               </RequireAuth>
             }
           />

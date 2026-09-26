@@ -6,10 +6,12 @@ import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { LoginOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { useSiteStore } from '../store/site';
 
 export function AuthShell({ children }: { children: ReactNode }) {
   const theme = useSiteStore((s) => s.theme);
+  const { t } = useTranslation();
 
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
@@ -84,10 +86,11 @@ export function AuthShell({ children }: { children: ReactNode }) {
             }}
           >
             <Link to="/login">
-              <LoginOutlined /> 已有账号？登录
+              <LoginOutlined /> {t('auth.hasAccount')}
+              {t('auth.loginNow')}
             </Link>
             {' · '}
-            <Link to="/register">注册新账号</Link>
+            <Link to="/register">{t('auth.registerNow')}</Link>
           </div>
         </div>
       </div>

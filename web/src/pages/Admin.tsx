@@ -1,6 +1,6 @@
 /**
- * 管理后台（审核队列 + 用户管理）
- * - 审核：待审列表、通过/拒绝（附理由）、管理员警告 / AI 标记
+ * 管理后台（审核队列 + 用户管理，plan3 AdminDashboard 呈现风格：Tabs 布局）
+ * - 审核：待审列表、通过/拒绝（附理由）、管理员警告 / AI 标记、审核记录
  * - 用户：列表搜索、封禁/解封、角色调整（仅 super_admin 可改角色）
  */
 
@@ -18,10 +18,14 @@ import {
   Form,
   Popconfirm,
   Image,
+  Descriptions,
+  Empty,
 } from 'antd';
 import { CheckOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { api, ApiError } from '../api/client';
 import { useAuthStore } from '../store/auth';
+import { usePageTitle } from '../hooks/usePageTitle';
 import type { AssetItem } from '../api/types';
 
 interface AdminUserRow {
@@ -37,8 +41,18 @@ interface AdminUserRow {
   lastLoginAt: string | null;
 }
 
+interface ReviewRecord {
+  id: string;
+  assetId: string;
+  status: 'approved' | 'rejected';
+  reason: string | null;
+  createdAt: string;
+}
+
 function AdminPage() {
-  const { message } = AntdApp.useApp();
+  const { t } = useTranslation();
+  usePageTitle(t('admin.dashboard'));
+  const { message, modal } = AntdApp.useApp();
   const myId = useAuthStore((s) => s.user?.id);
   const myRole = useAuthStore((s) => s.user?.role);
   const isSuper = myRole === 'super_admin';
@@ -48,6 +62,8 @@ function AdminPage() {
   const [pendingLoading, setPendingLoading] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<AssetItem | null>(null);
   const [reviewReason, setReviewReason] = useState('');
+  const [historyTarget, setHistoryTarget] = useState<AssetItem | null>(null);
+  const [history, setHistory] = useState<ReviewRecord[] | null>(null);
   const [warnForm] = Form.useForm();
 
   const loadPending = useCallback(async (): Promise<void> => {
@@ -56,11 +72,11 @@ function AdminPage() {
       const res = await api<{ items: AssetItem[] }>('/api/admin/reviews');
       setPending(res.items);
     } catch (err) {
-      message.error(err instanceof ApiError ? err.message : '加载待审核列表失败');
+      message.error(err instanceof ApiError ? err.message : t('admin.reviewLoadFailed'));
     } finally {
       setPendingLoading(false);
     }
-  }, [message]);
+  }, [message, t]);
 
   // ---- 用户管理 ----
   const [users, setUsers] = useState<AdminUserRow[]>([]);
@@ -75,16 +91,18 @@ function AdminPage() {
     setUsersLoading(true);
     try {
       const res = await api<{ items: AdminUserRow[]; total: number }>(
-        `/api/admin/users?page=${usersPage}&pageSize=20${usersSearch ? `&search=${encodeURIComponent(usersSearch)}` : ''}`,
+        `/api/admin/users?page=${usersPage}&pageSize=20${
+          usersSearch ? `&search=${encodeURIComponent(usersSearch)}` : ''
+        }`,
       );
       setUsers(res.items);
       setUsersTotal(res.total);
     } catch (err) {
-      message.error(err instanceof ApiError ? err.message : '加载用户列表失败');
+      message.error(err instanceof ApiError ? err.message : t('admin.usersLoadFailed'));
     } finally {
       setUsersLoading(false);
     }
-  }, [usersPage, usersSearch, message]);
+  }, [usersPage, usersSearch, message, t]);
 
   useEffect(() => {
     void loadPending();
@@ -105,12 +123,12 @@ function AdminPage() {
         method: 'POST',
         json: { status, reason: reason || undefined },
       });
-      message.success(status === 'approved' ? '已通过' : '已拒绝');
+      message.success(status === 'approved' ? t('admin.reviewApproved') : t('admin.reviewRejected'));
       setReviewTarget(null);
       setReviewReason('');
       await loadPending();
     } catch (err) {
-      message.error(err instanceof ApiError ? err.message : '操作失败');
+      message.error(err instanceof ApiError ? err.message : t('common.requestFailed'));
     }
   };
 
@@ -124,10 +142,22 @@ function AdminPage() {
           aiGenerated: values.aiGenerated,
         },
       });
-      message.success('已保存');
+      message.success(t('admin.saved'));
       await loadPending();
     } catch (err) {
       if (err instanceof ApiError) message.error(err.message);
+    }
+  };
+
+  const openHistory = async (asset: AssetItem): Promise<void> => {
+    setHistoryTarget(asset);
+    setHistory(null);
+    try {
+      const res = await api<{ reviews: ReviewRecord[] }>(`/api/admin/assets/${asset.id}/reviews`);
+      setHistory(res.reviews);
+    } catch (err) {
+      message.error(err instanceof ApiError ? err.message : t('common.requestFailed'));
+      setHistory([]);
     }
   };
 
@@ -137,37 +167,39 @@ function AdminPage() {
       await api(`/api/admin/users/${id}`, { method: 'PATCH', json: body });
       await loadUsers();
     } catch (err) {
-      message.error(err instanceof ApiError ? err.message : '操作失败');
+      message.error(err instanceof ApiError ? err.message : t('common.requestFailed'));
     }
   };
 
   const userRoleTag = (role: string) =>
     role === 'super_admin' ? (
-      <Tag color="purple">超管</Tag>
+      <Tag color="purple">{t('admin.superAdmin')}</Tag>
     ) : role === 'admin' ? (
-      <Tag color="blue">管理员</Tag>
+      <Tag color="blue">{t('admin.admin')}</Tag>
     ) : (
-      <Tag>用户</Tag>
+      <Tag>{t('admin.normalUser')}</Tag>
     );
 
   const userBanInfo = (u: AdminUserRow) =>
     u.banPermanent ? (
-      <Tag color="red">永久封禁</Tag>
+      <Tag color="red">{t('admin.permanentBan')}</Tag>
     ) : u.bannedUntil ? (
-      <Tag color="orange">至 {new Date(u.bannedUntil).toLocaleDateString()}</Tag>
+      <Tag color="orange">
+        {t('admin.bannedUntilDate', { date: new Date(u.bannedUntil).toLocaleDateString() })}
+      </Tag>
     ) : (
-      <span style={{ color: 'var(--text-subtle)' }}>正常</span>
+      <span style={{ color: 'var(--text-subtle)' }}>{t('admin.normal')}</span>
     );
 
   return (
     <div>
-      <h2 style={{ color: 'var(--text-primary)', margin: '0 0 16px' }}>管理后台</h2>
+      <h2 style={{ color: 'var(--text-primary)', margin: '0 0 16px' }}>{t('admin.dashboard')}</h2>
       <div className="glass-card" style={{ borderRadius: 10, padding: 16 }}>
         <Tabs
           items={[
             {
               key: 'review',
-              label: '审核队列',
+              label: t('admin.reviewQueue'),
               children: (
                 <Table<AssetItem>
                   rowKey="id"
@@ -176,7 +208,7 @@ function AdminPage() {
                   pagination={{ pageSize: 10 }}
                   columns={[
                     {
-                      title: '预览',
+                      title: t('admin.preview'),
                       width: 70,
                       render: (_, a) =>
                         a.previewUrl ? (
@@ -188,10 +220,14 @@ function AdminPage() {
                           />
                         ) : null,
                     },
-                    { title: '名称', dataIndex: 'name' },
-                    { title: '类型', width: 80, render: (_, a) => (a.kind === 'skin' ? '皮肤' : '披风') },
+                    { title: t('admin.name'), dataIndex: 'name' },
                     {
-                      title: '管理员警告 / AI',
+                      title: t('admin.kindCol'),
+                      width: 80,
+                      render: (_, a) => (a.kind === 'skin' ? t('nav.skin') : t('nav.cape')),
+                    },
+                    {
+                      title: `${t('admin.adminWarningField')} / AI`,
                       render: (_, a) => (
                         <Space>
                           {a.aiGenerated ? <Tag color="purple">AI</Tag> : null}
@@ -200,8 +236,8 @@ function AdminPage() {
                       ),
                     },
                     {
-                      title: '操作',
-                      width: 260,
+                      title: t('admin.actionCol'),
+                      width: 320,
                       render: (_, a) => (
                         <Space>
                           <Button
@@ -210,7 +246,7 @@ function AdminPage() {
                             icon={<CheckOutlined />}
                             onClick={() => void review(a, 'approved', '')}
                           >
-                            通过
+                            {t('admin.approve')}
                           </Button>
                           <Button
                             size="small"
@@ -221,7 +257,7 @@ function AdminPage() {
                               setReviewReason('');
                             }}
                           >
-                            拒绝
+                            {t('admin.reject')}
                           </Button>
                           <Button
                             size="small"
@@ -230,17 +266,20 @@ function AdminPage() {
                                 adminWarning: a.adminWarning ?? '',
                                 aiGenerated: a.aiGenerated ?? false,
                               });
-                              Modal.confirm({
-                                title: `标记管理：${a.name}`,
+                              modal.confirm({
+                                title: t('admin.markTitle', { name: a.name }),
                                 content: (
                                   <Form form={warnForm} layout="vertical">
-                                    <Form.Item name="adminWarning" label="管理员警告（公开显示）">
-                                      <Input placeholder="留空清除" />
+                                    <Form.Item
+                                      name="adminWarning"
+                                      label={t('admin.adminWarningField')}
+                                    >
+                                      <Input placeholder={t('admin.adminWarningPlaceholder')} />
                                     </Form.Item>
                                     <Form.Item name="aiGenerated" valuePropName="checked">
                                       <label>
                                         <input type="checkbox" style={{ marginRight: 6 }} />
-                                        AI 生成素材
+                                        {t('admin.aiGeneratedField')}
                                       </label>
                                     </Form.Item>
                                   </Form>
@@ -249,7 +288,10 @@ function AdminPage() {
                               });
                             }}
                           >
-                            标记
+                            {t('admin.mark')}
+                          </Button>
+                          <Button size="small" onClick={() => void openHistory(a)}>
+                            {t('admin.reviewHistory')}
                           </Button>
                         </Space>
                       ),
@@ -260,30 +302,21 @@ function AdminPage() {
             },
             {
               key: 'users',
-              label: '用户管理',
+              label: t('admin.userManagement'),
               children: (
                 <>
                   <Space style={{ marginBottom: 12 }}>
                     <Input
                       allowClear
                       prefix={<SearchOutlined />}
-                      placeholder="按邮箱搜索"
+                      placeholder={t('admin.searchEmail')}
                       style={{ width: 260 }}
                       onPressEnter={(e) => {
                         setUsersSearch((e.target as HTMLInputElement).value.trim());
                         setUsersPage(1);
                       }}
                     />
-                    <Button
-                      icon={<SearchOutlined />}
-                      onClick={(e) => {
-                        const input = (e.target as HTMLElement).closest('.ant-input-group')?.querySelector('input');
-                        setUsersSearch(input?.value.trim() ?? '');
-                        setUsersPage(1);
-                      }}
-                    >
-                      搜索
-                    </Button>
+                    <Button icon={<SearchOutlined />}>{t('common.search')}</Button>
                   </Space>
                   <Table<AdminUserRow>
                     rowKey="id"
@@ -296,31 +329,41 @@ function AdminPage() {
                       onChange: setUsersPage,
                     }}
                     columns={[
-                      { title: 'UID', dataIndex: 'userUid', width: 70 },
-                      { title: '邮箱', dataIndex: 'email' },
-                      { title: '角色', width: 90, render: (_, u) => userRoleTag(u.role) },
-                      { title: '封禁状态', width: 130, render: (_, u) => userBanInfo(u) },
+                      { title: t('admin.uid'), dataIndex: 'userUid', width: 70 },
+                      { title: t('admin.email'), dataIndex: 'email' },
+                      { title: t('admin.roleCol'), width: 110, render: (_, u) => userRoleTag(u.role) },
+                      { title: t('admin.banStatus'), width: 140, render: (_, u) => userBanInfo(u) },
                       {
-                        title: '注册时间',
+                        title: t('admin.registerTime'),
                         dataIndex: 'createdAt',
                         width: 110,
                         render: (v: string) => new Date(v).toLocaleDateString(),
                       },
                       {
-                        title: '操作',
-                        width: 280,
+                        title: t('admin.actionCol'),
+                        width: 300,
                         render: (_, u) => {
                           const banned = u.banPermanent || u.bannedUntil !== null;
                           return (
                             <Space>
                               <Popconfirm
-                                title={banned ? '解除封禁？' : '确认封禁？'}
+                                title={
+                                  banned ? t('admin.unbanConfirm') : t('admin.banConfirm')
+                                }
                                 onConfirm={() =>
-                                  void patchUser(u.id, { ban: banned ? null : { permanent: false, until: new Date(Date.now() + 7 * 86400000).toISOString(), reason: '7 天临时封禁' } })
+                                  void patchUser(u.id, {
+                                    ban: banned
+                                      ? null
+                                      : {
+                                          permanent: false,
+                                          until: new Date(Date.now() + 7 * 86400000).toISOString(),
+                                          reason: t('admin.ban7days'),
+                                        },
+                                  })
                                 }
                               >
                                 <Button size="small" danger={!banned}>
-                                  {banned ? '解封' : '封禁 7 天'}
+                                  {banned ? t('admin.unban') : t('admin.ban7days')}
                                 </Button>
                               </Popconfirm>
                               <Button
@@ -330,7 +373,7 @@ function AdminPage() {
                                   banForm.resetFields();
                                 }}
                               >
-                                自定义封禁
+                                {t('admin.customBan')}
                               </Button>
                               {isSuper && (
                                 <Select
@@ -340,9 +383,9 @@ function AdminPage() {
                                   disabled={u.id === myId}
                                   onChange={(role) => void patchUser(u.id, { role })}
                                   options={[
-                                    { value: 'user', label: '用户' },
-                                    { value: 'admin', label: '管理员' },
-                                    { value: 'super_admin', label: '超管' },
+                                    { value: 'user', label: t('admin.normalUser') },
+                                    { value: 'admin', label: t('admin.admin') },
+                                    { value: 'super_admin', label: t('admin.superAdmin') },
                                   ]}
                                 />
                               )}
@@ -361,24 +404,58 @@ function AdminPage() {
 
       {/* 拒绝理由弹窗 */}
       <Modal
-        title={`拒绝素材：${reviewTarget?.name ?? ''}`}
+        title={t('admin.rejectTitle', { name: reviewTarget?.name ?? '' })}
         open={reviewTarget !== null}
         onOk={() => reviewTarget && void review(reviewTarget, 'rejected', reviewReason)}
         onCancel={() => setReviewTarget(null)}
-        okText="确认拒绝"
+        okText={t('admin.confirmReject')}
         okButtonProps={{ danger: true }}
       >
         <Input.TextArea
           value={reviewReason}
           onChange={(e) => setReviewReason(e.target.value)}
-          placeholder="拒绝理由（将记入审核流水）"
+          placeholder={t('admin.rejectReasonPlaceholder')}
           rows={3}
         />
       </Modal>
 
+      {/* 审核记录弹窗 */}
+      <Modal
+        title={t('admin.reviewHistory')}
+        open={historyTarget !== null}
+        onCancel={() => setHistoryTarget(null)}
+        footer={null}
+      >
+        {history === null ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            {t('common.loading')}
+          </div>
+        ) : history.length === 0 ? (
+          <Empty description={t('admin.noReviews')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <Descriptions
+            column={1}
+            size="small"
+            bordered
+            items={history.map((r) => ({
+              key: r.id,
+              label: new Date(r.createdAt).toLocaleString(),
+              children: (
+                <Space>
+                  <Tag color={r.status === 'approved' ? 'green' : 'red'}>
+                    {r.status === 'approved' ? t('admin.approved') : t('admin.rejected')}
+                  </Tag>
+                  {r.reason ? <span>{r.reason}</span> : null}
+                </Space>
+              ),
+            }))}
+          />
+        )}
+      </Modal>
+
       {/* 自定义封禁弹窗 */}
       <Modal
-        title={`封禁用户：${banTarget?.email ?? ''}`}
+        title={t('admin.banUserTitle', { email: banTarget?.email ?? '' })}
         open={banTarget !== null}
         onOk={() =>
           banForm
@@ -391,28 +468,33 @@ function AdminPage() {
                     : { permanent: false, until: new Date(values.until).toISOString(), reason: values.reason },
               });
               setBanTarget(null);
-              message.success('已封禁');
+              message.success(t('admin.banned'));
             })
             .catch(() => undefined)
         }
         onCancel={() => setBanTarget(null)}
-        okText="确认封禁"
+        okText={t('admin.confirmBan')}
         okButtonProps={{ danger: true }}
       >
         <Form form={banForm} layout="vertical" initialValues={{ mode: 'temporary' }}>
-          <Form.Item name="mode" label="封禁类型">
+          <Form.Item name="mode" label={t('admin.banTypeCol')}>
             <Select
               options={[
-                { value: 'temporary', label: '临时封禁' },
-                { value: 'permanent', label: '永久封禁' },
+                { value: 'temporary', label: t('admin.temporaryBan') },
+                { value: 'permanent', label: t('admin.permanentBan') },
               ]}
             />
           </Form.Item>
-          <Form.Item name="until" label="到期时间" dependencies={['mode']} rules={[{ required: true, message: '请选择到期时间' }]}>
+          <Form.Item
+            name="until"
+            label={t('admin.banUntilCol')}
+            dependencies={['mode']}
+            rules={[{ required: true, message: t('admin.banUntilCol') }]}
+          >
             <Input type="datetime-local" />
           </Form.Item>
-          <Form.Item name="reason" label="封禁理由">
-            <Input.TextArea rows={2} placeholder="可选" />
+          <Form.Item name="reason" label={t('admin.banReasonCol')}>
+            <Input.TextArea rows={2} placeholder={t('admin.banReasonPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

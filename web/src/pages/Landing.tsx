@@ -4,13 +4,17 @@
 
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RightOutlined } from '@ant-design/icons';
+import { RightOutlined, LinkOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '../store/auth';
 import { useSiteStore } from '../store/site';
+import { usePageTitle } from '../hooks/usePageTitle';
 import { TopNav } from '../components/TopNav';
 import './Landing.css';
 
 export function LandingPage() {
+  const { t } = useTranslation();
+  usePageTitle(null);
   const isAuthenticated = useAuthStore((s) => s.token !== null);
   const { theme } = useSiteStore();
   const navigate = useNavigate();
@@ -34,33 +38,36 @@ export function LandingPage() {
       <TopNav
         brandOnClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         links={[
-          { path: '/', label: '首页' },
-          { path: '/library', label: '公开库' },
-          { path: '/wardrobe', label: '我的衣柜', auth: true },
-          { path: '/profiles', label: '我的角色', auth: true },
+          { path: '/', label: 'nav.home' },
+          { path: '/library', label: 'nav.library' },
+          { path: '/upload', label: 'nav.upload', auth: true },
+          { path: '/wardrobe', label: 'nav.wardrobe', auth: true },
+          { path: '/profile', label: 'nav.profile', auth: true },
+          { path: '/admin', label: 'nav.admin', auth: true, admin: true },
         ]}
       />
 
       <section className="landing-hero">
         <div className="landing-hero__content">
           <h1 className="landing-hero__title">
-            欢迎来到
+            {t('landing.welcomePrefix')}
             <br />
             <span className="landing-hero__title-accent">MSCTS</span>
           </h1>
-          <p className="landing-hero__subtitle">MINECRAFT SKIN &amp; CAPE SERVER</p>
+          <p className="landing-hero__subtitle">{t('landing.subtitle')}</p>
           <div className="landing-hero__cta">
             <button
               className="landing-hero__btn landing-hero__btn--secondary"
               onClick={() => navigate('/library')}
             >
-              浏览公开库
+              {t('landing.browseLibrary')} <LinkOutlined style={{ fontSize: 12, marginLeft: 4 }} />
             </button>
             <button
               className="landing-hero__btn landing-hero__btn--primary"
               onClick={() => navigate(isAuthenticated ? '/wardrobe' : '/login')}
             >
-              {isAuthenticated ? '进入我的衣柜' : '登录 / 注册'} <RightOutlined />
+              {isAuthenticated ? t('landing.enterWardrobe') : t('landing.loginOrRegister')}{' '}
+              <RightOutlined />
             </button>
           </div>
         </div>
