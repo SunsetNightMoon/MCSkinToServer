@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.1",
+    "@monaco-editor/react": "^4.7.0",
     "antd": "^5.22.2",
+    "axios": "^1.20.0",
     "dayjs": "^1.11.13",
     "i18next": "^26.4.2",
     "i18next-browser-languagedetector": "^8.2.1",
@@ -18,12 +20,15 @@
     "react-dom": "^18.3.1",
     "react-i18next": "^17.0.15",
     "react-router-dom": "^6.28.0",
+    "recharts": "^3.10.1",
     "skinview3d": "^3.4.2",
+    "three": "^0.156.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.156.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "~5.6.3",
     "vite": "^6.0.3"

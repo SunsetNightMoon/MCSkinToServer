@@ -20,10 +20,7 @@
     "wardrobe": "Wardrobe",
     "profile": "Profile",
     "admin": "Admin Panel",
-    "login": "Login",
-    "mySkins": "My Skins",
-    "myCapes": "My Capes",
-    "profiles": "My Characters"
+    "login": "Login"
   },
   "wardrobe": {
     "myWardrobe": "My Wardrobe",
@@ -65,19 +62,12 @@
     "skinRemoved": "Skin removed",
     "removeSkinFailed": "Failed to remove skin",
     "capeRemoved": "Cape removed",
-    "removeCapeFailed": "Failed to remove cape",
-    "chooseProfile": "Select the character to apply to",
-    "applyToProfile": "Apply to Character",
-    "slotOverwrite": "The same slot of the character will be overwritten"
+    "removeCapeFailed": "Failed to remove cape"
   },
   "landing": {
     "welcomePrefix": "Welcome to",
     "welcomeText": "WELCOME TO SKIN2!",
-    "enterProfile": "Enter Profile",
-    "subtitle": "MINECRAFT SKIN & CAPE SERVER",
-    "browseLibrary": "Browse Library",
-    "enterWardrobe": "Enter My Wardrobe",
-    "loginOrRegister": "Login / Register"
+    "enterProfile": "Enter Profile"
   },
   "library": {
     "slimModel": "Slim",
@@ -88,20 +78,17 @@
     "pending": "Pending",
     "rejected": "Rejected",
     "unnamedCape": "Unnamed Cape",
-    "searchPlaceholder": "Search assets...",
+    "searchPlaceholder": "Search skins...",
     "noSkins": "No skins available",
-    "noCapes": "No capes available",
-    "sortLatest": "Latest",
-    "sortViews": "Most viewed",
-    "sortDownloads": "Most downloaded"
+    "noCapes": "No capes available"
   },
   "upload": {
     "skinTab": "Upload Skin",
     "capeTab": "Upload Cape",
     "skinUploadGuide": "Upload Guide",
-    "skinUploadDesc": "Supports 64x64 (modern) or 64x32 (legacy pre-1.8) formats, up to 2MB, PNG only",
+    "skinUploadDesc": "Supports 64x64 (modern) or 64x32 (Legacy 1.8 below) formats, size ≤1MB, PNG format only",
     "capeUploadGuide": "Cape Upload Guide",
-    "capeUploadDesc": "Cape size 22×17 (classic) or 64×32 (modern) recommended, up to 2MB, PNG only",
+    "capeUploadDesc": "Cape size recommended 22×17 (classic) or 64×32 (modern cape), size ≤1MB, PNG format only",
     "model": "Model",
     "classicModel": "Classic (Steve)",
     "slimModel": "Slim (Alex)",
@@ -120,7 +107,7 @@
     "capeNamePlaceholder": "Give your work a name",
     "capeFile": "Cape File",
     "selectCapePng": "Select cape PNG file",
-    "capeSizeHint": "Cape size 22×17 or 64×32 recommended, up to 2MB",
+    "capeSizeHint": "Cape size recommended 22×17 or 64×32, size ≤1MB",
     "modelType": "Model Type",
     "description": "Description",
     "descriptionPlaceholder": "Describe your skin (optional)",
@@ -138,8 +125,8 @@
     "uploadSkin": "Upload Skin",
     "uploadCape": "Upload Cape",
     "onlyPng": "PNG format only",
-    "fileSizeLimit": "File size must not exceed 2MB",
-    "capeFileSizeLimit": "Cape file size must not exceed 2MB",
+    "fileSizeLimit": "File size cannot exceed 1MB",
+    "capeFileSizeLimit": "Cape file size cannot exceed 1MB",
     "pleaseUploadSkin": "Please upload skin file",
     "pleaseUploadCape": "Please upload cape file",
     "pleaseCompleteCaptcha": "Please wait for CAPTCHA to complete",
@@ -162,8 +149,7 @@
       "private": "Private - Only visible/downloadable by yourself",
       "public_no_download": "Public (no download) - Visible to everyone, but not downloadable",
       "public_downloadable": "Public (downloadable) - Visible and downloadable by everyone"
-    },
-    "postUploadHint": "After uploading, you can edit the name, description, visibility and download policy on the \"My Uploads\" page."
+    }
   },
   "profile": {
     "superAdmin": "Super Admin",
@@ -275,13 +261,9 @@
     "passwordMinLength": "New password must be at least 6 characters",
     "passwordMismatch": "The two new passwords do not match",
     "enterPassword": "Please enter password",
-    "defaultProfile": "Default Character",
-    "currentSkin": "Current Skin Preview",
-    "currentSkinOf": "Skin of character \"{{name}}\"",
-    "noSkinApplied": "No skin applied yet. Go to the Wardrobe to upload and apply one.",
-    "myCharacters": "My Characters",
-    "gotoWardrobe": "Manage My Wardrobe",
-    "gotoLibrary": "Browse Favorites"
+    "nameAvailable": "Name is available",
+    "nameTaken": "Name is already taken",
+    "cancel": "Cancel"
   },
   "auth": {
     "login": "Login",
@@ -323,14 +305,12 @@
     "oauthLoginFailed": "OAuth Login Failed",
     "backToLogin": "Back to Login",
     "completingOAuth": "Completing OAuth login...",
-    "passwordMin8": "Password must be at least 8 characters",
-    "profileName": "Initial Character Name",
-    "profileNamePlaceholder": "Steve_Minecraft",
-    "profileNameRule": "3-16 characters: letters, numbers, underscores",
-    "profileNameExtra": "The name shown in game. Free rename within 30 days after registration.",
-    "registerSuccessAutoLogin": "Registration successful, you are now logged in",
-    "loginFailedRetry": "Login failed, please try again later",
-    "registerFailedRetry": "Registration failed, please try again later"
+    "profileNameLabel": "Character Name",
+    "profileNamePlaceholder": "Enter your character name",
+    "profileNameRequired": "Please enter a character name",
+    "profileNameMin": "Name must be 3-16 characters",
+    "profileNamePattern": "Only letters, numbers and underscores",
+    "oauthLogin": "Third-party login"
   },
   "skin": {
     "title": "Skin",
@@ -392,14 +372,7 @@
     "cancel": "Cancel",
     "confirmDelete": "Confirm Delete",
     "deleteFailed": "Delete failed",
-    "deleted": "Skin deleted",
-    "visibility": "Visibility",
-    "visibilityPublic": "Public",
-    "visibilityPrivate": "Private",
-    "downloadPolicy": "Download Policy",
-    "downloadOwnerOnly": "Owner only",
-    "downloadPublic": "Public",
-    "visibilityHint": "Shown in the library after being public and approved"
+    "deleted": "Skin deleted"
   },
   "skinViewer": {
     "rotate": "Rotate",
@@ -448,14 +421,7 @@
     "cancel": "Cancel",
     "confirmDelete": "Confirm Delete",
     "deleteFailed": "Delete failed",
-    "deleted": "Cape deleted",
-    "visibility": "Visibility",
-    "visibilityPublic": "Public",
-    "visibilityPrivate": "Private",
-    "downloadPolicy": "Download Policy",
-    "downloadOwnerOnly": "Owner only",
-    "downloadPublic": "Public",
-    "visibilityHint": "Shown in the library after being public and approved"
+    "deleted": "Cape deleted"
   },
   "detail": {
     "skinTitle": "Skin Detail",
@@ -507,12 +473,7 @@
     "removeFailed": "Remove failed",
     "warningRemoved": "Warning removed",
     "operationFailed": "Operation failed",
-    "loadFailed": "Load failed",
-    "type": "Type",
-    "license": "License",
-    "downloadPolicy": "Download Policy",
-    "downloadOwnerOnly": "Owner only",
-    "downloadPublic": "Public"
+    "loadFailed": "Load failed"
   },
   "admin": {
     "dashboard": "Admin Dashboard",
@@ -652,7 +613,7 @@
     "banTime": "Ban Time",
     "reason": "Reason",
     "banReason": "Ban Reason",
-    "banReasonPlaceholder": "Optional",
+    "banReasonPlaceholder": "Optional: Enter ban reason...",
     "addToBlacklistButton": "Add to Blacklist",
     "addToBlacklist": "Add to Blacklist",
     "emailOrIpExtra": "At least fill in email or IP address",
@@ -853,42 +814,18 @@
     "operationFailedWithStatus": "Operation failed ({{status}})",
     "unknownError": "Unknown error",
     "totalItems": "{{total}} items total",
-    "reviewQueue": "Review Queue",
-    "mark": "Mark",
-    "markTitle": "Moderation: {{name}}",
-    "adminWarningField": "Admin Warning (public)",
-    "adminWarningPlaceholder": "Leave empty to clear",
-    "aiGeneratedField": "AI-generated asset",
-    "reviewHistory": "Review History",
-    "noReviews": "No review records",
-    "searchEmail": "Search by email",
-    "ban7days": "Ban 7 days",
+    "confirmRejectCape": "Are you sure to reject this cape?",
+    "rejectCape": "Reject Cape",
     "unban": "Unban",
-    "customBan": "Custom Ban",
-    "unbanConfirm": "Unban this user?",
-    "banConfirm": "Ban this user?",
-    "uid": "UID",
-    "roleCol": "Role",
-    "banStatus": "Ban Status",
-    "registerTime": "Registered",
-    "actionCol": "Actions",
-    "bannedUntilDate": "until {{date}}",
-    "kindCol": "Type",
-    "rejectTitle": "Reject asset: {{name}}",
-    "rejectReasonPlaceholder": "Rejection reason (will be recorded in review history)",
-    "confirmReject": "Confirm Reject",
-    "banUserTitle": "Ban user: {{email}}",
-    "banTypeCol": "Ban Type",
-    "banUntilCol": "Expires At",
-    "banReasonCol": "Ban Reason",
-    "confirmBan": "Confirm Ban",
-    "banned": "Banned",
-    "unbannedMsg": "Unbanned",
-    "reviewApproved": "Approved",
-    "reviewRejected": "Rejected",
-    "saved": "Saved",
-    "reviewLoadFailed": "Failed to load review list",
-    "usersLoadFailed": "Failed to load user list"
+    "updateRoleFailed": "Failed to update role",
+    "pleaseSelectBanUntil": "Please select the ban expiry",
+    "pleaseEnterName": "Please enter a name",
+    "welcomeTo": "Hero title text",
+    "enterPersonalCenter": "Button text for entering profile",
+    "beianInfoTooltip": "ICP filing info (MSCTS has no site-settings endpoint, so this has no effect)",
+    "copyrightPlaceholder": "Enter copyright text",
+    "pleaseEnterCopyright": "Please enter copyright text",
+    "registrationSettingsSaved": "Registration settings saved"
   },
   "common": {
     "loading": "Loading...",
@@ -935,7 +872,11 @@
     "remove": "Remove",
     "globalAutoApply": "Auto Apply",
     "saveSettings": "Save Settings",
-    "comingSoon": "Coming soon"
+    "comingSoon": "Coming soon",
+    "loadFailed": "Failed to load",
+    "retry": "Retry",
+    "saveFailed": "Failed to save",
+    "serverError": "Server error"
   },
   "setup": {
     "steps": {
@@ -1055,28 +996,5 @@
       "confirmPasswordRequired": "Please confirm password",
       "passwordMismatch": "Passwords do not match"
     }
-  },
-  "profiles": {
-    "title": "My Characters",
-    "create": "New Character",
-    "createOk": "Create",
-    "name": "Character Name",
-    "namePlaceholder": "Steve_Minecraft",
-    "nameRule": "3-16 characters: letters, numbers, underscores",
-    "nameRequired": "Please enter a character name",
-    "maxHint": "Up to 3 characters per account",
-    "createdAt": "Created At",
-    "action": "Actions",
-    "rename": "Rename",
-    "delete": "Delete",
-    "cooldownDays": " (cooldown: {{days}} days)",
-    "renameTitle": "Rename: {{name}}",
-    "newNameLabel": "New Character Name",
-    "renameCooldownHint": "A 30-day cooldown applies after renaming",
-    "deleteTitle": "Delete this character?",
-    "deleteDesc": "Bound skins will be unbound",
-    "created": "Character created",
-    "renamed": "Renamed successfully",
-    "deleted": "Character deleted"
   }
 }

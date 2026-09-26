@@ -1,0 +1,372 @@
+/* ============================================================
+   Landing Page - Blue Archive Style
+   Full-screen hero, minimal content, deep blue night sky
+   Background is now in shared/styles/starfield.css
+   ============================================================ */
+
+@import '../../styles/starfield.css';
+
+.landing-page {
+  min-height: 100dvh;
+  color: #fff;
+  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+}
+
+/* ---------- Top Nav ---------- */
+.landing-nav {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 40px;
+  height: 64px;
+}
+
+.landing-nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.landing-nav__brand-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4a9eff, #6b5ce7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.landing-nav__brand-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.landing-nav__brand-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: -2px;
+}
+
+.landing-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.landing-nav__link {
+  padding: 6px 18px;
+  border-radius: 6px;
+  color: rgba(255,255,255,0.85);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  background: transparent;
+}
+
+.landing-nav__link:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
+.landing-nav__link--active {
+  color: #4a9eff;
+}
+
+.landing-nav__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.landing-nav__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.2);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s;
+  background: rgba(255,255,255,0.05);
+}
+
+.landing-nav__avatar:hover {
+  border-color: rgba(255,255,255,0.6);
+}
+
+.landing-nav__avatar img,
+.landing-nav__avatar canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.landing-nav__icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.landing-nav__icon-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+.landing-nav__theme-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.landing-nav__theme-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-color: rgba(255,255,255,0.3);
+}
+
+/* ---------- Hero Content ---------- */
+.landing-hero {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: calc(100dvh - 64px);
+  padding: 0 60px 80px;
+}
+
+.landing-hero__content {
+  max-width: 520px;
+  text-align: right;
+}
+
+.landing-hero__title {
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #fff;
+  margin: 0 0 12px;
+  text-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+
+.landing-hero__title-accent {
+  color: #7dd3fc;
+}
+
+.landing-hero__subtitle {
+  font-size: clamp(14px, 2vw, 18px);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.6);
+  margin: 0 0 40px;
+}
+
+.landing-hero__cta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.landing-hero__btn {
+  height: 48px;
+  padding: 0 36px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.landing-hero__btn--primary {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
+}
+
+.landing-hero__btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(37, 99, 235, 0.5);
+}
+
+.landing-hero__btn--secondary {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.8);
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.landing-hero__btn--secondary:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+  .landing-nav {
+    padding: 0 20px;
+  }
+
+  .landing-nav__links {
+    display: none;
+  }
+
+  .landing-hero {
+    justify-content: center;
+    padding: 0 24px 60px;
+  }
+
+  .landing-hero__content {
+    text-align: center;
+    max-width: 100%;
+  }
+
+  .landing-hero__cta {
+    justify-content: center;
+  }
+}
+
+/* ---------- Custom Background Image ---------- */
+.landing-page--custom-bg {
+  position: relative;
+}
+
+.landing-custom-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 0;
+}
+
+.landing-page--custom-bg .landing-nav,
+.landing-page--custom-bg .landing-hero {
+  position: relative;
+  z-index: 2;
+}
+
+/* 背景蒙版层 */
+.landing-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ============================================================
+   亮色主题适配
+   ============================================================ */
+.landing-page[data-theme="light"] {
+  color: #1a1a2e;
+}
+
+.landing-page[data-theme="light"] .landing-nav__link {
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.landing-page[data-theme="light"] .landing-nav__link:hover {
+  color: #1a1a2e;
+  background: rgba(0,0,0,0.06);
+}
+
+.landing-page[data-theme="light"] .landing-nav__link--active {
+  color: #2563eb;
+}
+
+.landing-page[data-theme="light"] .landing-nav__brand-text {
+  color: #1a1a2e;
+}
+
+.landing-page[data-theme="light"] .landing-nav__brand-sub {
+  color: rgba(26, 26, 46, 0.55);
+}
+
+.landing-page[data-theme="light"] .landing-nav__icon-btn {
+  border-color: rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.04);
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.landing-page[data-theme="light"] .landing-nav__icon-btn:hover {
+  background: rgba(0,0,0,0.08);
+  color: #1a1a2e;
+}
+
+.landing-page[data-theme="light"] .landing-nav__theme-btn {
+  border-color: rgba(0,0,0,0.15);
+  background: rgba(0,0,0,0.04);
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.landing-page[data-theme="light"] .landing-nav__theme-btn:hover {
+  background: rgba(0,0,0,0.08);
+  color: #1a1a2e;
+}
+
+.landing-page[data-theme="light"] .landing-hero__title {
+  color: #1a1a2e;
+  text-shadow: none;
+}
+
+.landing-page[data-theme="light"] .landing-hero__title-accent {
+  color: #2563eb;
+}
+
+.landing-page[data-theme="light"] .landing-hero__subtitle {
+  color: rgba(26, 26, 46, 0.6);
+}
+
+.landing-page[data-theme="light"] .landing-hero__btn--secondary {
+  background: rgba(0,0,0,0.06);
+  color: rgba(26, 26, 46, 0.8);
+  border-color: rgba(0,0,0,0.15);
+}
+
+.landing-page[data-theme="light"] .landing-hero__btn--secondary:hover {
+  background: rgba(0,0,0,0.1);
+  color: #1a1a2e;
+}

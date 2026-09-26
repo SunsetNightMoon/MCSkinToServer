@@ -1,0 +1,1212 @@
+/* ============================================================
+   Layout - Blue Archive Style
+    Shared layout for inner pages, with starfield background
+   ============================================================ */
+
+@import '../../styles/starfield.css';
+
+/* 自定义背景图（全局） */
+.layout-custom-bg {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-size: cover;
+  background-position: center;
+  z-index: 0;
+}
+
+/* ============================================================
+   Layout wrapper
+   ============================================================ */
+.layout-page {
+  min-height: 100dvh;
+  position: relative;
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
+}
+
+/* ============================================================
+   Header / Nav Bar
+   ============================================================ */
+.layout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 40px;
+  background: transparent;
+  position: relative;
+  z-index: 100;
+}
+
+/* Brand / Logo */
+.layout-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.layout-header__brand-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #4a9eff, #6b5ce7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.layout-header__brand-text {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.layout-header__brand-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: -2px;
+}
+
+/* Navigation links */
+.layout-header__nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.layout-header__nav-link {
+  padding: 6px 18px;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.layout-header__nav-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.layout-header__nav-link--active {
+  color: #4a9eff;
+}
+
+/* Right area */
+.layout-header__right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.layout-header__icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.layout-header__icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.layout-header__avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.layout-header__avatar:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.layout-header__avatar canvas,
+.layout-header__avatar img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* ============================================================
+   Content area
+   ============================================================ */
+.layout-content {
+  position: relative;
+  z-index: 10;
+  padding: 24px 40px 40px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.layout-content__inner {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 24px;
+  backdrop-filter: blur(6px);
+  min-height: calc(100dvh - 56px - 80px);
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.layout-footer {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.35) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 16px 24px !important;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ============================================================
+   Page headings
+   ============================================================ */
+.layout-content__inner h2 {
+  color: #fff;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+/* ============================================================
+   Ant Design overrides for dark theme
+   ============================================================ */
+
+.layout-page[data-theme="dark"] {
+  /* Layout */
+  /* Card */
+  /* Tabs */
+  /* Input */
+  /* Button */
+  /* Tag */
+  /* Pagination */
+  /* Empty */
+  /* Spin */
+  /* Descriptions */
+  /* Alert */
+  /* Modal */
+  /* Statistic */
+  /* Divider */
+  /* Table */
+  /* Sider */
+  /* Menu */
+  /* Form */
+  /* Space */
+  /* Select */
+  /* Typography */
+  /* Radio */
+  /* Alert description */
+  /* Divider inner text */
+}
+
+/* Layout */
+.ant-layout {
+  background: transparent;
+}
+
+.ant-layout-content {
+  background: transparent;
+}
+
+/* Card */
+.ant-card {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.ant-card:hover {
+  border-color: rgba(74, 158, 255, 0.35) !important;
+}
+
+.ant-card-meta-title {
+  color: #fff !important;
+}
+
+.ant-card-meta-description {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+/* Tabs */
+.ant-tabs-tab {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.ant-tabs-tab-active {
+  color: #4a9eff !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #4a9eff !important;
+}
+
+/* Input */
+.ant-input,
+.ant-input-search .ant-input,
+.ant-input-affix-wrapper {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+}
+
+.ant-input::placeholder {
+  color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+}
+
+.ant-input-affix-wrapper .ant-input-suffix {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Button */
+.ant-btn-text {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.ant-btn-text:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.ant-btn-default {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-btn-default:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  color: #fff !important;
+}
+
+body:not([data-theme="light"]) .ant-btn-primary[disabled] {
+  color: rgba(255, 255, 255, 0.85) !important;
+  background: rgba(74, 158, 255, 0.25) !important;
+  border-color: rgba(74, 158, 255, 0.35) !important;
+}
+
+/* Tag */
+.ant-tag {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* Pagination */
+.ant-pagination-item {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.ant-pagination-item a {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+.ant-pagination-item-active {
+  background: rgba(74, 158, 255, 0.15) !important;
+  border-color: #4a9eff !important;
+}
+
+.ant-pagination-item-active a {
+  color: #4a9eff !important;
+}
+
+.ant-pagination-prev .ant-pagination-item-link,
+.ant-pagination-next .ant-pagination-item-link {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.ant-pagination-disabled .ant-pagination-item-link {
+  background: rgba(255, 255, 255, 0.02) !important;
+  color: rgba(255, 255, 255, 0.25) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Empty */
+.ant-empty-description {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Spin */
+.ant-spin-dot-item {
+  background: #4a9eff !important;
+}
+
+/* Descriptions */
+.ant-descriptions-bordered .ant-descriptions-view {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-descriptions-bordered .ant-descriptions-item-label {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-descriptions-item-content {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* Alert */
+.ant-alert-success {
+  background: rgba(56, 158, 13, 0.12) !important;
+  border-color: rgba(56, 158, 13, 0.3) !important;
+}
+
+.ant-alert-success .ant-alert-message {
+  color: #95de64 !important;
+}
+
+.ant-alert-error {
+  background: rgba(207, 19, 34, 0.12) !important;
+  border-color: rgba(207, 19, 34, 0.3) !important;
+}
+
+.ant-alert-error .ant-alert-message {
+  color: #ff7875 !important;
+}
+
+.ant-alert-warning {
+  background: rgba(250, 173, 20, 0.12) !important;
+  border-color: rgba(250, 173, 20, 0.3) !important;
+}
+
+.ant-alert-warning .ant-alert-message {
+  color: #ffc53d !important;
+}
+
+.ant-alert-info {
+  background: rgba(24, 144, 255, 0.12) !important;
+  border-color: rgba(24, 144, 255, 0.3) !important;
+}
+
+.ant-alert-info .ant-alert-message {
+  color: #69c0ff !important;
+}
+
+/* Modal */
+.ant-modal-content {
+  background: #0d2a4a !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ant-modal-header {
+  background: transparent !important;
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-modal-title {
+  color: #fff !important;
+}
+
+.ant-modal-close-x {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.ant-modal-close-x:hover {
+  color: #fff !important;
+}
+
+/* Statistic */
+.ant-statistic-title {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.ant-statistic-content {
+  color: #fff !important;
+}
+
+/* Divider */
+.ant-divider {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Table */
+.ant-table {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.ant-table-thead > tr > th {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.ant-table-tbody > tr.ant-table-placeholder > td {
+  background: transparent !important;
+  border-bottom: none !important;
+}
+
+.ant-table-cell {
+  background: transparent !important;
+}
+
+.ant-table-empty .ant-table-cell {
+  background: transparent !important;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr.ant-table-placeholder {
+  background: transparent !important;
+}
+
+.ant-table-placeholder .ant-empty-description {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.ant-empty {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Sider */
+.ant-layout-sider {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ant-layout-sider-trigger {
+  background: rgba(10, 26, 53, 0.9) !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* Menu Inline */
+.ant-menu-inline {
+  background: transparent !important;
+  border-right: none !important;
+}
+
+.ant-menu-inline .ant-menu-item {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.ant-menu-inline .ant-menu-item-selected {
+  background: rgba(74, 158, 255, 0.15) !important;
+  color: #4a9eff !important;
+}
+
+.ant-menu-inline .ant-menu-item:hover {
+  color: #fff !important;
+}
+
+/* Form */
+.ant-form-item-label > label {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.ant-form-item-control {
+  background: transparent !important;
+}
+
+/* Space */
+.ant-space {
+  background: transparent !important;
+}
+
+/* Select */
+body:not([data-theme="light"]) .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+}
+
+body:not([data-theme="light"]) .ant-select-selection-item {
+  color: #fff !important;
+}
+
+body:not([data-theme="light"]) .ant-select-selection-placeholder {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+body:not([data-theme="light"]) .ant-select-arrow {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Upload (dark only) */
+body:not([data-theme="light"]) .ant-upload-list-item-name {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+body:not([data-theme="light"]) .ant-upload-list-item-card-actions .anticon {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+body:not([data-theme="light"]) .ant-upload-list-item-card-actions .anticon:hover {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+body:not([data-theme="light"]) .ant-upload-list-item:hover .ant-upload-list-item-name {
+  color: #fff !important;
+}
+
+/* Select dropdown (dark) — portal elements need body-level scoping */
+body:not([data-theme="light"]) .ant-select-dropdown {
+  background: #1a2a42 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+body:not([data-theme="light"]) .ant-select-item {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+body:not([data-theme="light"]) .ant-select-item-option-selected {
+  background: rgba(74, 158, 255, 0.2) !important;
+  color: #fff !important;
+  font-weight: 500;
+}
+
+body:not([data-theme="light"]) .ant-select-item-option-active {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+body:not([data-theme="light"]) .ant-select-item-option-selected.ant-select-item-option-active {
+  background: rgba(74, 158, 255, 0.25) !important;
+}
+
+body:not([data-theme="light"]) .ant-select-dropdown-empty {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Typography */
+.ant-typography {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-typography-secondary {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Radio */
+.ant-radio-wrapper {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-radio-button-wrapper {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-radio-button-wrapper:not(:first-child)::before {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.ant-radio-button-wrapper-checked {
+  background: #4a9eff !important;
+  border-color: #4a9eff !important;
+  color: #fff !important;
+}
+
+/* Alert description */
+.ant-alert-description {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Divider inner text */
+.ant-divider-inner-text {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 768px) {
+  .layout-content {
+    padding: 16px 16px 32px;
+  }
+
+  .layout-content__inner {
+    padding: 16px;
+  }
+
+  .layout-header {
+    padding: 0 12px;
+  }
+
+  .layout-header__nav {
+    margin-left: 12px;
+  }
+} /* 关闭媒体查询块 */
+
+/* Card head title (dark theme) */
+.layout-page[data-theme="dark"] .ant-card-head-title {
+  color: #fff !important;
+}
+
+.layout-page[data-theme="dark"] .ant-card-head {
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ============================================================
+   Light Theme Overrides
+   ============================================================ */
+.layout-page[data-theme="light"] {
+  color: #1a1a2e;
+}
+
+/* Header */
+.layout-page[data-theme="light"] .layout-header__brand-text {
+  color: #1a1a2e;
+}
+
+.layout-page[data-theme="light"] .layout-header__brand-sub {
+  color: rgba(26, 26, 46, 0.55);
+}
+
+.layout-page[data-theme="light"] .layout-header__nav-link {
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.layout-page[data-theme="light"] .layout-header__nav-link:hover {
+  color: #1a1a2e;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.layout-page[data-theme="light"] .layout-header__nav-link--active {
+  color: #2563eb;
+}
+
+.layout-page[data-theme="light"] .layout-header__icon-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.layout-page[data-theme="light"] .layout-header__icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1a1a2e;
+}
+
+.layout-page[data-theme="light"] .layout-header__theme-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.layout-page[data-theme="light"] .layout-header__theme-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1a1a2e;
+}
+
+.layout-page[data-theme="light"] .layout-header__avatar {
+  border-color: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Content */
+.layout-page[data-theme="light"] .layout-content__inner {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.layout-page[data-theme="light"] .layout-content__inner h2 {
+  color: #1a1a2e;
+}
+
+/* Footer */
+.layout-page[data-theme="light"] .layout-footer {
+  color: rgba(26, 26, 46, 0.35) !important;
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Card */
+.layout-page[data-theme="light"] .ant-card {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: #1a1a2e;
+}
+
+.layout-page[data-theme="light"] .ant-card:hover {
+  border-color: rgba(37, 99, 235, 0.35) !important;
+}
+
+.layout-page[data-theme="light"] .ant-card-head {
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.layout-page[data-theme="light"] .ant-card-head-title {
+  color: #1a1a2e !important;
+}
+
+.layout-page[data-theme="light"] .ant-card-meta-title {
+  color: #1a1a2e !important;
+}
+
+.layout-page[data-theme="light"] .ant-card-meta-description {
+  color: rgba(26, 26, 46, 0.55) !important;
+}
+
+/* Input */
+.layout-page[data-theme="light"] .ant-input,
+.layout-page[data-theme="light"] .ant-input-search .ant-input,
+.layout-page[data-theme="light"] .ant-input-affix-wrapper {
+  background: #ffffff !important;
+  border-color: #d9d9d9 !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+.layout-page[data-theme="light"] .ant-input::placeholder {
+  color: rgba(0, 0, 0, 0.25) !important;
+}
+
+.layout-page[data-theme="light"] .ant-input-affix-wrapper .ant-input-suffix {
+  color: rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Button */
+.layout-page[data-theme="light"] .ant-btn-text {
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+.layout-page[data-theme="light"] .ant-btn-text:hover {
+  color: rgba(0, 0, 0, 0.88) !important;
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+
+.layout-page[data-theme="light"] .ant-btn-default {
+  background: #ffffff !important;
+  border-color: #d9d9d9 !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+.layout-page[data-theme="light"] .ant-btn-default:hover {
+  background: #ffffff !important;
+  border-color: #4096ff !important;
+  color: #4096ff !important;
+}
+
+/* Tabs */
+.layout-page[data-theme="light"] .ant-tabs-tab {
+  color: rgba(26, 26, 46, 0.55) !important;
+}
+
+.layout-page[data-theme="light"] .ant-tabs-tab-active {
+  color: #2563eb !important;
+}
+
+.layout-page[data-theme="light"] .ant-tabs-ink-bar {
+  background: #2563eb !important;
+}
+
+/* Table */
+.layout-page[data-theme="light"] .ant-table {
+  color: rgba(26, 26, 46, 0.85);
+}
+
+.layout-page[data-theme="light"] .ant-table-thead > tr > th {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+  color: rgba(26, 26, 46, 0.7) !important;
+}
+
+.layout-page[data-theme="light"] .ant-table-tbody > tr > td {
+  border-bottom-color: rgba(0, 0, 0, 0.06) !important;
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+.layout-page[data-theme="light"] .ant-table-tbody > tr:hover > td {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Form */
+.layout-page[data-theme="light"] .ant-form-item-label > label {
+  color: rgba(26, 26, 46, 0.7) !important;
+}
+
+/* Select */
+.layout-page[data-theme="light"] .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: #1a1a2e !important;
+}
+
+.layout-page[data-theme="light"] .ant-select-arrow {
+  color: rgba(26, 26, 46, 0.4) !important;
+}
+
+/* Pagination */
+.layout-page[data-theme="light"] .ant-pagination-item a {
+  color: rgba(26, 26, 46, 0.65) !important;
+}
+
+.layout-page[data-theme="light"] .ant-pagination-item-active {
+  border-color: #2563eb !important;
+}
+
+.layout-page[data-theme="light"] .ant-pagination-item-active a {
+  color: #2563eb !important;
+}
+
+.layout-page[data-theme="light"] .ant-pagination-prev .ant-pagination-item-link,
+.layout-page[data-theme="light"] .ant-pagination-next .ant-pagination-item-link {
+  color: rgba(26, 26, 46, 0.65) !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Tag */
+.layout-page[data-theme="light"] .ant-tag {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+/* Empty */
+.layout-page[data-theme="light"] .ant-empty-description {
+  color: rgba(26, 26, 46, 0.4) !important;
+}
+
+.layout-page[data-theme="light"] .ant-empty {
+  color: rgba(26, 26, 46, 0.5) !important;
+}
+
+/* Descriptions */
+.layout-page[data-theme="light"] .ant-descriptions-bordered .ant-descriptions-view {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.layout-page[data-theme="light"] .ant-descriptions-bordered .ant-descriptions-item-label {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: rgba(26, 26, 46, 0.7) !important;
+}
+
+.layout-page[data-theme="light"] .ant-descriptions-bordered .ant-descriptions-item-content {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+.layout-page[data-theme="light"] .ant-descriptions-item-content {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+/* Statistic */
+.layout-page[data-theme="light"] .ant-statistic-title {
+  color: rgba(26, 26, 46, 0.55) !important;
+}
+
+.layout-page[data-theme="light"] .ant-statistic-content {
+  color: #1a1a2e !important;
+}
+
+/* Divider */
+.layout-page[data-theme="light"] .ant-divider {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.layout-page[data-theme="light"] .ant-divider-inner-text {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+/* Modal */
+.layout-page[data-theme="light"] .ant-modal-content,
+body[data-theme="light"] .ant-modal-content {
+  background: #fff !important;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.layout-page[data-theme="light"] .ant-modal-header,
+body[data-theme="light"] .ant-modal-header {
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+.layout-page[data-theme="light"] .ant-modal-title,
+body[data-theme="light"] .ant-modal-title {
+  color: #1a1a2e !important;
+}
+
+.layout-page[data-theme="light"] .ant-modal-close-x,
+body[data-theme="light"] .ant-modal-close-x {
+  color: rgba(26, 26, 46, 0.6) !important;
+}
+
+.layout-page[data-theme="light"] .ant-modal-close-x:hover,
+body[data-theme="light"] .ant-modal-close-x:hover {
+  color: #1a1a2e !important;
+}
+
+/* ============================================================
+   Portal elements (modals, popups, dropdowns rendered to body)
+   ============================================================ */
+
+/* Input */
+body[data-theme="light"] .ant-input,
+body[data-theme="light"] .ant-input-affix-wrapper,
+body[data-theme="light"] .ant-input-password {
+  background: #ffffff !important;
+  border-color: #d9d9d9 !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+body[data-theme="light"] .ant-input::placeholder,
+body[data-theme="light"] .ant-input-password input::placeholder {
+  color: rgba(0, 0, 0, 0.25) !important;
+}
+
+body[data-theme="light"] .ant-input:hover,
+body[data-theme="light"] .ant-input-affix-wrapper:hover {
+  border-color: #4096ff !important;
+}
+
+body[data-theme="light"] .ant-input:focus,
+body[data-theme="light"] .ant-input-affix-wrapper-focused {
+  border-color: #4096ff !important;
+  box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1) !important;
+}
+
+body[data-theme="light"] .ant-input-affix-wrapper .ant-input-suffix {
+  color: rgba(0, 0, 0, 0.45) !important;
+}
+
+body[data-theme="light"] .ant-input-disabled {
+  background: #f5f5f5 !important;
+  color: rgba(0, 0, 0, 0.65) !important;
+  border-color: #d9d9d9 !important;
+}
+
+/* Form label */
+body[data-theme="light"] .ant-form-item-label > label {
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+/* Button */
+body[data-theme="light"] .ant-btn-default {
+  background: #ffffff !important;
+  border-color: #d9d9d9 !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+body[data-theme="light"] .ant-btn-default:hover {
+  border-color: #4096ff !important;
+  color: #4096ff !important;
+}
+
+body[data-theme="light"] .ant-btn-dangerous {
+  background: #ffffff !important;
+  border-color: #ff4d4f !important;
+  color: #ff4d4f !important;
+}
+
+/* Select */
+body[data-theme="light"] .ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  background: #ffffff !important;
+  border-color: #d9d9d9 !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+body[data-theme="light"] .ant-select-arrow {
+  color: rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Tag */
+body[data-theme="light"] .ant-tag {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Divider */
+body[data-theme="light"] .ant-divider {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Spin */
+body[data-theme="light"] .ant-spin-dot-item {
+  background: #1677ff !important;
+}
+
+/* message / notification */
+body[data-theme="light"] .ant-message-notice-content {
+  background: #ffffff !important;
+  color: rgba(0, 0, 0, 0.88) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* popconfirm */
+body[data-theme="light"] .ant-popconfirm .ant-popover-inner,
+body[data-theme="light"] .ant-popover .ant-popover-inner {
+  background: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Alert */
+.layout-page[data-theme="light"] .ant-alert-success {
+  background: rgba(56, 158, 13, 0.08) !important;
+  border-color: rgba(56, 158, 13, 0.2) !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-success .ant-alert-message {
+  color: #389e0d !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-error {
+  background: rgba(207, 19, 34, 0.08) !important;
+  border-color: rgba(207, 19, 34, 0.2) !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-error .ant-alert-message {
+  color: #cf1322 !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-warning {
+  background: rgba(250, 173, 20, 0.08) !important;
+  border-color: rgba(250, 173, 20, 0.2) !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-warning .ant-alert-message {
+  color: #d48806 !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-info {
+  background: rgba(24, 144, 255, 0.08) !important;
+  border-color: rgba(24, 144, 255, 0.2) !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-info .ant-alert-message {
+  color: #1890ff !important;
+}
+
+.layout-page[data-theme="light"] .ant-alert-description {
+  color: rgba(26, 26, 46, 0.7) !important;
+}
+
+/* Typography */
+.layout-page[data-theme="light"] .ant-typography {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+.layout-page[data-theme="light"] .ant-typography-secondary {
+  color: rgba(26, 26, 46, 0.5) !important;
+}
+
+/* Radio */
+.layout-page[data-theme="light"] .ant-radio-wrapper {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+.layout-page[data-theme="light"] .ant-radio-button-wrapper {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+.layout-page[data-theme="light"] .ant-radio-button-wrapper:not(:first-child)::before {
+  background-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+.layout-page[data-theme="light"] .ant-radio-button-wrapper-checked {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #fff !important;
+}
+
+/* Sider */
+.layout-page[data-theme="light"] .ant-layout-sider {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-right-color: rgba(0, 0, 0, 0.06);
+}
+
+.layout-page[data-theme="light"] .ant-layout-sider-trigger {
+  background: rgba(240, 240, 240, 0.9) !important;
+  color: rgba(26, 26, 46, 0.6) !important;
+}
+
+/* Menu Inline */
+.layout-page[data-theme="light"] .ant-menu-inline {
+  background: transparent !important;
+}
+
+.layout-page[data-theme="light"] .ant-menu-inline .ant-menu-item {
+  color: rgba(26, 26, 46, 0.7) !important;
+}
+
+.layout-page[data-theme="light"] .ant-menu-inline .ant-menu-item-selected {
+  background: rgba(37, 99, 235, 0.1) !important;
+  color: #2563eb !important;
+}
+
+.layout-page[data-theme="light"] .ant-menu-inline .ant-menu-item:hover {
+  color: #1a1a2e !important;
+}
+
+/* ============================================================
+   Theme Toggle Button
+   ============================================================ */
+.layout-header__theme-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.layout-header__theme-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ============================================================
+   Background Overlay
+   ============================================================ */
+.layout-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}

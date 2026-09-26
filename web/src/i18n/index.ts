@@ -2,6 +2,7 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 
+// 导入语言资源（去敏命名）
 import EN from './locales/EN.json'
 import SCH from './locales/SCH.json'
 import TCH from './locales/TCH.json'
@@ -31,6 +32,7 @@ i18n
   .init({
     resources,
     fallbackLng: DEFAULT_LANGUAGE,
+    debug: process.env.NODE_ENV === 'development',
 
     detection: {
       order: ['localStorage', 'navigator'],

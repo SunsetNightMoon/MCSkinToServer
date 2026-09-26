@@ -1,0 +1,33 @@
+/* ============================================================
+   SystemSettings - Admin Page Styles
+   ============================================================ */
+
+/* 添加按钮 - 正方形透明底 + 加号 */
+.admin-add-btn-square {
+  width: 48px;
+  height: 48px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: 20px;
+  transition: all 0.2s;
+}
+
+.admin-add-btn-square:hover {
+  border-color: #4a9eff;
+  color: #4a9eff;
+  background: rgba(74, 158, 255, 0.08);
+}
+
+/* 首页额外按钮区域整体背景 */
+.homepage-extra-buttons {
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}

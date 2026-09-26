@@ -20,10 +20,7 @@
     "wardrobe": "ワードローブ",
     "profile": "プロフィール",
     "admin": "管理パネル",
-    "login": "ログイン",
-    "mySkins": "マイスキン",
-    "myCapes": "マイマント",
-    "profiles": "マイキャラクター"
+    "login": "ログイン"
   },
   "wardrobe": {
     "myWardrobe": "マイワードローブ",
@@ -65,19 +62,12 @@
     "skinRemoved": "スキンを削除しました",
     "removeSkinFailed": "スキンの削除に失敗しました",
     "capeRemoved": "マントを削除しました",
-    "removeCapeFailed": "マントの削除に失敗しました",
-    "chooseProfile": "適用するキャラクターを選択",
-    "applyToProfile": "キャラクターに適用",
-    "slotOverwrite": "同じキャラクターの同種スロットは上書きされます"
+    "removeCapeFailed": "マントの削除に失敗しました"
   },
   "landing": {
     "welcomePrefix": "ようこそ",
     "welcomeText": "WELCOME TO SKIN2!",
-    "enterProfile": "プロフィールへ",
-    "subtitle": "MINECRAFT SKIN & CAPE SERVER",
-    "browseLibrary": "ライブラリを見る",
-    "enterWardrobe": "マイワードローブへ",
-    "loginOrRegister": "ログイン / 登録"
+    "enterProfile": "プロフィールへ"
   },
   "library": {
     "slimModel": "スリム",
@@ -88,20 +78,17 @@
     "pending": "審査待ち",
     "rejected": "拒否済み",
     "unnamedCape": "未命名マント",
-    "searchPlaceholder": "素材を検索...",
+    "searchPlaceholder": "スキンを搜尋...",
     "noSkins": "スキンがありません",
-    "noCapes": "マントがありません",
-    "sortLatest": "新着順",
-    "sortViews": "閲覧数順",
-    "sortDownloads": "ダウンロード数順"
+    "noCapes": "マントがありません"
   },
   "upload": {
     "skinTab": "スキンアップロード",
     "capeTab": "マントアップロード",
     "skinUploadGuide": "アップロード説明",
-    "skinUploadDesc": "64x64（現行）または 64x32（1.8 未満のレガシー）形式、2MB 以下、PNG のみ",
+    "skinUploadDesc": "64x64（現代）または64x32（Legacy 1.8以下）形式に対応、サイズ≤1MB、PNG形式のみ",
     "capeUploadGuide": "マントアップロード説明",
-    "capeUploadDesc": "マントは 22×17（クラシック）または 64×32（現行）推奨、2MB 以下、PNG のみ",
+    "capeUploadDesc": "マントのサイズは22×17（クラシック）または64×32（現代マント）を推奨、サイズ≤1MB、PNG形式のみ",
     "model": "モデル",
     "classicModel": "クラシック（Steve）",
     "slimModel": "スリム（Alex）",
@@ -120,7 +107,7 @@
     "capeNamePlaceholder": "作品に名前をつけてください",
     "capeFile": "マントファイル",
     "selectCapePng": "マントPNGファイルを選択",
-    "capeSizeHint": "マントは 22×17 または 64×32 推奨、2MB 以下",
+    "capeSizeHint": "マントのサイズは22×17または64×32を推奨、サイズ≤1MB",
     "modelType": "モデルタイプ",
     "description": "説明",
     "descriptionPlaceholder": "スキンの説明（任意）",
@@ -138,8 +125,8 @@
     "uploadSkin": "スキンをアップロード",
     "uploadCape": "マントをアップロード",
     "onlyPng": "PNG形式のみ対応",
-    "fileSizeLimit": "ファイルサイズは2MB以下",
-    "capeFileSizeLimit": "マントのファイルサイズは2MB以下",
+    "fileSizeLimit": "ファイルサイズは1MB以下である必要があります",
+    "capeFileSizeLimit": "マントファイルのサイズは1MB以下である必要があります",
     "pleaseUploadSkin": "スキンファイルをアップロードしてください",
     "pleaseUploadCape": "マントファイルをアップロードしてください",
     "pleaseCompleteCaptcha": "CAPTCHAが完了するのを待ってください",
@@ -162,8 +149,7 @@
       "private": "プライベート - 自分のみ閲覧/ダウンロード可能",
       "public_no_download": "公開（ダウンロード不可）- 全員が閲覧可能，但しダウンロード不可",
       "public_downloadable": "公開（ダウンロード可）- 全員が閲覧およびダウンロード可能"
-    },
-    "postUploadHint": "アップロード後、「マイアップロード」ページで名前・説明・公開設定・ダウンロードポリシーを編集できます。"
+    }
   },
   "profile": {
     "superAdmin": "スーパー管理者",
@@ -275,13 +261,9 @@
     "passwordMinLength": "新しいパスワードは少なくとも6文字必要です",
     "passwordMismatch": "二回入力した新しいパスワードが一致しません",
     "enterPassword": "パスワードを入力してください",
-    "defaultProfile": "デフォルトキャラクター",
-    "currentSkin": "現在のスキン",
-    "currentSkinOf": "キャラクター「{{name}}」のスキン",
-    "noSkinApplied": "スキンが未適用です。ワードローブでアップロードして適用しましょう。",
-    "myCharacters": "マイキャラクター",
-    "gotoWardrobe": "マイワードローブを管理",
-    "gotoLibrary": "お気に入りを見る"
+    "nameAvailable": "この名前は使用できます",
+    "nameTaken": "この名前は既に使用されています",
+    "cancel": "キャンセル"
   },
   "auth": {
     "login": "ログイン",
@@ -323,14 +305,12 @@
     "oauthLoginFailed": "OAuth ログイン失敗",
     "backToLogin": "ログインに戻る",
     "completingOAuth": "OAuth ログインを完了中...",
-    "passwordMin8": "パスワードは8文字以上",
-    "profileName": "初期キャラクター名",
-    "profileNamePlaceholder": "Steve_Minecraft",
-    "profileNameRule": "3〜16文字の半角英数字とアンダースコア",
-    "profileNameExtra": "ゲーム内で表示される名前。登録後30日以内なら無料で変更できます。",
-    "registerSuccessAutoLogin": "登録が完了し、自動ログインしました",
-    "loginFailedRetry": "ログインに失敗しました。しばらくしてから再試行してください",
-    "registerFailedRetry": "登録に失敗しました。しばらくしてから再試行してください"
+    "profileNameLabel": "キャラクター名",
+    "profileNamePlaceholder": "キャラクター名を入力",
+    "profileNameRequired": "キャラクター名を入力してください",
+    "profileNameMin": "名前は3〜16文字で入力してください",
+    "profileNamePattern": "英数字とアンダースコアのみ使用可能",
+    "oauthLogin": "外部アカウントでログイン"
   },
   "skin": {
     "title": "スキン",
@@ -392,14 +372,7 @@
     "cancel": "キャンセル",
     "confirmDelete": "削除を確認",
     "deleteFailed": "削除失敗",
-    "deleted": "スキンが削除されました",
-    "visibility": "公開設定",
-    "visibilityPublic": "公開",
-    "visibilityPrivate": "非公開",
-    "downloadPolicy": "ダウンロードポリシー",
-    "downloadOwnerOnly": "所有者のみ",
-    "downloadPublic": "全員",
-    "visibilityHint": "公開＋審査通過後にライブラリに表示されます"
+    "deleted": "スキンが削除されました"
   },
   "skinViewer": {
     "rotate": "回転",
@@ -448,14 +421,7 @@
     "cancel": "キャンセル",
     "confirmDelete": "削除を確認",
     "deleteFailed": "削除失敗",
-    "deleted": "マントが削除されました",
-    "visibility": "公開設定",
-    "visibilityPublic": "公開",
-    "visibilityPrivate": "非公開",
-    "downloadPolicy": "ダウンロードポリシー",
-    "downloadOwnerOnly": "所有者のみ",
-    "downloadPublic": "全員",
-    "visibilityHint": "公開＋審査通過後にライブラリに表示されます"
+    "deleted": "マントが削除されました"
   },
   "detail": {
     "skinTitle": "スキン詳細",
@@ -507,12 +473,7 @@
     "removeFailed": "削除失敗",
     "warningRemoved": "警告を削除しました",
     "operationFailed": "操作に失敗しました",
-    "loadFailed": "読み込み失敗",
-    "type": "種類",
-    "license": "ライセンス",
-    "downloadPolicy": "ダウンロードポリシー",
-    "downloadOwnerOnly": "所有者のみ",
-    "downloadPublic": "全員"
+    "loadFailed": "読み込み失敗"
   },
   "admin": {
     "dashboard": "管理バックエンド",
@@ -652,7 +613,7 @@
     "banTime": "BAN時間",
     "reason": "原因",
     "banReason": "BAN原因",
-    "banReasonPlaceholder": "任意",
+    "banReasonPlaceholder": "任意：BAN原因を入力...",
     "addToBlacklistButton": "ブラックリストに追加",
     "addToBlacklist": "ブラックリストに追加",
     "emailOrIpExtra": "少なくともメールアドレスまたはIPアドレスの一方を記入",
@@ -853,42 +814,18 @@
     "operationFailedWithStatus": "操作失敗 ({{status}})",
     "unknownError": "未知のエラー",
     "totalItems": "{{total}}件",
-    "reviewQueue": "審査キュー",
-    "mark": "モデレーション",
-    "markTitle": "モデレーション：{{name}}",
-    "adminWarningField": "管理者警告（公開表示）",
-    "adminWarningPlaceholder": "空欄でクリア",
-    "aiGeneratedField": "AI生成素材",
-    "reviewHistory": "審査履歴",
-    "noReviews": "審査記録はありません",
-    "searchEmail": "メールアドレスで検索",
-    "ban7days": "7日間BAN",
+    "confirmRejectCape": "このマントを拒否してもよろしいですか？",
+    "rejectCape": "マントを拒否",
     "unban": "BAN解除",
-    "customBan": "カスタムBAN",
-    "unbanConfirm": "BANを解除しますか？",
-    "banConfirm": "BANしますか？",
-    "uid": "UID",
-    "roleCol": "ロール",
-    "banStatus": "BAN状態",
-    "registerTime": "登録日",
-    "actionCol": "操作",
-    "bannedUntilDate": "{{date}}まで",
-    "kindCol": "種類",
-    "rejectTitle": "素材を拒否：{{name}}",
-    "rejectReasonPlaceholder": "拒否理由（審査履歴に記録されます）",
-    "confirmReject": "拒否を確定",
-    "banUserTitle": "ユーザーをBAN：{{email}}",
-    "banTypeCol": "BAN種別",
-    "banUntilCol": "有効期限",
-    "banReasonCol": "BAN理由",
-    "confirmBan": "BANを確定",
-    "banned": "BANしました",
-    "unbannedMsg": "BANを解除しました",
-    "reviewApproved": "承認しました",
-    "reviewRejected": "拒否しました",
-    "saved": "保存しました",
-    "reviewLoadFailed": "審査リストの読み込みに失敗しました",
-    "usersLoadFailed": "ユーザーリストの読み込みに失敗しました"
+    "updateRoleFailed": "ロールの変更に失敗しました",
+    "pleaseSelectBanUntil": "BAN期限を選択してください",
+    "pleaseEnterName": "名前を入力してください",
+    "welcomeTo": "ヒーロータイトルの文言",
+    "enterPersonalCenter": "マイページへ移動するボタンの文言",
+    "beianInfoTooltip": "ICP登録情報（MSCTSにはサイト設定エンドポイントがないため効果はありません）",
+    "copyrightPlaceholder": "コピーライト文言を入力",
+    "pleaseEnterCopyright": "コピーライトを入力してください",
+    "registrationSettingsSaved": "登録設定を保存しました"
   },
   "common": {
     "loading": "読み込み中...",
@@ -935,7 +872,11 @@
     "remove": "削除",
     "globalAutoApply": "自動適用",
     "saveSettings": "設定を保存",
-    "comingSoon": "近日公開"
+    "comingSoon": "近日公開予定です",
+    "loadFailed": "読み込みに失敗しました",
+    "retry": "再試行",
+    "saveFailed": "保存に失敗しました",
+    "serverError": "サーバーエラー"
   },
   "setup": {
     "steps": {
@@ -1055,28 +996,5 @@
       "confirmPasswordRequired": "パスワードを再入力してください",
       "passwordMismatch": "パスワードが一致しません"
     }
-  },
-  "profiles": {
-    "title": "マイキャラクター",
-    "create": "キャラクター作成",
-    "createOk": "作成",
-    "name": "キャラクター名",
-    "namePlaceholder": "Steve_Minecraft",
-    "nameRule": "3〜16文字の半角英数字とアンダースコア",
-    "nameRequired": "キャラクター名を入力してください",
-    "maxHint": "アカウントごとに最大3キャラクター",
-    "createdAt": "作成日時",
-    "action": "操作",
-    "rename": "名前変更",
-    "delete": "削除",
-    "cooldownDays": "（クールダウンあと{{days}}日）",
-    "renameTitle": "名前変更：{{name}}",
-    "newNameLabel": "新しいキャラクター名",
-    "renameCooldownHint": "変更後は30日間のクールダウンが適用されます",
-    "deleteTitle": "このキャラクターを削除しますか？",
-    "deleteDesc": "紐づくスキンは解除されます",
-    "created": "キャラクターを作成しました",
-    "renamed": "名前を変更しました",
-    "deleted": "キャラクターを削除しました"
   }
 }

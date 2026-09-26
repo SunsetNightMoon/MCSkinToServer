@@ -20,10 +20,7 @@
     "wardrobe": "衣柜",
     "profile": "个人中心",
     "admin": "管理面板",
-    "login": "登录",
-    "mySkins": "我的皮肤",
-    "myCapes": "我的披风",
-    "profiles": "我的角色"
+    "login": "登录"
   },
   "wardrobe": {
     "myWardrobe": "我的衣柜",
@@ -65,19 +62,12 @@
     "skinRemoved": "皮肤已移除",
     "removeSkinFailed": "移除皮肤失败",
     "capeRemoved": "披风已移除",
-    "removeCapeFailed": "移除披风失败",
-    "chooseProfile": "选择要应用的角色",
-    "applyToProfile": "应用到角色",
-    "slotOverwrite": "同一角色的同类型槽位会被覆盖"
+    "removeCapeFailed": "移除披风失败"
   },
   "landing": {
     "welcomePrefix": "欢迎来到",
     "welcomeText": "WELCOME TO SKIN2!",
-    "enterProfile": "进入个人中心",
-    "subtitle": "MINECRAFT SKIN & CAPE SERVER",
-    "browseLibrary": "浏览公开库",
-    "enterWardrobe": "进入我的衣柜",
-    "loginOrRegister": "登录 / 注册"
+    "enterProfile": "进入个人中心"
   },
   "library": {
     "slimModel": "纤细",
@@ -88,20 +78,17 @@
     "pending": "待审核",
     "rejected": "已拒绝",
     "unnamedCape": "未命名披风",
-    "searchPlaceholder": "搜索素材名称...",
+    "searchPlaceholder": "搜索皮肤...",
     "noSkins": "暂无皮肤",
-    "noCapes": "暂无披风",
-    "sortLatest": "最新上传",
-    "sortViews": "最多浏览",
-    "sortDownloads": "最多下载"
+    "noCapes": "暂无披风"
   },
   "upload": {
     "skinTab": "上传皮肤",
     "capeTab": "上传披风",
     "skinUploadGuide": "上传说明",
-    "skinUploadDesc": "支持 64x64（现代）或 64x32（Legacy 1.8 以下）格式，大小 ≤2MB，仅支持 PNG 格式",
+    "skinUploadDesc": "支持 64x64（现代）或 64x32（Legacy 1.8 以下）格式，大小 ≤1MB，仅支持 PNG 格式",
     "capeUploadGuide": "披风上传说明",
-    "capeUploadDesc": "披风尺寸建议 22×17（经典）或 64×32（现代披风），大小 ≤2MB，仅支持 PNG 格式",
+    "capeUploadDesc": "披风尺寸建议 22×17（经典）或 64×32（现代披风），大小 ≤1MB，仅支持 PNG 格式",
     "model": "模型",
     "classicModel": "经典（Steve）",
     "slimModel": "纤细（Alex）",
@@ -120,7 +107,7 @@
     "capeNamePlaceholder": "给你的作品起个名字",
     "capeFile": "披风文件",
     "selectCapePng": "选择披风 PNG 文件",
-    "capeSizeHint": "披风尺寸建议 22×17 或 64×32，大小 ≤2MB",
+    "capeSizeHint": "披风尺寸建议 22×17 或 64×32，大小 ≤1MB",
     "modelType": "模型类型",
     "description": "描述",
     "descriptionPlaceholder": "描述您的皮肤（可选）",
@@ -138,8 +125,8 @@
     "uploadSkin": "上传皮肤",
     "uploadCape": "上传披风",
     "onlyPng": "仅支持 PNG 格式",
-    "fileSizeLimit": "文件大小不能超过 2MB",
-    "capeFileSizeLimit": "披风文件大小不能超过 2MB",
+    "fileSizeLimit": "文件大小不能超过 1MB",
+    "capeFileSizeLimit": "披风文件大小不能超过 1MB",
     "pleaseUploadSkin": "请上传皮肤文件",
     "pleaseUploadCape": "请上传披风文件",
     "pleaseCompleteCaptcha": "请等待人机验证完成",
@@ -162,8 +149,7 @@
       "private": "私有 - 仅自己可见/可下载",
       "public_no_download": "公开不可下载 - 所有人可见，但不可下载",
       "public_downloadable": "公开可下载 - 所有人可见且可下载"
-    },
-    "postUploadHint": "上传成功后，可在「我的上传」页面编辑名称、描述、可见性与下载策略。"
+    }
   },
   "profile": {
     "superAdmin": "超级管理员",
@@ -275,13 +261,9 @@
     "passwordMinLength": "新密码长度至少6位",
     "passwordMismatch": "两次输入的新密码不一致",
     "enterPassword": "请输入密码",
-    "defaultProfile": "默认角色",
-    "currentSkin": "当前皮肤预览",
-    "currentSkinOf": "当前角色「{{name}}」的皮肤",
-    "noSkinApplied": "还没有应用皮肤，去衣柜上传并应用一个吧",
-    "myCharacters": "我的角色",
-    "gotoWardrobe": "管理我的衣柜",
-    "gotoLibrary": "去收藏素材"
+    "nameAvailable": "该角色名可用",
+    "nameTaken": "该角色名已被占用",
+    "cancel": "取消"
   },
   "auth": {
     "login": "登录",
@@ -323,14 +305,12 @@
     "oauthLoginFailed": "OAuth 登录失败",
     "backToLogin": "返回登录",
     "completingOAuth": "正在完成 OAuth 登录...",
-    "passwordMin8": "密码至少 8 位",
-    "profileName": "初始角色名",
-    "profileNamePlaceholder": "Steve_Minecraft",
-    "profileNameRule": "3-16 位字母/数字/下划线",
-    "profileNameExtra": "游戏内显示名称，注册后 30 天内可免费修改一次",
-    "registerSuccessAutoLogin": "注册成功，已自动登录",
-    "loginFailedRetry": "登录失败，请稍后重试",
-    "registerFailedRetry": "注册失败，请稍后重试"
+    "profileNameLabel": "角色名",
+    "profileNamePlaceholder": "请输入角色名",
+    "profileNameRequired": "请输入角色名",
+    "profileNameMin": "角色名长度须为 3-16 位",
+    "profileNamePattern": "仅支持字母、数字和下划线",
+    "oauthLogin": "第三方登录"
   },
   "skin": {
     "title": "皮肤",
@@ -392,14 +372,7 @@
     "cancel": "取消",
     "confirmDelete": "确认删除",
     "deleteFailed": "删除失败",
-    "deleted": "皮肤已删除",
-    "visibility": "可见性",
-    "visibilityPublic": "公开",
-    "visibilityPrivate": "私有",
-    "downloadPolicy": "下载策略",
-    "downloadOwnerOnly": "仅自己可下载",
-    "downloadPublic": "所有人可下载",
-    "visibilityHint": "公开并通过审核后才会出现在素材库"
+    "deleted": "皮肤已删除"
   },
   "skinViewer": {
     "rotate": "旋转",
@@ -448,14 +421,7 @@
     "cancel": "取消",
     "confirmDelete": "确认删除",
     "deleteFailed": "删除失败",
-    "deleted": "披风已删除",
-    "visibility": "可见性",
-    "visibilityPublic": "公开",
-    "visibilityPrivate": "私有",
-    "downloadPolicy": "下载策略",
-    "downloadOwnerOnly": "仅自己可下载",
-    "downloadPublic": "所有人可下载",
-    "visibilityHint": "公开并通过审核后才会出现在素材库"
+    "deleted": "披风已删除"
   },
   "detail": {
     "skinTitle": "皮肤详情",
@@ -507,12 +473,7 @@
     "removeFailed": "移除失败",
     "warningRemoved": "已移除警告",
     "operationFailed": "操作失败",
-    "loadFailed": "加载失败",
-    "type": "类型",
-    "license": "许可",
-    "downloadPolicy": "下载策略",
-    "downloadOwnerOnly": "仅自己可下载",
-    "downloadPublic": "所有人可下载"
+    "loadFailed": "加载失败"
   },
   "admin": {
     "dashboard": "管理后台",
@@ -652,7 +613,7 @@
     "banTime": "封禁时间",
     "reason": "原因",
     "banReason": "封禁原因",
-    "banReasonPlaceholder": "可选",
+    "banReasonPlaceholder": "可选：输入封禁原因...",
     "addToBlacklistButton": "添加到黑名单",
     "addToBlacklist": "添加到黑名单",
     "emailOrIpExtra": "至少填写邮箱或 IP 地址之一",
@@ -853,42 +814,18 @@
     "operationFailedWithStatus": "操作失败 ({{status}})",
     "unknownError": "未知错误",
     "totalItems": "共 {{total}} 条",
-    "reviewQueue": "审核队列",
-    "mark": "标记",
-    "markTitle": "标记管理：{{name}}",
-    "adminWarningField": "管理员警告（公开显示）",
-    "adminWarningPlaceholder": "留空清除",
-    "aiGeneratedField": "AI 生成素材",
-    "reviewHistory": "审核记录",
-    "noReviews": "暂无审核记录",
-    "searchEmail": "按邮箱搜索",
-    "ban7days": "封禁 7 天",
+    "confirmRejectCape": "确定要拒绝这个披风吗？",
+    "rejectCape": "拒绝披风",
     "unban": "解封",
-    "customBan": "自定义封禁",
-    "unbanConfirm": "解除封禁？",
-    "banConfirm": "确认封禁？",
-    "uid": "UID",
-    "roleCol": "角色",
-    "banStatus": "封禁状态",
-    "registerTime": "注册时间",
-    "actionCol": "操作",
-    "bannedUntilDate": "至 {{date}}",
-    "kindCol": "类型",
-    "rejectTitle": "拒绝素材：{{name}}",
-    "rejectReasonPlaceholder": "拒绝理由（将记入审核流水）",
-    "confirmReject": "确认拒绝",
-    "banUserTitle": "封禁用户：{{email}}",
-    "banTypeCol": "封禁类型",
-    "banUntilCol": "到期时间",
-    "banReasonCol": "封禁理由",
-    "confirmBan": "确认封禁",
-    "banned": "已封禁",
-    "unbannedMsg": "已解除封禁",
-    "reviewApproved": "已通过",
-    "reviewRejected": "已拒绝",
-    "saved": "已保存",
-    "reviewLoadFailed": "加载待审核列表失败",
-    "usersLoadFailed": "加载用户列表失败"
+    "updateRoleFailed": "修改角色失败",
+    "pleaseSelectBanUntil": "请选择封禁到期时间",
+    "pleaseEnterName": "请输入名称",
+    "welcomeTo": "欢迎语标题文案",
+    "enterPersonalCenter": "进入个人中心的按钮文案",
+    "beianInfoTooltip": "ICP 备案信息（当前版本 MSCTS 未提供站点设置端点，此项不生效）",
+    "copyrightPlaceholder": "请输入版权文本",
+    "pleaseEnterCopyright": "请输入版权文本",
+    "registrationSettingsSaved": "注册设置已保存"
   },
   "common": {
     "loading": "加载中...",
@@ -935,7 +872,11 @@
     "remove": "移除",
     "globalAutoApply": "自动应用",
     "saveSettings": "保存设置",
-    "comingSoon": "即将上线"
+    "comingSoon": "功能开发中，敬请期待",
+    "loadFailed": "加载失败",
+    "retry": "重试",
+    "saveFailed": "保存失败",
+    "serverError": "服务器错误"
   },
   "setup": {
     "steps": {
@@ -1055,28 +996,5 @@
       "confirmPasswordRequired": "请再次输入密码",
       "passwordMismatch": "两次密码输入不一致"
     }
-  },
-  "profiles": {
-    "title": "我的角色",
-    "create": "新建角色",
-    "createOk": "创建",
-    "name": "角色名",
-    "namePlaceholder": "Steve_Minecraft",
-    "nameRule": "3-16 位字母/数字/下划线",
-    "nameRequired": "请输入角色名",
-    "maxHint": "每个账号最多 3 个角色",
-    "createdAt": "创建时间",
-    "action": "操作",
-    "rename": "改名",
-    "delete": "删除",
-    "cooldownDays": "（冷却 {{days}} 天）",
-    "renameTitle": "改名：{{name}}",
-    "newNameLabel": "新角色名",
-    "renameCooldownHint": "改名后进入 30 天冷却期",
-    "deleteTitle": "确认删除该角色？",
-    "deleteDesc": "角色绑定的皮肤会一并解绑",
-    "created": "角色创建成功",
-    "renamed": "改名成功",
-    "deleted": "角色已删除"
   }
 }

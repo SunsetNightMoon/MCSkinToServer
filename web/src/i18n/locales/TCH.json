@@ -20,10 +20,7 @@
     "wardrobe": "衣櫃",
     "profile": "個人中心",
     "admin": "管理面板",
-    "login": "登錄",
-    "mySkins": "我的皮膚",
-    "myCapes": "我的披風",
-    "profiles": "我的角色"
+    "login": "登錄"
   },
   "wardrobe": {
     "myWardrobe": "我的衣櫃",
@@ -65,19 +62,12 @@
     "skinRemoved": "皮膚已移除",
     "removeSkinFailed": "移除皮膚失敗",
     "capeRemoved": "披風已移除",
-    "removeCapeFailed": "移除披風失敗",
-    "chooseProfile": "選擇要應用的角色",
-    "applyToProfile": "應用到角色",
-    "slotOverwrite": "同一角色的同類型槽位會被覆蓋"
+    "removeCapeFailed": "移除披風失敗"
   },
   "landing": {
     "welcomePrefix": "歡迎來到",
     "welcomeText": "WELCOME TO SKIN2!",
-    "enterProfile": "進入個人中心",
-    "subtitle": "MINECRAFT SKIN & CAPE SERVER",
-    "browseLibrary": "瀏覽公開庫",
-    "enterWardrobe": "進入我的衣櫃",
-    "loginOrRegister": "登入 / 註冊"
+    "enterProfile": "進入個人中心"
   },
   "library": {
     "slimModel": "纖細",
@@ -88,20 +78,17 @@
     "pending": "待審核",
     "rejected": "已拒絕",
     "unnamedCape": "未命名披風",
-    "searchPlaceholder": "搜尋素材名稱...",
+    "searchPlaceholder": "搜尋皮膚...",
     "noSkins": "暫無皮膚",
-    "noCapes": "暫無披風",
-    "sortLatest": "最新上傳",
-    "sortViews": "最多瀏覽",
-    "sortDownloads": "最多下載"
+    "noCapes": "暫無披風"
   },
   "upload": {
     "skinTab": "上傳皮膚",
     "capeTab": "上傳披風",
     "skinUploadGuide": "上傳說明",
-    "skinUploadDesc": "支援 64x64（現代）或 64x32（Legacy 1.8 以下）格式，大小 ≤2MB，僅支援 PNG 格式",
+    "skinUploadDesc": "支援 64x64（現代）或 64x32（Legacy 1.8 以下）格式，大小 ≤1MB，僅支援 PNG 格式",
     "capeUploadGuide": "披風上傳說明",
-    "capeUploadDesc": "披風尺寸建議 22×17（經典）或 64×32（現代披風），大小 ≤2MB，僅支援 PNG 格式",
+    "capeUploadDesc": "披風尺寸建議 22×17（經典）或 64×32（現代披風），大小 ≤1MB，僅支援 PNG 格式",
     "model": "模型",
     "classicModel": "經典（Steve）",
     "slimModel": "纖細（Alex）",
@@ -120,7 +107,7 @@
     "capeNamePlaceholder": "給你的作品起個名字",
     "capeFile": "披風檔案",
     "selectCapePng": "選擇披風 PNG 檔案",
-    "capeSizeHint": "披風尺寸建議 22×17 或 64×32，大小 ≤2MB",
+    "capeSizeHint": "披風尺寸建議 22×17 或 64×32，大小 ≤1MB",
     "modelType": "模型類型",
     "description": "描述",
     "descriptionPlaceholder": "描述您的皮膚（選填）",
@@ -138,8 +125,8 @@
     "uploadSkin": "上傳皮膚",
     "uploadCape": "上傳披風",
     "onlyPng": "僅支援 PNG 格式",
-    "fileSizeLimit": "檔案大小不能超過 2MB",
-    "capeFileSizeLimit": "披風檔案大小不能超過 2MB",
+    "fileSizeLimit": "檔案大小不能超過 1MB",
+    "capeFileSizeLimit": "披風檔案大小不能超過 1MB",
     "pleaseUploadSkin": "請上傳皮膚檔案",
     "pleaseUploadCape": "請上傳披風檔案",
     "pleaseCompleteCaptcha": "請等待人機驗證完成",
@@ -162,8 +149,7 @@
       "private": "私有 - 僅自己可見/可下載",
       "public_no_download": "公開不可下載 - 所有人可見，但不可下載",
       "public_downloadable": "公開可下載 - 所有人可見且可下載"
-    },
-    "postUploadHint": "上傳成功後，可在「我的上傳」頁面編輯名稱、描述、可見性與下載策略。"
+    }
   },
   "profile": {
     "superAdmin": "超級管理員",
@@ -275,13 +261,9 @@
     "passwordMinLength": "新密碼長度至少6位",
     "passwordMismatch": "兩次輸入的新密碼不一致",
     "enterPassword": "請輸入密碼",
-    "defaultProfile": "預設角色",
-    "currentSkin": "目前皮膚預覽",
-    "currentSkinOf": "目前角色「{{name}}」的皮膚",
-    "noSkinApplied": "還沒有應用皮膚，去衣櫃上傳並應用一個吧",
-    "myCharacters": "我的角色",
-    "gotoWardrobe": "管理我的衣櫃",
-    "gotoLibrary": "去收藏素材"
+    "nameAvailable": "該角色名可用",
+    "nameTaken": "該角色名已被佔用",
+    "cancel": "取消"
   },
   "auth": {
     "login": "登入",
@@ -323,14 +305,12 @@
     "oauthLoginFailed": "OAuth 登入失敗",
     "backToLogin": "返回登入",
     "completingOAuth": "正在完成 OAuth 登入...",
-    "passwordMin8": "密碼至少 8 位",
-    "profileName": "初始角色名",
-    "profileNamePlaceholder": "Steve_Minecraft",
-    "profileNameRule": "3-16 位字母/數字/下劃線",
-    "profileNameExtra": "遊戲內顯示名稱，註冊後 30 天內可免費修改一次",
-    "registerSuccessAutoLogin": "註冊成功，已自動登入",
-    "loginFailedRetry": "登入失敗，請稍後重試",
-    "registerFailedRetry": "註冊失敗，請稍後重試"
+    "profileNameLabel": "角色名",
+    "profileNamePlaceholder": "請輸入角色名",
+    "profileNameRequired": "請輸入角色名",
+    "profileNameMin": "角色名長度須為 3-16 位",
+    "profileNamePattern": "僅支援字母、數字和底線",
+    "oauthLogin": "第三方登入"
   },
   "skin": {
     "title": "皮膚",
@@ -392,14 +372,7 @@
     "cancel": "取消",
     "confirmDelete": "確認刪除",
     "deleteFailed": "刪除失敗",
-    "deleted": "皮膚已刪除",
-    "visibility": "可見性",
-    "visibilityPublic": "公開",
-    "visibilityPrivate": "私有",
-    "downloadPolicy": "下載策略",
-    "downloadOwnerOnly": "僅自己可下載",
-    "downloadPublic": "所有人可下載",
-    "visibilityHint": "公開並通過審核後才會出現在素材庫"
+    "deleted": "皮膚已刪除"
   },
   "skinViewer": {
     "rotate": "旋轉",
@@ -448,14 +421,7 @@
     "cancel": "取消",
     "confirmDelete": "確認刪除",
     "deleteFailed": "刪除失敗",
-    "deleted": "披風已刪除",
-    "visibility": "可見性",
-    "visibilityPublic": "公開",
-    "visibilityPrivate": "私有",
-    "downloadPolicy": "下載策略",
-    "downloadOwnerOnly": "僅自己可下載",
-    "downloadPublic": "所有人可下載",
-    "visibilityHint": "公開並通過審核後才會出現在素材庫"
+    "deleted": "披風已刪除"
   },
   "detail": {
     "skinTitle": "皮膚詳情",
@@ -507,12 +473,7 @@
     "removeFailed": "移除失敗",
     "warningRemoved": "已移除警告",
     "operationFailed": "操作失敗",
-    "loadFailed": "加載失敗",
-    "type": "類型",
-    "license": "授權",
-    "downloadPolicy": "下載策略",
-    "downloadOwnerOnly": "僅自己可下載",
-    "downloadPublic": "所有人可下載"
+    "loadFailed": "加載失敗"
   },
   "admin": {
     "dashboard": "管理后台",
@@ -652,7 +613,7 @@
     "banTime": "封禁時間",
     "reason": "原因",
     "banReason": "封禁原因",
-    "banReasonPlaceholder": "可選",
+    "banReasonPlaceholder": "可选：輸入封禁原因...",
     "addToBlacklistButton": "添加到黑名单",
     "addToBlacklist": "添加到黑名单",
     "emailOrIpExtra": "至少填寫郵箱或 IP 地址之一",
@@ -853,42 +814,18 @@
     "operationFailedWithStatus": "操作失敗 ({{status}})",
     "unknownError": "未知错误",
     "totalItems": "共 {{total}} 條",
-    "reviewQueue": "審核佇列",
-    "mark": "標記",
-    "markTitle": "標記管理：{{name}}",
-    "adminWarningField": "管理員警告（公開顯示）",
-    "adminWarningPlaceholder": "留空清除",
-    "aiGeneratedField": "AI 生成素材",
-    "reviewHistory": "審核記錄",
-    "noReviews": "暫無審核記錄",
-    "searchEmail": "按信箱搜尋",
-    "ban7days": "封鎖 7 天",
+    "confirmRejectCape": "確定要拒絕這個披風嗎？",
+    "rejectCape": "拒絕披風",
     "unban": "解封",
-    "customBan": "自訂封鎖",
-    "unbanConfirm": "解除封鎖？",
-    "banConfirm": "確認封鎖？",
-    "uid": "UID",
-    "roleCol": "角色",
-    "banStatus": "封鎖狀態",
-    "registerTime": "註冊時間",
-    "actionCol": "操作",
-    "bannedUntilDate": "至 {{date}}",
-    "kindCol": "類型",
-    "rejectTitle": "拒絕素材：{{name}}",
-    "rejectReasonPlaceholder": "拒絕理由（將記入審核流水）",
-    "confirmReject": "確認拒絕",
-    "banUserTitle": "封鎖使用者：{{email}}",
-    "banTypeCol": "封鎖類型",
-    "banUntilCol": "到期時間",
-    "banReasonCol": "封鎖理由",
-    "confirmBan": "確認封鎖",
-    "banned": "已封鎖",
-    "unbannedMsg": "已解除封鎖",
-    "reviewApproved": "已通過",
-    "reviewRejected": "已拒絕",
-    "saved": "已保存",
-    "reviewLoadFailed": "載入待審核列表失敗",
-    "usersLoadFailed": "載入使用者列表失敗"
+    "updateRoleFailed": "修改角色失敗",
+    "pleaseSelectBanUntil": "請選擇封禁到期時間",
+    "pleaseEnterName": "請輸入名稱",
+    "welcomeTo": "歡迎語標題文案",
+    "enterPersonalCenter": "進入個人中心的按鈕文案",
+    "beianInfoTooltip": "ICP 備案資訊（目前版本 MSCTS 未提供站點設定端點，此項不生效）",
+    "copyrightPlaceholder": "請輸入版權文字",
+    "pleaseEnterCopyright": "請輸入版權文字",
+    "registrationSettingsSaved": "註冊設定已儲存"
   },
   "common": {
     "loading": "載入中...",
@@ -935,7 +872,11 @@
     "remove": "移除",
     "globalAutoApply": "自動应用",
     "saveSettings": "儲存設定",
-    "comingSoon": "即將上線"
+    "comingSoon": "功能開發中，敬請期待",
+    "loadFailed": "載入失敗",
+    "retry": "重試",
+    "saveFailed": "儲存失敗",
+    "serverError": "伺服器錯誤"
   },
   "setup": {
     "welcome": "歡迎使用皮膚伺服器安裝精靈",
@@ -1045,29 +986,15 @@
       "passwordMin": "至少 6 位",
       "confirmPasswordRequired": "請再次輸入密碼",
       "passwordMismatch": "兩次密碼輸入不一致"
+    },
+    "steps": {
+      "welcome": "歡迎",
+      "site": "站點設定",
+      "db": "資料庫設定",
+      "redis": "Redis 快取",
+      "email": "信箱設定",
+      "admin": "管理員帳戶",
+      "confirm": "確認"
     }
-  },
-  "profiles": {
-    "title": "我的角色",
-    "create": "新建角色",
-    "createOk": "建立",
-    "name": "角色名",
-    "namePlaceholder": "Steve_Minecraft",
-    "nameRule": "3-16 位字母/數字/下劃線",
-    "nameRequired": "請輸入角色名",
-    "maxHint": "每個帳號最多 3 個角色",
-    "createdAt": "建立時間",
-    "action": "操作",
-    "rename": "改名",
-    "delete": "刪除",
-    "cooldownDays": "（冷卻 {{days}} 天）",
-    "renameTitle": "改名：{{name}}",
-    "newNameLabel": "新角色名",
-    "renameCooldownHint": "改名後進入 30 天冷卻期",
-    "deleteTitle": "確認刪除該角色？",
-    "deleteDesc": "角色綁定的皮膚會一併解綁",
-    "created": "角色建立成功",
-    "renamed": "改名成功",
-    "deleted": "角色已刪除"
   }
 }

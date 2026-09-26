@@ -11,6 +11,5 @@ INDEV/
 undefined/
 temp/
 
-# tsx cache bug artifacts
-undefined/
-temp/
+# Windows 保留设备名残留（旧仓库带入，无法通过 API 删除）
+nul
