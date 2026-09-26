@@ -1,0 +1,20 @@
+{
+  "_comment": "Yggdrasil textures property 固定测试向量；由 scripts/generate-yggdrasil-vector.ts 生成",
+  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCaGLsRvTp0Qpx+\nK86sTbbIcV257jZA2xcIWCt+ZsvsuCnqa3iOqXF21GA7C9N6BY5qj9S67IRDIlsj\ntHnMPv6h8gwZPIxd3dsjtu1nw7nbCgDfkSkOy2O+EJdk8AVFkvEFmbqOQdun15+C\nxZ8lCfOjmWxytVsivEupvR8FPyvTpwgSjq+aM12ZccMBvNT3BZ48Ps5IV3nJu2L9\ng5TXEVT4xH+ONhX32jecqptm3fHp1POazXT8b3yzU8aqfKSo7FaR42ECxoKJLVaF\noN9IzGHfCF3f+kqA6eGdc+mcwe94ptZx48cwhooYQeYkSdl7cgsJOGvnopaTL8Po\n8BjrY7oTAgMBAAECggEAD5yEyznIA8JB13h5sjQXWfw+Ohl7jpuDnFlOYrpoW32W\n5YRozM82ywqeCy1aCekpMfuLWjqe9awz3oyosDwLkP2UIzRiphnVWytrptEJ8bp0\nNzIeHj0VyEonBFdauV83ItGduE7MwZbTNqztwBNfhwoCliZwarb31WTvERmCx6ji\noh5FPXUhyEDrUmbfnPZ65Ilz9lYXtWbDg0AcUuy9RONd/jICGsgR5MXTPFp57LyU\n396LkSc3wzlbixIk75P+hGuiaZfxrlS8GX3jgGJS95NOTj1Gn1fvLHuxXZ0CXGTj\nWoJUZc2Cs4IAoNNYCJUhwjNDYyHMNGF6U3mYeOLyXQKBgQDMffPCOb2WeSYXgWGE\nznKtJFpECHgICAjdjADjf0upQ4wv2/hzD7UwIfv7Hd2tOWNccMrx5S26c6GzGxZh\nJWWshV8JgGEXz3POZN94WaWVAtxVdGK45bFo9Px8aynXMjtv50mOlx9UYcmEN1AD\nPHj+6q1BsQJs9qqgODaLHmP1DwKBgQDA6S8WpLYLFmXd2DiItXVHEzbIS8js3qeh\n1xWhjWcVKB1sHEXWY4BdQW+G7U3VovLPdZqpMmjNFeoSAFhm9V5eToVZy3K6UOkT\nSohWeqN/7FYQkshAobwL/O5Xr7Mzk8ZY5WqqGzWRPyW65yK2fz2+M6wM/bo7w9Jw\nP0/j4VdSvQKBgCVj1kEqK5cq2aMsnfcZhHBSGEsePUxCo9RWeAcgzGXLmwNZNilb\nsuZ1IEy/HjxBJQDPAtyN6fmQkP1ds47Ztqh/zmu/VIF1Bhiz6wRnZ9ZCKqVZXX+v\nR+wH926MbZ8SaTnB0XpH+YuFQcJyFqgw03LQ2BMN2YKw62vWO2reiKpTAoGAK/S2\nIw2y4UHgQjVjZFscdu583BTQmpB9V9YfeqkypNJ4Kcsjap9Pf3BKjk8CHjy74OOm\nMwlmcdydci6b9hHQx+JSZkyCPsvy389q03GsUZizX6Fieb+gjoa6dEZ3qbfxSQ41\nSL9cbFUcLsM92KGTmwRBHtCtn7KV/7edZ4pQEG0CgYAYfg5AVNXgT3PEdjP0U2No\nLW6QGo1B5GrEzS39NOZmpxm6xdGeshB2WRvQE4pt99sIc0vwvW4OnYRt/BOMIMif\nDWS9Bph04X5Z92PBOymZxTURDvVsPoPYNWpeRWVIOJUFG/oYaoMK8btEuHDTlwFZ\ns8mVdKLV6lkoK9803PI5NA==\n-----END PRIVATE KEY-----\n",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmhi7Eb06dEKcfivOrE22\nyHFdue42QNsXCFgrfmbL7Lgp6mt4jqlxdtRgOwvTegWOao/UuuyEQyJbI7R5zD7+\nofIMGTyMXd3bI7btZ8O52woA35EpDstjvhCXZPAFRZLxBZm6jkHbp9efgsWfJQnz\no5lscrVbIrxLqb0fBT8r06cIEo6vmjNdmXHDAbzU9wWePD7OSFd5ybti/YOU1xFU\n+MR/jjYV99o3nKqbZt3x6dTzms10/G98s1PGqnykqOxWkeNhAsaCiS1WhaDfSMxh\n3whd3/pKgOnhnXPpnMHveKbWcePHMIaKGEHmJEnZe3ILCThr56KWky/D6PAY62O6\nEwIDAQAB\n-----END PUBLIC KEY-----\n",
+  "input": {
+    "profileId": "12345678-90ab-cdef-1234-567890abcdef",
+    "profileName": "Arona",
+    "skin": {
+      "url": "http://localhost:3000/uploads/blobs/a2/a2f8fb581e4b54ae8a01c6cd1abe63647d72399cbe9811e0d9ed86b03d983c71.png",
+      "modelType": "slim"
+    },
+    "cape": {
+      "url": "http://localhost:3000/uploads/blobs/a0/a0f276f68225042e5290e71863dff17306d583d1329734cd7d7c1acabd29781a.png"
+    },
+    "unsigned": false,
+    "now": "2026-09-23T00:00:00.000Z"
+  },
+  "expectedValue": "eyJ0aW1lc3RhbXAiOiIxNzkwMTIxNjAwMDAwIiwicHJvZmlsZUlkIjoiMTIzNDU2Nzg5MGFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYiLCJwcm9maWxlTmFtZSI6IkFyb25hIiwiaXNQdWJsaWMiOnRydWUsInRleHR1cmVzIjp7IlNLSU4iOnsidXJsIjoiaHR0cDovL2xvY2FsaG9zdDozMDAwL3VwbG9hZHMvYmxvYnMvYTIvYTJmOGZiNTgxZTRiNTRhZThhMDFjNmNkMWFiZTYzNjQ3ZDcyMzk5Y2JlOTgxMWUwZDllZDg2YjAzZDk4M2M3MS5wbmciLCJtZXRhZGF0YSI6eyJtb2RlbCI6InNsaW0ifX0sIkNBUEUiOnsidXJsIjoiaHR0cDovL2xvY2FsaG9zdDozMDAwL3VwbG9hZHMvYmxvYnMvYTAvYTBmMjc2ZjY4MjI1MDQyZTUyOTBlNzE4NjNkZmYxNzMwNmQ1ODNkMTMyOTczNGNkN2Q3YzFhY2FiZDI5NzgxYS5wbmcifX19",
+  "expectedSignature": "cnaL5fmvJaMHMnqXwaVTAJeAkY6nilcT3EjBWqKlLc6GQFAIDFmDmsuIXvTEJJJrb5ZlTUooS4uT/3BGOvcETt9Yti57xUbagEim+NU7XH8VqQsFma1aOxfFgogMzImS7OeRNwJfqttdq3pEHAfa7vHvrn9EzIBjE5SF5kdZ0QG06t6LXGGxCkBLxSJMD7aWzlz2qqxJVvAyeY8BZHbSBxqpJ394IQ7ZvagIM+/iX0Tjw8MhLsY2g1uPGC1hb1MpUInpvlO2Ng1IKAAQHji5XC6wEn3m2dtsOLqaxWkoeu/Ci2onz8SdC3Lim21w/fUKzQRom1TJwjhfsOp1Hy6xEQ=="
+}

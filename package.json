@@ -1,0 +1,33 @@
+{
+  "name": "mscts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minecraft Skin Texture Server (rebuild)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "migrate": "tsx src/migrate/cli.ts",
+    "start": "tsx src/server/main.ts",
+    "gen:vector": "tsx scripts/generate-yggdrasil-vector.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test --test-concurrency=1 tests/migrations.smoke.test.ts tests/auth-storage.test.ts tests/yggdrasil.test.ts tests/http.test.ts tests/identity.test.ts",
+    "test:pg": "node --import tsx --test --test-concurrency=1 tests/migrations.smoke.test.ts tests/auth-storage.test.ts tests/yggdrasil.test.ts tests/http.test.ts tests/identity.test.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^11.10.0",
+    "express": "^5.1.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

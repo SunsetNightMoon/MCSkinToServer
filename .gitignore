@@ -1,0 +1,16 @@
+node_modules/
+dist/
+data/
+INDEV/
+.env
+*.db
+*.db-journal
+*.log
+
+# tsx cache bug artifacts
+undefined/
+temp/
+
+# tsx cache bug artifacts
+undefined/
+temp/
