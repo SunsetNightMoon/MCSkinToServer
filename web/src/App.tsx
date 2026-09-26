@@ -22,6 +22,12 @@ const Register = lazy(() => import('./pages/Auth/Register').then((m) => ({ defau
 const VerifyEmail = lazy(() =>
   import('./pages/Auth/VerifyEmail').then((m) => ({ default: m.VerifyEmail })),
 )
+const VerifyBackupEmail = lazy(() =>
+  import('./pages/Auth/VerifyBackupEmail').then((m) => ({ default: m.VerifyBackupEmail })),
+)
+const ConfirmEmailChange = lazy(() =>
+  import('./pages/Auth/ConfirmEmailChange').then((m) => ({ default: m.ConfirmEmailChange })),
+)
 const ForgotPassword = lazy(() =>
   import('./pages/Auth/ForgotPassword').then((m) => ({ default: m.ForgotPassword })),
 )
@@ -154,6 +160,9 @@ function App() {
           从邮件链接回来），把他弹回首页会让验证链接彻底失效。
         */}
         <Route path="/verify-email" element={<VerifyEmail />} />
+        {/* 备用邮箱与改邮箱的邮件链接落点：同样不随登录态重定向（匿名可调，凭令牌） */}
+        <Route path="/verify-backup-email" element={<VerifyBackupEmail />} />
+        <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 

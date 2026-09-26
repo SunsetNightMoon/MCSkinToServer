@@ -68,6 +68,11 @@ const BUSINESS_401_PATHS: ReadonlySet<string> = new Set([
   '/api/auth/reset-password',
   '/api/auth/send-verification',
   '/api/auth/send-reset-email',
+  // 备用邮箱 / 改邮箱的邮件链接消费端点：匿名可调，401 = 令牌问题（业务结果），
+  // 不能被全局登出接管，否则点过期链接会被弹去登录页、错误卡片渲染不出来。
+  // finalize 不在列：它要求登录，401 确实是会话已死。
+  '/api/me/backup-email/verify',
+  '/api/me/email-change/confirm',
 ]);
 
 function isBusiness401(url: string): boolean {
