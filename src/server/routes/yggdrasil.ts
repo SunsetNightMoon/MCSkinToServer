@@ -12,6 +12,11 @@ import { buildForProfile } from '../../yggdrasil/buildForProfile.js';
  * Yggdrasil 协议 HTTP 适配层（蓝图 §3.2）。
  * 只做：请求体解析 → 调 IdentityService / 仓储 → DTO 映射。
  * 错误统一抛 YggdrasilError / AppError，由 errorHandler 转 HTTP。
+ *
+ * 路径全部为相对路径，由 app.ts 多前缀挂载：
+ * - /authserver/*            （项目原始路径，测试与文档兼容）
+ * - /api/yggdrasil/*         （authlib-injector 规范推荐路径，HMCL 填此）
+ * - /*                       （根路径别名：HMCL 填裸 http://host:port 时直接拼 /authenticate）
  */
 
 export interface YggdrasilRouteDependencies {
@@ -41,9 +46,9 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
   const router = Router();
   const now = deps.now ?? (() => new Date());
 
-  // ---- /authserver/*（认证五端点）----
+  // ---- 认证五端点（相对路径，挂载前缀见文件头注释）----
 
-  router.post('/authserver/authenticate', async (req, res) => {
+  router.post('/authenticate', async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const session = await deps.identity.authenticateYggdrasil({
       email: requireString(body['username'], 'username'),
@@ -54,7 +59,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     res.json(session);
   });
 
-  router.post('/authserver/refresh', async (req, res) => {
+  router.post('/refresh', async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const session = await deps.identity.refreshYggdrasil({
       accessToken: requireString(body['accessToken'], 'accessToken'),
@@ -63,7 +68,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     res.json(session);
   });
 
-  router.post('/authserver/validate', async (req, res) => {
+  router.post('/validate', async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     await deps.identity.validateYggdrasil({
       accessToken: requireString(body['accessToken'], 'accessToken'),
@@ -73,7 +78,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     res.status(204).end();
   });
 
-  router.post('/authserver/invalidate', async (req, res) => {
+  router.post('/invalidate', async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     await deps.identity.invalidateYggdrasil(
       requireString(body['accessToken'], 'accessToken'),
@@ -81,7 +86,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     res.status(204).end();
   });
 
-  router.post('/authserver/signout', async (req, res) => {
+  router.post('/signout', async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     await deps.identity.signoutYggdrasil({
       username: requireString(body['username'], 'username'),
@@ -160,6 +165,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
   });
 
   // ---- POST /api/profiles/minecraft（批量角色名查询，协议端点）----
+  // 注意：保持绝对路径（根挂载命中）；其余挂载前缀会生成无害的死路径。
 
   router.post('/api/profiles/minecraft', async (req: Request, res: Response) => {
     const body = req.body;

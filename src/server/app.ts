@@ -86,7 +86,8 @@ export function createApp(deps: AppDependencies): Express {
   });
 
   // ---- Yggdrasil 元数据（协议入口，P1 扩展端点本体）----
-  app.get('/api/yggdrasil', (_req, res) => {
+  // 同时挂 /api/yggdrasil（规范路径）与根路径：HMCL 填裸 http://host:port 时会在根上找元数据。
+  const metadataHandler = (_req: express.Request, res: express.Response): void => {
     res.json(
       buildMetadataDto({
         baseUrl: config.publicBaseUrl,
@@ -94,18 +95,26 @@ export function createApp(deps: AppDependencies): Express {
         skinDomains: config.skinDomains,
       }),
     );
-  });
+  };
+  app.get('/', metadataHandler);
+  app.get('/api/yggdrasil', metadataHandler);
 
   // ---- Yggdrasil 协议端点（P1：认证五端点 + 会话/纹理 + 批量角色查询）----
-  app.use(
-    createYggdrasilRouter({
-      identity: deps.identity,
-      sessions: deps.minecraftSessions,
-      profiles: deps.profileRepository,
-      textureBuilder: deps.textureBuilder,
-      assetUrlResolver: deps.assetUrlResolver,
-    }),
-  );
+  // 路由内部为相对路径，多前缀挂载：
+  // - /authserver/*      项目原始路径（测试/文档兼容）
+  // - /api/yggdrasil/*   authlib-injector 规范推荐路径（HMCL 推荐填此）
+  // - /                  根别名：认证五端点 + /sessionserver/*，HMCL 填裸根时可用
+  // （批量查询 /api/profiles/minecraft 为绝对路径，由根挂载命中）
+  const yggRouter = createYggdrasilRouter({
+    identity: deps.identity,
+    sessions: deps.minecraftSessions,
+    profiles: deps.profileRepository,
+    textureBuilder: deps.textureBuilder,
+    assetUrlResolver: deps.assetUrlResolver,
+  });
+  app.use('/authserver', yggRouter);
+  app.use('/api/yggdrasil', yggRouter);
+  app.use('/', yggRouter);
 
   // ---- Web 身份端点（P1：注册/登录/登出 + 角色管理）----
   app.use(
