@@ -4,7 +4,7 @@
 
 Minecraft アカウント外付けログイン + スキン／マントテクスチャサーバー（Yggdrasil プロトコル互換）。`CatTavernSkins`(plan3) の再構築版です。
 
-- **現在のバージョン：`2.3.1`**
+- **現在のバージョン：`2.3.2`**
 - バージョン規則：メジャー = 再構築ヘッダー（1 = 再構築前の旧版、2 = 再構築版）；マイナー = 四半期；パッチ = 四半期内のイテレーション番号。
 - 旧版ソース：https://github.com/SunsetNightMoon/CatTavernSkins （分析ベースライン `b01f29a`、再構築により旧版ソースは変更していません）
 
@@ -82,7 +82,7 @@ location ~ ^/(api|uploads)/ {                       # 業務 API + Yggdrasil + �
 npm test          # SQLite ベースライン（外部サービス不要、ゲート付きケースは自動 skip）
 ```
 
-フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**319/319 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**324/324 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## ドキュメント
 

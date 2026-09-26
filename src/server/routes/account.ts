@@ -5,6 +5,7 @@ import type { EmailChangeFlow } from '../../account/emailChangeFlow.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
 import { optionalAuth, requireAuth } from '../middleware.js';
+import { requestOrigin } from '../requestOrigin.js';
 import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
 import { RateLimitKeys } from '../../cache/keys.js';
 import { AppError } from '../../errors.js';
@@ -88,7 +89,7 @@ export function createAccountRouter(deps: AccountRouteDependencies): Router {
 
       if (userId) {
         // 已登录：忽略请求体邮箱，避免拿自己的会话给别人刷信
-        const result = await deps.emailFlow.sendVerification(userId);
+        const result = await deps.emailFlow.sendVerification(userId, requestOrigin(req));
         res.json({ ok: true, alreadyVerified: result.alreadyVerified });
         return;
       }
@@ -97,7 +98,7 @@ export function createAccountRouter(deps: AccountRouteDependencies): Router {
       if (email === '') {
         throw new AppError('VALIDATION_ERROR', '请提供邮箱地址');
       }
-      await deps.emailFlow.resendVerificationByEmail(email);
+      await deps.emailFlow.resendVerificationByEmail(email, requestOrigin(req));
       res.json({ ok: true });
     },
   );
@@ -120,7 +121,7 @@ export function createAccountRouter(deps: AccountRouteDependencies): Router {
     async (req, res) => {
       const userId = req.context?.userId;
       if (userId) {
-        await deps.emailFlow.sendResetForUser(userId);
+        await deps.emailFlow.sendResetForUser(userId, requestOrigin(req));
         res.json({ ok: true });
         return;
       }
@@ -130,7 +131,7 @@ export function createAccountRouter(deps: AccountRouteDependencies): Router {
       if (email === '') {
         throw new AppError('VALIDATION_ERROR', '请提供邮箱地址');
       }
-      await deps.emailFlow.sendReset(email);
+      await deps.emailFlow.sendReset(email, requestOrigin(req));
       res.json({ ok: true });
     },
   );

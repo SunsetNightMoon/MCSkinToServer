@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { IdentityService } from '../../auth/identity.js';
 import type { TokenService } from '../../auth/tokens.js';
 import type { EmailFlow } from '../../account/emailFlow.js';
+import { requestOrigin } from '../requestOrigin.js';
 import type { CaptchaService } from '../../account/captcha.js';
 import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { RateLimiterPort } from '../../cache/types.js';
@@ -163,7 +164,9 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
     let verificationEmailSent = false;
     if (requiresVerification && deps.emailFlow) {
       try {
-        verificationEmailSent = (await deps.emailFlow.sendVerification(result.user.id)).sent;
+        verificationEmailSent = (
+          await deps.emailFlow.sendVerification(result.user.id, requestOrigin(req))
+        ).sent;
       } catch (err) {
         // 账号已经建好，此时回滚代价更大（用户会卡在「邮箱已被注册」）。
         // 如实把失败回报给前端，让用户能点重发、或由管理员在用户管理页手动放行。

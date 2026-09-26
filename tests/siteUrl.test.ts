@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
   SiteUrlResolver,
   originFromAssetBase,
+  normalizeOrigin,
   ASSET_MOUNT_PATH,
 } from '../src/site/siteUrl.js';
 
@@ -141,4 +142,68 @@ test('siteUrl: 仓储读失败时沿用上一次的值（不把站点拖挂）',
   shouldThrow = true;
   await resolver.refresh();
   assert.equal(resolver.originSync(), 'https://skin.example.com');
+});
+
+// ---- requestOrigin 兜底（域名服务器上 BASE_URL 未配时，邮件链接不得是 localhost）----
+
+test('siteUrl: 未配置站点根时 link() 用请求方 origin 替换 localhost 兜底', async () => {
+  const resolver = new SiteUrlResolver({ settings: fakeSettings({}) });
+  const url = await resolver.link(
+    '/verify-email',
+    { token: 'abc' },
+    { requestOrigin: 'https://skin.catnight.top' },
+  );
+  assert.equal(url, 'https://skin.catnight.top/#/verify-email?token=abc');
+});
+
+test('siteUrl: 已配置 BASE_URL 时 requestOrigin 不生效（显式声明优先）', async () => {
+  const resolver = new SiteUrlResolver({
+    settings: fakeSettings({ BASE_URL: 'https://configured.example.com' }),
+    ttlMs: 0,
+  });
+  const url = await resolver.link(
+    '/reset-password',
+    { token: 'x' },
+    { requestOrigin: 'https://evil.example.net' },
+  );
+  assert.equal(url, 'https://configured.example.com/#/reset-password?token=x');
+});
+
+test('siteUrl: 配了 PUBLIC_BASE_URL 视同显式声明，requestOrigin 同样不生效', async () => {
+  const resolver = new SiteUrlResolver({
+    settings: fakeSettings({}),
+    envPublicBaseUrl: 'https://cdn.example.com/uploads',
+    ttlMs: 0,
+  });
+  const url = await resolver.link(
+    '/verify-email',
+    { token: 'x' },
+    { requestOrigin: 'https://other.example.com' },
+  );
+  assert.equal(url, 'https://cdn.example.com/#/verify-email?token=x');
+});
+
+test('siteUrl: requestOrigin 无效或缺失时仍回落 localhost（行为不变）', async () => {
+  const resolver = new SiteUrlResolver({ settings: fakeSettings({}) });
+  assert.equal(
+    await resolver.link('/verify-email', { token: 'x' }, { requestOrigin: 'not a url' }),
+    'http://localhost:3000/#/verify-email?token=x',
+  );
+  assert.equal(
+    await resolver.link('/verify-email', { token: 'x' }),
+    'http://localhost:3000/#/verify-email?token=x',
+  );
+});
+
+test('siteUrl: normalizeOrigin 只留协议与主机，拒绝非 http(s)', () => {
+  assert.equal(
+    normalizeOrigin('https://skin.example.com/some/path?q=1'),
+    'https://skin.example.com',
+  );
+  // 端口必须保留；尾斜杠吞掉
+  assert.equal(normalizeOrigin('http://127.0.0.1:5173/'), 'http://127.0.0.1:5173');
+  // 裸 host 按 https 补全（反代 Host 头不带协议）
+  assert.equal(normalizeOrigin('skin.example.com'), 'https://skin.example.com');
+  assert.equal(normalizeOrigin('javascript:alert(1)'), undefined);
+  assert.equal(normalizeOrigin('   '), undefined);
 });

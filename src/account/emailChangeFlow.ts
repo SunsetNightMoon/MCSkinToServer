@@ -274,6 +274,7 @@ export class EmailChangeFlow {
   async requestBackupEmail(
     userId: string,
     address: string,
+    requestOrigin?: string,
   ): Promise<AddBackupEmailResult> {
     this.emails.assertValidEmail(address);
     const email = address.toLowerCase().trim();
@@ -289,7 +290,11 @@ export class EmailChangeFlow {
     await this.assertMailReady();
 
     const token = await this.issueBackupToken(userId, email);
-    const url = await this.siteUrl.link('/verify-backup-email', { token });
+    const url = await this.siteUrl.link(
+      '/verify-backup-email',
+      { token },
+      { requestOrigin },
+    );
     await this.mail.sendBackupEmailVerification({ to: email, url });
     return { sent: true, pendingEmail: email, alreadyVerified: false };
   }
@@ -356,6 +361,7 @@ export class EmailChangeFlow {
   async requestChange(
     userId: string,
     input: { target: EmailChangeTarget; newEmail: string },
+    requestOrigin?: string,
   ): Promise<EmailChangeRequestResult> {
     this.emails.assertValidEmail(input.newEmail);
     const newEmail = input.newEmail.toLowerCase().trim();
@@ -411,14 +417,18 @@ export class EmailChangeFlow {
       );
     });
 
-    const verifyUrl = await this.siteUrl.link('/confirm-email-change', {
-      token: verifyToken,
-    });
+    const verifyUrl = await this.siteUrl.link(
+      '/confirm-email-change',
+      { token: verifyToken },
+      { requestOrigin },
+    );
     await this.mail.sendEmailChangeVerify({ to: newEmail, url: verifyUrl });
 
-    const authorizeUrl = await this.siteUrl.link('/confirm-email-change', {
-      token: authorizeToken,
-    });
+    const authorizeUrl = await this.siteUrl.link(
+      '/confirm-email-change',
+      { token: authorizeToken },
+      { requestOrigin },
+    );
     await this.mail.sendEmailChangeAuthorize({
       to: authorizeEmail,
       url: authorizeUrl,

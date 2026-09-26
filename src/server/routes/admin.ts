@@ -20,6 +20,7 @@ import type {
   ReviewStatus,
 } from '../../repositories/assetRepository.js';
 import { requireAdmin, requireAuth, requireSuperAdmin } from '../middleware.js';
+import { requestOrigin } from '../requestOrigin.js';
 import { AppError } from '../../errors.js';
 
 /**
@@ -322,6 +323,7 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     async (req, res) => {
       const result = await requireEmailFlow().sendVerification(
         String(req.params['id'] ?? ''),
+        requestOrigin(req),
       );
       res.json({ ok: true, alreadyVerified: result.alreadyVerified });
     },

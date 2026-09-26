@@ -150,8 +150,14 @@ export class EmailFlow {
 
   // ---- 邮箱验证 ----
 
-  /** 发送验证邮件（已登录用户主动触发，或注册后自动触发） */
-  async sendVerification(userId: string): Promise<SendVerificationResult> {
+  /**
+   * 发送验证邮件（已登录用户主动触发，或注册后自动触发）。
+   * requestOrigin：触发请求的地址，仅当站点根未显式配置时用于生成链接。
+   */
+  async sendVerification(
+    userId: string,
+    requestOrigin?: string,
+  ): Promise<SendVerificationResult> {
     const user = await this.users.findById(userId);
     if (!user || user.purgedAt !== null) {
       throw new AppError('NOT_FOUND', '用户不存在');
@@ -167,7 +173,7 @@ export class EmailFlow {
       user.id,
       VERIFICATION_TTL_MS,
     );
-    const url = await this.siteUrl.link('/verify-email', { token });
+    const url = await this.siteUrl.link('/verify-email', { token }, { requestOrigin });
     await this.mail.sendVerification({ to: user.email, url });
     return { sent: true, alreadyVerified: false };
   }
@@ -180,14 +186,17 @@ export class EmailFlow {
    *
    * 邮箱不存在或已注销时静默返回 —— 否则这个免认证端点就成了账号枚举工具。
    */
-  async resendVerificationByEmail(email: string): Promise<SendVerificationResult> {
+  async resendVerificationByEmail(
+    email: string,
+    requestOrigin?: string,
+  ): Promise<SendVerificationResult> {
     await this.assertMailReady();
 
     const user = await this.users.findByEmail(email);
     if (!user || user.purgedAt !== null) {
       return { sent: false, alreadyVerified: false };
     }
-    return this.sendVerification(user.id);
+    return this.sendVerification(user.id, requestOrigin);
   }
 
   /**
@@ -221,20 +230,23 @@ export class EmailFlow {
 
   // ---- 密码重置 ----
 
-  private async issueAndSendReset(user: UserRow): Promise<void> {
+  private async issueAndSendReset(
+    user: UserRow,
+    requestOrigin?: string,
+  ): Promise<void> {
     const token = await this.issueToken('password_reset', user.id, RESET_TTL_MS);
-    const url = await this.siteUrl.link('/reset-password', { token });
+    const url = await this.siteUrl.link('/reset-password', { token }, { requestOrigin });
     await this.mail.sendPasswordReset({ to: user.email, url });
   }
 
   /** 发送重置邮件；账号不存在时静默成功（防账号枚举，见文件头） */
-  async sendReset(email: string): Promise<void> {
+  async sendReset(email: string, requestOrigin?: string): Promise<void> {
     await this.assertMailReady();
 
     const user = await this.users.findByEmail(email);
     if (!user || user.purgedAt !== null) return;
 
-    await this.issueAndSendReset(user);
+    await this.issueAndSendReset(user, requestOrigin);
   }
 
   /**
@@ -242,14 +254,14 @@ export class EmailFlow {
    * 会话仍在时无需再让用户填一遍邮箱 —— 身份由令牌给出，与匿名入口共用同一套
    * 签发逻辑，避免两条路径出现有效期或作废策略不一致。
    */
-  async sendResetForUser(userId: string): Promise<void> {
+  async sendResetForUser(userId: string, requestOrigin?: string): Promise<void> {
     await this.assertMailReady();
 
     const user = await this.users.findById(userId);
     if (!user || user.purgedAt !== null) {
       throw new AppError('NOT_FOUND', '用户不存在');
     }
-    await this.issueAndSendReset(user);
+    await this.issueAndSendReset(user, requestOrigin);
   }
 
   /**

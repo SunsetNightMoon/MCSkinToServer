@@ -4,6 +4,7 @@ import type { EmailChangeFlow } from '../../account/emailChangeFlow.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
 import { requireAuth } from '../middleware.js';
+import { requestOrigin } from '../requestOrigin.js';
 import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
 import { RateLimitKeys } from '../../cache/keys.js';
 import { AppError } from '../../errors.js';
@@ -79,6 +80,7 @@ export function createEmailChangeRouter(
       const result = await deps.emailChangeFlow.requestBackupEmail(
         req.context!.userId,
         email,
+        requestOrigin(req),
       );
       res.json(result);
     },
@@ -131,6 +133,7 @@ export function createEmailChangeRouter(
           target,
           newEmail: String(body['newEmail'] ?? body['email'] ?? ''),
         },
+        requestOrigin(req),
       );
       res.json(result);
     },

@@ -4,7 +4,7 @@
 
 A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A rebuild of `CatTavernSkins` (plan3).
 
-- **Current version: `2.3.1`**
+- **Current version: `2.3.2`**
 - Versioning scheme: major = rebuild header (1 = pre-rebuild, 2 = rebuilt); minor = quarter of the year; patch = iteration within the quarter.
 - Legacy source: https://github.com/SunsetNightMoon/CatTavernSkins (analysis baseline `b01f29a`; the rebuild never modified the legacy code)
 
@@ -82,7 +82,7 @@ location ~ ^/(api|uploads)/ {                       # business API + Yggdrasil +
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **319/319 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **324/324 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

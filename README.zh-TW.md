@@ -4,7 +4,7 @@
 
 Minecraft 外置登入 + 皮膚／披風素材伺服器（Yggdrasil 協相容），`CatTavernSkins`(plan3) 的重製版。
 
-- **目前版本：`2.3.1`**
+- **目前版本：`2.3.2`**
 - 版本口徑：主版本 = 重製標頭（1 = 重製前舊版，2 = 重製版）；次版本 = 季度；修訂號 = 季度內迭代序號。
 - 舊版原始碼：https://github.com/SunsetNightMoon/CatTavernSkins （重製分析基準 `b01f29a`，重製未修改舊版原始碼）
 
@@ -82,7 +82,7 @@ location ~ ^/(api|uploads)/ {                       # 業務介面 + Yggdrasil +
 npm test          # SQLite 基線（無需外部服務，門控用例自動 skip）
 ```
 
-完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**319/319 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**324/324 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## 文件
 

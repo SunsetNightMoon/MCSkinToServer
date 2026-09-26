@@ -46,6 +46,22 @@ function stripTrailingSlash(value: string): string {
 }
 
 /**
+ * 把任意 URL / host 归一成「协议 + 主机」的站点根（去掉路径与尾斜杠）。
+ * 只接受 http/https；解析不出协议时按 host 处理并补上 https。
+ */
+export function normalizeOrigin(raw: string): string | undefined {
+  const value = raw.trim();
+  if (value === '') return undefined;
+  try {
+    const url = new URL(value.includes('://') ? value : `https://${value}`);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 从素材前缀反推站点根：`http://h:3000/uploads` → `http://h:3000`。
  * 只在没有 BASE_URL 设置、也没有其它线索时作为兜底使用，因此对
  * 不以 `/uploads` 结尾的值采取「原样当作站点根」而非报错。
@@ -85,6 +101,12 @@ export class SiteUrlResolver {
   private origin: string;
   private assetBase: string;
   private loadedAt: number;
+  /**
+   * 站点根是否已被「显式声明」（后台 BASE_URL 或部署 PUBLIC_BASE_URL）。
+   * false 时 origin 只是 localhost 兜底 —— 邮件链接允许用触发请求的 Host
+   * 作为更准的猜测（见 link() 的 requestOrigin）。
+   */
+  private originDeclared: boolean;
 
   constructor(deps: SiteUrlResolverDependencies = {}) {
     this.settings = deps.settings;
@@ -94,6 +116,7 @@ export class SiteUrlResolver {
     this.now = deps.now ?? (() => Date.now());
 
     // 构造时先用环境变量给出可用值，保证 refresh() 之前 getter 也不返回 undefined
+    this.originDeclared = this.envAssetBaseUrl !== '';
     this.origin =
       this.envAssetBaseUrl !== ''
         ? originFromAssetBase(this.envAssetBaseUrl)
@@ -135,7 +158,13 @@ export class SiteUrlResolver {
     }
 
     const configured = typeof raw === 'string' ? stripTrailingSlash(raw.trim()) : '';
-    this.origin = configured !== '' ? configured : this.originFromEnv();
+    if (configured !== '') {
+      this.origin = configured;
+      this.originDeclared = true;
+    } else {
+      this.originDeclared = this.envAssetBaseUrl !== '';
+      this.origin = this.originFromEnv();
+    }
     this.assetBase = this.computeAssetBase(this.origin);
   }
 
@@ -176,19 +205,35 @@ export class SiteUrlResolver {
    * 生成一个前端路由链接。前端用 HashRouter，所以路径要挂在 `#` 之后：
    * `https://host/#/verify-email?token=xxx`。写成 `https://host/verify-email`
    * 会让浏览器直接请求服务器而 404 —— 静态托管只看得到 `index.html`。
+   *
+   * `requestOrigin`：触发本次发信的请求方地址（协议 + Host）。
+   * 仅当站点根从未显式声明（BASE_URL / PUBLIC_BASE_URL 都没配）时采用 ——
+   * 否则域名服务器上没来得及配 BASE_URL 的新装站点，验证邮件会打出
+   * localhost 链接（用户根本点不开）。显式声明永远优先，请求方 Host 只在
+   * 兜底位上替换 localhost，不影响已配置站点的行为。
    */
-  async link(path: string, query?: Record<string, string>): Promise<string> {
+  async link(
+    path: string,
+    query?: Record<string, string>,
+    opts?: { requestOrigin?: string },
+  ): Promise<string> {
     await this.ensureFresh();
     const normalized = path.startsWith('/') ? path : `/${path}`;
     const search = query
       ? `?${new URLSearchParams(query).toString()}`
       : '';
-    return `${this.origin}/#${normalized}${search}`;
+    return `${this.effectiveOrigin(opts?.requestOrigin)}/#${normalized}${search}`;
   }
 
   /** 站点根 + 指定绝对路径（用于非哈希路径，如 /uploads 之外的静态资源） */
-  async absolute(path: string): Promise<string> {
+  async absolute(path: string, opts?: { requestOrigin?: string }): Promise<string> {
     await this.ensureFresh();
-    return `${this.origin}${path.startsWith('/') ? path : `/${path}`}`;
+    return `${this.effectiveOrigin(opts?.requestOrigin)}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  /** 未显式声明站点根时，用请求方 origin 替换 localhost 兜底；无效输入原样回落 */
+  private effectiveOrigin(requestOrigin?: string): string {
+    if (this.originDeclared) return this.origin;
+    return normalizeOrigin(requestOrigin ?? '') ?? this.origin;
   }
 }
