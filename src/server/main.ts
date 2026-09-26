@@ -102,6 +102,8 @@ async function main(): Promise<void> {
     tokens: tokenService,
     sessions: minecraftSessions,
     assetUrlResolver,
+    // 全局用户名模式（P5 第十一批）：注册初值 + 管理面板全局切换
+    settings: settingRepository,
   });
   const textureBuilder = new TextureProfileBuilder(rsaKeyPair.privateKeyPem);
   const textureService = new TextureService({

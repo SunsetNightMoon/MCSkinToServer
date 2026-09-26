@@ -762,6 +762,67 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第十一批：用户名模式改为全站统一设置（超管单页切换，影响全部账号 + 改名弹窗名称池）
+
+**起因**：用户要求「模式不准单独调整，必须是影响全部账号，用户列表不显示这个东西、个人中心那个提示也无需再显示（没有任何义务告知，属于管理者决策）」，并追加三点：**改名弹窗里显示用户名池**（名下角色名可记录、随意使用）、**锁定 ID 对所有人显示被占用**（检测可用性/启动器都要报占用，即便启动也一样）、**多用户名模式下名称池可添加角色**。三项决策（用户拍板）：① 全局切 single 时多 ID 账号**下次进个人中心强制弹窗选保留 ID**（未选择前其余角色不锁定、写操作 409）；② 名称池**展示 + 切换启用**；③ **一并做添加角色**入口。
+
+> 本批**推翻第十批**「按账号代设」与 0003「预留名不参与解析（防探测）」两处决策：模式从「每账号一个值 + 超管代设」收敛为「全站一个值 + 超管单页切换」；锁定名从「对外不可见」翻转为「对外一律报占用」。
+
+### 规则矩阵
+
+| 操作 | 普通/管理员（L0/L1） | 超管（L2） |
+|---|---|---|
+| `GET /api/me/profile-mode` 读自己状态 | 200 | 200 |
+| `POST /api/me/profile-mode` | **仅当处于「待选择」态**时可用（提交保留 ID）；已决定 → **403**（个人无切换入口） | 同左 |
+| `GET /api/admin/profile-mode` 全局模式 + 影响面统计 | 403 | 200 |
+| `PUT /api/admin/profile-mode` 切换全站模式 | 403 | 200（影响全部账号） |
+| 启用预留角色 / 改名 | 照旧（30 天冷却） | 照旧 |
+| `POST /api/profiles/minecraft` 批量名称查询（匿名） | 锁定名**报占用**（推翻 0003） | 同左 |
+
+### 落地（后端）
+
+- `src/site/runtimeSettings.ts`：新键 `PROFILE_MODE`（`single`/`multi`，未设置默认 `single`）。
+- `src/auth/identity.ts`：
+  - 注入 `settings`（`Pick<SettingRepository,'get'|'setMany'>`）+ `readGlobalProfileMode()`（未接入设置存储时回退 `single`，保证测试可构造）。
+  - **删** `decideInitialMode` / `switchMode` / `adminSetProfileMode` / `adminGetProfileMode`（第十批的按账号三件套）。
+  - **新增** `decideKeepId({userId, keepProfileId})`：用户侧唯一保留的模式决策——全局切 single 后进「待选择」态的账号提交保留 ID（选定者留下，其余转预留并启动 30 天窗口）。已决定账号调用 → 403。
+  - **新增** `getGlobalProfileMode(actor)` / `setGlobalProfileMode(actor, mode)`（均要求超管）。`setGlobalProfileMode`：先写设置（事实源）再 `syncProfileModeForAll` 刷副本；切 single 时 `markMultiActiveUndecided` 把多活跃 ID 账号置 `decided_at = NULL`。**幂等**（已是目标模式直接返回不迁移）。设置写入与副本迁移**故意不分同一事务**（跨仓库连接事务不可靠，失败重跑即收敛）。
+  - 注册初值改读全局：`users.insert({ profileMode: await this.readGlobalProfileMode() })`。
+- `src/repositories/userRepository.ts`：`insert` 增 `profileMode` 字段；新增 `syncProfileModeForAll(mode, at)` / `markMultiActiveUndecided(at)` / `countProfileModeStats()`（`totalUsers` / `multiActiveUsers` / `undecidedUsers`，供切换前确认弹窗）。
+- `src/server/routes/admin.ts`：**删** `GET/PUT /api/admin/users/:id/profile-mode`；**新增** `GET/PUT /api/admin/profile-mode`（`auth + superAdmin`），GET 返回 `{mode, stats}`，PUT 返回 `{ok, mode, stats}`。
+- `src/server/routes/identity.ts`：`POST /api/me/profile-mode` 收窄——去掉超管门槛与 `mode` 参数，改为「待选择态提交保留 ID」专用（`decideKeepId`），请求体仅 `keepProfileId`。
+- `src/server/routes/yggdrasil.ts`：批量名称查询去掉 `status === 'active'` 过滤——**预留角色同样报占用**（0003 的防探测口径被用户拍板推翻；预留角色无会话，解析出 UUID 也无法进服务器，无安全影响）。
+
+### 落地（前端）
+
+- `web/src/pages/Admin/ProfileModeSettings.tsx`（新）+ `AdminDashboard.tsx`：侧栏新页签「用户名模式」（仅超管）——当前模式 Tag、影响面统计三卡（账号总数 / 多 ID 账号数 / 待选择账号数）、单/多单选、切 single 时的二次确认弹窗（列出受影响账号数）、`PUT` 后刷新。
+- `web/src/pages/Admin/UserManagement.tsx`：**删**「用户名模式」列 + 代设弹窗 + 全部相关 state/函数 + `UserRecord.profile_mode`。
+- `web/src/utils/apiCompat.ts`：`ADMIN_PASSTHROUGH` 放行 `/api/admin/profile-mode`；`toLegacyUserRow` 去掉 `profile_mode` 映射。
+- `web/src/pages/Profile/UserProfile.tsx`：
+  - 模式卡片：**删**切换按钮（所有人）与「由超级管理员管理」只读提示（图5），只读显示当前模式 + 说明。
+  - 首决弹窗改**单用途**「选保留 ID」（对所有人生效，去掉模式单选与 pendingMode），`decisionRequired` 即自动弹出。
+  - 改名弹窗新增「我的用户名池」区块：名下全部角色名 + 状态（使用中 / 锁定中，锁定项带冷却天数提示），multi 模式下显示「添加角色」输入框（`POST /api/profiles`，上限 10）。
+- `web/src/services/accountSecurityService.ts`：`saveProfileMode(mode, keepProfileId)` → `decideKeepId(keepProfileId)`（去掉 mode 参数）；`web/src/services/profileService.ts`：新增 `createProfile(name)`。
+- i18n 四语言：新增 `profile.poolTitle` / `poolInUse` / `poolLocked` / `poolAdd` / `poolAddPlaceholder` / `poolAddSuccess` / `poolAddFailed` / `poolCooldownHint` + `admin.profileModePageTitle` / `profileModeApply` / `profileModeConfirmToSingle` / `profileModeStat*`；删除 `profile.modeSuperOnlyHint` / `modeSwitchTitle` / `modeFirstChoice` / `modeFirstChoiceHint` / `modeKeepWhich` / `modeKeepHint` 与 `admin.profileMode*`（Adjust/Title/Current/Updated）。
+
+### 测试
+
+- `tests/adminProfileMode.test.ts`（重写，4 项双方言）：L0/L1 调全局端点 403、超管 GET 200 含统计、超管 PUT multi→single 全量迁移 + 多活跃账号进待选择 + 注册初值随全局、锁定名注册冲突回归（`NAME_TAKEN`）。
+- `tests/profileMode.test.ts`（改写）：`decideInitialMode`/`switchMode` 用例全部改为 `decideKeepId` 语义（已决定者 403、待选择态提交保留 ID、multi 无冷却）。
+- `tests/emailChange.test.ts`（改写）：HTTP 模式用例改为「待选择态提交保留 ID」路径（不再先提权 super_admin 自切）。
+
+### 验收（数字均为实际输出）
+
+- 后端 + 前端 `tsc --noEmit` 零错误（测试文件改写后亦全绿）
+- 基线 `npm test`（仅 SQLite）：**294 tests / 211 pass / 0 fail / 83 skipped**
+- 全开门控（`TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL`）`npm run test:pg`：**294 tests / 294 pass / 0 fail / 0 skipped**
+- 后端(:3000)与前端(:5173)重启后真实环境 curl 矩阵：hmcl(L2) GET 200 / PUT multi 200 → tester1(L0) 视角同步 multi / 加角色 201 / 新用户注册初值 multi；PUT single → tester1 进待选择 / 待选择中加角色 409 / 提交保留 ID 200（其余转预留 + 启动冷却）；**锁定名**匿名批量查询出现（报占用）/ 用锁定名注册 `NAME_TAKEN` / 冷却内启用 `MODE_COOLDOWN`。测毕已还原开发库（删临时角色/用户、清 `PROFILE_MODE` 键）
+- 无头截图 4 张（`G:/Skin2.catnight.top/.shots/`）：`34-batch11-admin-modepage.png`（新页签 + 影响面统计 + 保存按钮）、`34-batch11-admin-users.png`（用户列表无模式列/无调整按钮）、`34-batch11-tester1-profile.png`（个人中心无切换按钮/无超管提示，只读模式卡）、`34-batch11-tester1-pool.png`（改名弹窗「我的用户名池」+ 使用中状态）。四张均以 `--dump-dom` 文本级断言复核
+- 备注：「待选择」期间只拦**写操作**（新建/改名/删角色/启用预留 → 409 `MODE_CHOICE_REQUIRED`），读操作放行（前端要先能列出角色给用户选）；名称池「添加角色」在 single 模式下不显示（单模式无多 ID 语义，换 ID 走预留口）
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+---
+
 
 ## 生产部署（域名类型）
 

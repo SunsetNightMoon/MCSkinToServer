@@ -94,6 +94,17 @@ export const profileService = {
   },
 
   /**
+   * 新建角色（多用户名模式专属，上限 10 由后端裁决）。
+   * 单用户名模式后端会以 VALIDATION_ERROR 拒绝 —— 前端入口只在 multi 显示。
+   */
+  async createProfile(name: string): Promise<{ profile: { id: string; name: string } }> {
+    return apiRequest('/api/profiles', {
+      method: 'POST',
+      json: { name },
+    })
+  },
+
+  /**
    * 获取当前用户信息 + 角色列表 + 默认角色皮肤（旧版 getMe 的语义）
    */
   async getMe(): Promise<any> {

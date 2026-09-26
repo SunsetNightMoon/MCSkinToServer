@@ -240,9 +240,11 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     const found: { id: string; name: string }[] = [];
     for (const name of names) {
       const profile = await deps.profiles.findByName(name);
-      // 预留角色不参与按名字解析（0003）：名字仍被占着，但它当前不可用。
-      // 报出去等于给了外部一个「这个名字已被注册但用不了」的探测口径。
-      if (profile && profile.status === 'active') {
+      // 预留角色**同样报为已占用**（P5 第十一批用户拍板，推翻 0003 的防探测口径）：
+      // 「被锁定的 ID 别人去用也必须显示被占用」—— 检测可用性、启动器解析
+      // 都走这里，报出来才不会出现「显示可用、实际建不了」的自相矛盾。
+      // 预留角色没有会话，即便解析出 UUID 也无法加入服务器，无安全影响。
+      if (profile) {
         found.push(profileDto(profile.id, profile.name));
       }
     }

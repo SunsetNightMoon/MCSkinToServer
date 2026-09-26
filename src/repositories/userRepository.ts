@@ -74,6 +74,11 @@ export interface NewUserRow {
    * 传 `null`/省略则写 NULL = 待选择（只可能出现在数据修补场景，正常注册不会）。
    */
   profileModeDecidedAt?: Date | null;
+  /**
+   * 注册时的初始用户名模式。省略写列默认 'single'；
+   * 全局模式为 multi 的站点应显式传入（register 从全局设置读取）。
+   */
+  profileMode?: 'single' | 'multi';
 }
 
 const USER_COLUMNS =
@@ -124,10 +129,10 @@ export class UserRepository {
     if (this.db.dialect === 'postgres') {
       const rows = await this.db.query<Record<string, unknown>>(
         `INSERT INTO users (id, email, password_hash, role, is_active,
-           email_verified, ban_permanent, profile_mode_decided_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, $5, $6, $6)
+           email_verified, ban_permanent, profile_mode, profile_mode_decided_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, TRUE, FALSE, FALSE, $5, $6, $7, $7)
          RETURNING user_uid`,
-        [user.id, user.email, user.passwordHash, user.role, decidedAt, now],
+        [user.id, user.email, user.passwordHash, user.role, user.profileMode ?? 'single', decidedAt, now],
       );
       return Number(rows[0]!['user_uid']);
     }
@@ -139,14 +144,15 @@ export class UserRepository {
     const userUid = Number(uidRows[0]!['next_uid']);
     await this.db.run(
       `INSERT INTO users (id, user_uid, email, password_hash, role, is_active,
-         email_verified, ban_permanent, profile_mode_decided_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?)`,
+         email_verified, ban_permanent, profile_mode, profile_mode_decided_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?, ?)`,
       [
         user.id,
         userUid,
         user.email,
         user.passwordHash,
         user.role,
+        user.profileMode ?? 'single',
         decidedAt,
         now,
         now,
@@ -407,6 +413,71 @@ export class UserRepository {
        WHERE id = ${phAt(this.db.dialect, 3)}`,
       [mode, at.toISOString(), at.toISOString(), userId],
     );
+  }
+
+  // ---- P5 第十一批：全局用户名模式 ----
+  // 模式改为全站统一（PROFILE_MODE 设置），每用户的 profile_mode 列退化为
+  // 「全局值的同步副本」—— 服务层状态机仍只读它，切换时全量刷平即可。
+
+  /** 全量同步副本：所有未注销用户的 profile_mode 刷成全局值 */
+  async syncProfileModeForAll(mode: ProfileMode, at: Date): Promise<void> {
+    const iso = at.toISOString();
+    await this.db.run(
+      `UPDATE users SET profile_mode = ${phAt(this.db.dialect, 0)},
+         mode_changed_at = ${phAt(this.db.dialect, 1)},
+         updated_at = ${phAt(this.db.dialect, 2)}
+       WHERE deleted_at IS NULL`,
+      [mode, iso, iso],
+    );
+  }
+
+  /**
+   * 把「名下有多个使用中角色」的用户标回待选择态（decided_at = NULL）。
+   *
+   * 全局切到 single 时调用：这些账号下次进个人中心会强制弹窗选保留 ID，
+   * 选前一切写操作被既有状态机拦成 409。≤1 个可用角色的账号不受影响。
+   */
+  async markMultiActiveUndecided(at: Date): Promise<void> {
+    const iso = at.toISOString();
+    await this.db.run(
+      `UPDATE users SET profile_mode_decided_at = NULL,
+         updated_at = ${phAt(this.db.dialect, 0)}
+       WHERE deleted_at IS NULL AND id IN (
+         SELECT user_id FROM profiles WHERE status = 'active'
+         GROUP BY user_id HAVING COUNT(*) > 1
+       )`,
+      [iso],
+    );
+  }
+
+  /** 全局模式切换影响面统计（确认弹窗展示用） */
+  async countProfileModeStats(): Promise<{
+    totalUsers: number;
+    multiActiveUsers: number;
+    undecidedUsers: number;
+  }> {
+    const num = (rows: Record<string, unknown>[]): number =>
+      Number(rows[0]?.['c'] ?? 0);
+    const total = await this.db.query<Record<string, unknown>>(
+      'SELECT COUNT(*) AS c FROM users WHERE deleted_at IS NULL',
+    );
+    const multiActive = await this.db.query<Record<string, unknown>>(
+      `SELECT COUNT(*) AS c FROM (
+         SELECT p.user_id FROM profiles p
+         JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+         WHERE p.status = 'active'
+         GROUP BY p.user_id HAVING COUNT(*) > 1
+       ) t`,
+    );
+    const undecided = await this.db.query<Record<string, unknown>>(
+      `SELECT COUNT(*) AS c FROM users
+       WHERE deleted_at IS NULL AND profile_mode_decided_at IS NULL`,
+    );
+    return {
+      totalUsers: num(total),
+      multiActiveUsers: num(multiActive),
+      undecidedUsers: num(undecided),
+    };
   }
 
   // ---- 0003：备用邮箱（兜底）----

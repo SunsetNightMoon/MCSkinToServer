@@ -36,6 +36,11 @@ export const RuntimeSettingKeys = {
   siteTitle: 'SITE_TITLE',
   /** 站点徽标（顶栏/登录页/邮件抬头共用）；未设置 = 空串，而不是默认图 */
   siteLogo: 'SITE_LOGO',
+  /**
+   * 全站统一的用户名模式（P5 第十一批）：'single' | 'multi'。
+   * 不再按用户各自设置 —— 由超级管理员在管理面板切换，影响全部账号。
+   */
+  profileMode: 'PROFILE_MODE',
   smtpHost: 'SMTP_HOST',
   smtpPort: 'SMTP_PORT',
   smtpSecure: 'SMTP_SECURE',

@@ -67,6 +67,9 @@ export function UserProfile() {
   const [checkResult, setCheckResult] = useState<{ available: boolean; message: string } | null>(null)
   const [checkingName, setCheckingName] = useState(false)
   const [savingName, setSavingName] = useState(false)
+  // 用户名池（P5 第十一批）：改名弹窗内展示名下全部角色名，multi 模式可添加
+  const [poolNewName, setPoolNewName] = useState('')
+  const [addingProfile, setAddingProfile] = useState(false)
   // 发送验证邮件
   const [sendingVerify, setSendingVerify] = useState(false)
 
@@ -98,12 +101,10 @@ export function UserProfile() {
   const [resetEmailSent, setResetEmailSent] = useState(false)
   const [sendingResetEmail, setSendingResetEmail] = useState(false)
 
-  // ---- 0003：用户名模式 ----
+  // ---- 0003：用户名模式（P5 第十一批：模式全站统一，个人只剩「选保留 ID」） ----
   const [modeState, setModeState] = useState<ProfileModeState | null>(null)
   const [modeModalOpen, setModeModalOpen] = useState(false)
-  /** 弹窗里选中的目标模式 */
-  const [pendingMode, setPendingMode] = useState<'single' | 'multi'>('single')
-  /** 切/决定为单用户名时选中的「保留哪个 ID」 */
+  /** 待选择弹窗里选中的「保留哪个 ID」 */
   const [pendingKeepId, setPendingKeepId] = useState<string | null>(null)
   const [savingMode, setSavingMode] = useState(false)
   /** 正在启用的预留角色 id（按钮 loading 用） */
@@ -168,12 +169,11 @@ export function UserProfile() {
         // 新地址配旧验证标记、甚至显示旧地址的错位 —— 界面上两个字段来自两个时间点。
         updateUser({ email: mail.email, email_verified: mail.emailVerified })
       }
-      // 存量多角色账号：一进页面就把「先选一个 ID」的弹窗推出来。
+      // 待选择账号（全局切到 single 时被标记，或存量多角色）：一进页面就把
+      // 「选保留 ID」的弹窗推出来，**对所有人强制**（P5 第十一批恢复）——
       // 不推的话用户点任何写操作都只会拿到 409，却不知道要做什么。
-      // P5 第十批：自助决定/切换仅超管可用 —— 等级 1 及以下不再弹窗
-      // （弹了也只会 403），等超管在管理面板代设。
-      if (mode.decisionRequired && !modeModalOpen && (user?.level ?? 0) >= 2) {
-        setPendingMode('single')
+      // 这是用户自己的选择（留哪个 ID），不是模式选择，与等级无关。
+      if (mode.decisionRequired && !modeModalOpen) {
         setPendingKeepId(null)
         setModeModalOpen(true)
       }
@@ -319,31 +319,22 @@ export function UserProfile() {
   const showReservedSlots = modeIsSingle && reservedProfiles.length > 0
   const modeCooldownActive = (modeState?.cooldownDaysRemaining ?? 0) > 0
 
-  // ---- 0003：用户名模式操作 ----
-
-  /** 打开模式弹窗。切为单用户名时默认预选第一个 active 角色，避免必然的报错 */
-  const openModeModal = (target: 'single' | 'multi') => {
-    setPendingMode(target)
-    setPendingKeepId(target === 'single' ? (activeProfiles[0]?.id ?? null) : null)
-    setModeModalOpen(true)
-  }
+  // ---- 0003：用户名模式操作（P5 第十一批：只剩「选保留 ID」，无任何切换） ----
 
   const handleSaveMode = async () => {
-    // 多选一时必须先定保留谁。后端会用 MODE_CHOICE_REQUIRED / VALIDATION_ERROR 拦，
+    // 多选一时必须先定保留谁。后端会用 VALIDATION_ERROR 拦，
     // 但让用户先看到提示比先吃一个报错好。
-    if (pendingMode === 'single' && activeProfiles.length > 1 && !pendingKeepId) {
+    if (activeProfiles.length > 1 && !pendingKeepId) {
       message.warning(t('profile.modeChooseKeepRequired'))
       return
     }
     setSavingMode(true)
     try {
-      const next = await accountSecurityService.saveProfileMode(
-        pendingMode,
-        pendingMode === 'single' ? pendingKeepId : null,
+      const next = await accountSecurityService.decideKeepProfile(
+        activeProfiles.length > 1 ? pendingKeepId : null,
       )
       setModeState(next)
       await loadProfiles()
-      // 决定/切换完成后，若首次选择还没落地则不会再弹
       setModeModalOpen(false)
       message.success(t('profile.modeSaved'))
     } catch (err: any) {
@@ -367,6 +358,26 @@ export function UserProfile() {
       )
     } finally {
       setActivatingId(null)
+    }
+  }
+
+  /** 用户名池：添加新角色（仅全局 multi 模式显示入口，上限 10 由后端裁决） */
+  const handleAddProfile = async () => {
+    const name = poolNewName.trim()
+    if (name.length < 3 || name.length > 16 || !/^[a-zA-Z0-9_]+$/.test(name)) {
+      message.warning(t('profile.nameLengthHint'))
+      return
+    }
+    setAddingProfile(true)
+    try {
+      await profileService.createProfile(name)
+      setPoolNewName('')
+      await loadProfiles()
+      message.success(t('profile.poolAddSuccess', { name }))
+    } catch (err: any) {
+      message.error(err?.response?.data?.errorMessage || t('profile.poolAddFailed'))
+    } finally {
+      setAddingProfile(false)
     }
   }
 
@@ -1003,27 +1014,10 @@ export function UserProfile() {
           )}
 
           {/*
-            P5 第十批：用户名模式自助切换是超管专属（等级 1 及以下只能被动接受
-            管理面板代设的改动）。按钮只给 level 2；其余用户显示只读说明，
-            预留口激活、改名等功能照旧可用。
+            P5 第十一批：这里不再有任何模式切换入口，也不再解释「为什么不能切」——
+            模式是全站统一设置（管理面板），属于管理者的决策，没有向玩家告知的义务。
+            卡片保留的信息只有与玩家自身相关的：当前模式、可用角色数、冷却、预留口。
           */}
-          {user.level >= 2 ? (
-            <Space wrap>
-              {modeIsSingle ? (
-                <Button onClick={() => openModeModal('multi')}>
-                  {t('profile.switchToMulti')}
-                </Button>
-              ) : (
-                <Button onClick={() => openModeModal('single')}>
-                  {t('profile.switchToSingle')}
-                </Button>
-              )}
-            </Space>
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', lineHeight: 1.7 }}>
-              {t('profile.modeSuperOnlyHint')}
-            </Text>
-          )}
         </div>
       )}
 
@@ -1465,21 +1459,84 @@ export function UserProfile() {
             )}
           </div>
         )}
+
+        {/*
+          我的用户名池（P5 第十一批）：名下全部角色名与使用状态。
+          单模式下锁定的名字从这里可以「启用」换上（受 30 天窗口约束，与预留口同源）；
+          多模式下所有名字都在使用中，无需切换，并在此直接添加新角色。
+        */}
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid rgba(128,128,128,0.2)' }}>
+          <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+            {t('profile.poolTitle')}
+          </Text>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12, lineHeight: 1.7 }}>
+            {t('profile.poolHint')}
+          </Text>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {profiles.map((p) => {
+              const isActive = (p.status ?? 'active') === 'active'
+              return (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Text code style={{ flex: 1 }}>{p.name}</Text>
+                  <Tag color={isActive ? 'blue' : 'default'}>
+                    {isActive ? t('profile.poolInUse') : t('profile.poolLocked')}
+                  </Tag>
+                  {!isActive && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      ghost
+                      disabled={modeCooldownActive}
+                      loading={activatingId === p.id}
+                      onClick={() => handleActivateReserved(p.id)}
+                    >
+                      {t('profile.reservedUse')}
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {modeState?.mode === 'multi' && (
+            <Space.Compact style={{ width: '100%', marginTop: 12 }}>
+              <Input
+                value={poolNewName}
+                onChange={(e) => setPoolNewName(e.target.value)}
+                placeholder={t('profile.poolAddPlaceholder')}
+                maxLength={16}
+              />
+              <Button
+                icon={<PlusOutlined />}
+                loading={addingProfile}
+                disabled={!poolNewName.trim()}
+                onClick={handleAddProfile}
+              >
+                {t('profile.poolAdd')}
+              </Button>
+            </Space.Compact>
+          )}
+          {modeState?.mode === 'single' && profiles.length > 1 && modeCooldownActive && (
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+              {t('profile.poolCooldownHint', { days: modeState?.cooldownDaysRemaining })}
+            </Text>
+          )}
+        </div>
       </Modal>
 
       {/*
-        用户名模式弹窗。同时承载两件事：
-        - 存量多角色账号的「首次选择」（modeState.decisionRequired）
-        - 后续的模式切换
-        对用户而言都是「保存我的选择」，前端不需要区分 —— 由服务端决定走哪条路。
+        「选择保留 ID」弹窗（P5 第十一批单用途化）。
+
+        只在一个场景打开：全局模式切到 single 时，名下有多个使用中 ID 的账号
+        进入「待选择」态，进页面自动弹出（强制，不选完无法进行任何写操作）。
+        模式本身是全站统一的，这里不再有 single/multi 单选 —— 用户只回答
+        「留下哪一个」，其余角色转预留并启动 30 天窗口。
       */}
       <Modal
         title={
           <span>
             <UserSwitchOutlined style={{ marginRight: 8 }} />
-            {modeState?.decisionRequired
-              ? t('profile.modeFirstChoice')
-              : t('profile.modeSwitchTitle')}
+            {t('profile.modeFirstChoice')}
           </span>
         }
         open={modeModalOpen}
@@ -1499,34 +1556,9 @@ export function UserProfile() {
           />
         )}
 
-        <Radio.Group
-          value={pendingMode}
-          onChange={(e) => {
-            const next = e.target.value as 'single' | 'multi'
-            setPendingMode(next)
-            if (next === 'single') {
-              setPendingKeepId(activeProfiles[0]?.id ?? null)
-            }
-          }}
-          style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-        >
-          <Radio value="single">
-            <div style={{ fontWeight: 500 }}>{t('profile.modeSingle')}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('profile.modeSingleDesc')}
-            </Text>
-          </Radio>
-          <Radio value="multi">
-            <div style={{ fontWeight: 500 }}>{t('profile.modeMulti')}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('profile.modeMultiDesc')}
-            </Text>
-          </Radio>
-        </Radio.Group>
-
-        {/* 切为单用户名且当前有多个可用角色时，必须指定保留哪一个 */}
-        {pendingMode === 'single' && activeProfiles.length > 1 && (
-          <div style={{ marginTop: 20 }}>
+        {/* 当前全局为单用户名：必须指定保留哪一个（多模式下直接确认即可） */}
+        {activeProfiles.length > 1 && (
+          <div>
             <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
               {t('profile.modeKeepWhich')}
             </Text>

@@ -918,25 +918,15 @@ test('emailChange: HTTP 端点（sqlite）', async (t) => {
     '错误体应同时带 message 与 errorMessage（旧前端读后者）',
   );
 
-  // P5 第十批：用户名模式自助切换仅超管 —— 普通用户先被 403 拦下
-  // （守卫在读 mode 参数之前，所以非法 mode 也不会泄漏成 400）
+  // P5 第十一批：POST /api/me/profile-mode 只服务「选保留 ID」。
+  // 已决定的账号（本用例用户 users.insert 直建、视为已决定）调用 → 403：
+  // 模式由站点统一设置，任何账号（含超管）都没有自助切换入口。
   res = await call('POST', '/api/me/profile-mode', { mode: 'multi' });
   assert.equal(res.status, 403, JSON.stringify(res.body));
   assert.equal(res.body['error'], 'FORBIDDEN');
 
-  // 提权为 super_admin 后继续原有流程。
-  // token 校验每请求从库里读角色（findByHashWithUser），所以无需重发 token。
-  await users.updateAdminFields(userId, { role: 'super_admin' }, clock);
-
-  // POST /api/me/profile-mode：切到多模式 → 200 且返回完整状态
-  res = await call('POST', '/api/me/profile-mode', { mode: 'multi' });
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.equal(res.body['mode'], 'multi');
-  assert.equal(res.body['activeLimit'], 10);
-
-  // 非法 mode → 400
-  res = await call('POST', '/api/me/profile-mode', { mode: 'nonsense' });
-  assert.equal(res.status, 400);
+  // 模拟全局切到 multi：直接刷平用户的模式副本（生产由管理面板端点完成）
+  await users.setProfileMode(userId, 'multi', clock);
 
   // 多模式下新建角色 → 201（注意：本用例的用户是 users.insert 直建的，
   // 不像 register 那样自带默认角色，所以下面要建两个）
@@ -948,9 +938,10 @@ test('emailChange: HTTP 端点（sqlite）', async (t) => {
     (res.body['profile'] as { id: string }).id,
   );
 
-  // 切回单模式保留第二个 → 200，第一个转预留
+  // 模拟全局切回 single：副本刷平 + 多活跃账号标记待选择，再走强制选择端点
+  await users.setProfileMode(userId, 'single', clock);
+  await users.markMultiActiveUndecided(clock);
   res = await call('POST', '/api/me/profile-mode', {
-    mode: 'single',
     keepProfileId: secondProfileId,
   });
   assert.equal(res.status, 200, JSON.stringify(res.body));

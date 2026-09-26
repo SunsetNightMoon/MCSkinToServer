@@ -33,8 +33,8 @@ import { AppError } from '../../errors.js';
  * - PATCH /api/admin/users/:id         角色（仅 super_admin）/ 封禁 / 激活
  * - POST  /api/admin/users/:id/send-verification  代用户重发验证邮件
  * - PUT   /api/admin/users/:id/verify-email       手动放行/收回邮箱验证
- * - GET   /api/admin/users/:id/profile-mode       用户名模式详情（仅 super_admin）
- * - PUT   /api/admin/users/:id/profile-mode       代设用户名模式（仅 super_admin）
+ * - GET   /api/admin/profile-mode      全站用户名模式 + 影响面统计（仅 super_admin）
+ * - PUT   /api/admin/profile-mode      切换全站用户名模式（仅 super_admin，影响全部账号）
  * - POST  /api/admin/test-smtp         测试 SMTP 连接
  * - GET   /api/admin/email-template    读取邮件模板（未配置时返回内置默认）
  * - PUT   /api/admin/email-template    保存邮件模板
@@ -341,42 +341,37 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
     res.json({ ok: true, ...result });
   });
 
-  // ---- 用户名模式（P5 第十批）----
+  // ---- 全站用户名模式（P5 第十一批）----
 
   /**
-   * 目标用户的用户名模式详情（弹窗渲染用）。
-   * 仅 level 2：模式自助切换已成超管专属，代设权限同理只给超管
-   * （用户拍板「仅超管可改」——等级 1 管理员在面板也看不到入口）。
+   * 当前全局用户名模式 + 切换影响面统计。
+   * 仅 level 2：模式是全站统一设置（用户拍板「不准单独调整，必须影响全部账号」），
+   * 等级 1 在面板也看不到这一页。
    */
-  router.get('/api/admin/users/:id/profile-mode', auth, superAdmin, async (req, res) => {
-    const detail = await deps.identity.adminGetProfileMode(
-      { userId: req.context!.userId, role: req.context!.role },
-      String(req.params['id'] ?? ''),
-    );
-    res.json(detail);
+  router.get('/api/admin/profile-mode', auth, superAdmin, async (req, res) => {
+    const result = await deps.identity.getGlobalProfileMode({
+      userId: req.context!.userId,
+      role: req.context!.role,
+    });
+    res.json(result);
   });
 
   /**
-   * 代用户调整用户名模式（单 <-> 多）。
-   * 复用与服务端一致的状态机：未首次决定 → decide；已决定 → switch
-   * （multi -> single 且活跃角色多于 1 个时，必须带 keepProfileId 指定保留谁）。
+   * 切换全局用户名模式（single <-> multi），影响全部账号。
+   * 切到 single 时名下有多个使用中 ID 的账号进入「待选择」态，
+   * 下次进个人中心强制弹窗选保留 ID。幂等：已是目标模式时不做迁移。
    */
-  router.put('/api/admin/users/:id/profile-mode', auth, superAdmin, async (req, res) => {
+  router.put('/api/admin/profile-mode', auth, superAdmin, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const mode = String(body['mode'] ?? '');
     if (mode !== 'single' && mode !== 'multi') {
       throw new AppError('VALIDATION_ERROR', 'mode 只能是 single 或 multi');
     }
-    const keepProfileId =
-      body['keepProfileId'] === undefined || body['keepProfileId'] === null
-        ? null
-        : String(body['keepProfileId']);
-    const state = await deps.identity.adminSetProfileMode(
+    const result = await deps.identity.setGlobalProfileMode(
       { userId: req.context!.userId, role: req.context!.role },
-      String(req.params['id'] ?? ''),
-      { mode, keepProfileId },
+      mode,
     );
-    res.json({ ok: true, state });
+    res.json({ ok: true, ...result });
   });
 
   // ---- 邮件设置（P5）----

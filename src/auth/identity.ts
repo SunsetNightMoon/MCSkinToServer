@@ -16,6 +16,8 @@ import type {
   ProfileRow,
 } from '../repositories/profileRepository.js';
 import type { MinecraftSessionRepository } from '../repositories/minecraftSessionRepository.js';
+import type { SettingRepository } from '../repositories/settingRepository.js';
+import { RuntimeSettingKeys } from '../site/runtimeSettings.js';
 import type { AssetUrlResolver } from '../storage/assetUrl.js';
 
 /**
@@ -122,6 +124,11 @@ export interface IdentityDependencies {
   sessions: MinecraftSessionRepository;
   /** Web 头像/预览 URL 生成（getMySkin 用），可缺省（测试） */
   assetUrlResolver?: AssetUrlResolver;
+  /**
+   * 全局用户名模式读写（P5 第十一批）。可缺省（测试按单模式）：
+   * 注册初值与管理面板全局切换都走它。
+   */
+  settings?: Pick<SettingRepository, 'get' | 'setMany'>;
   /** 时钟可注入 */
   now?: () => Date;
 }
@@ -168,6 +175,7 @@ export class IdentityService {
   private readonly tokens: TokenService;
   private readonly sessions: MinecraftSessionRepository;
   private readonly assetUrlResolver?: AssetUrlResolver;
+  private readonly settings?: Pick<SettingRepository, 'get' | 'setMany'>;
   private readonly now: () => Date;
 
   constructor(deps: IdentityDependencies) {
@@ -177,7 +185,20 @@ export class IdentityService {
     this.tokens = deps.tokens;
     this.sessions = deps.sessions;
     this.assetUrlResolver = deps.assetUrlResolver;
+    this.settings = deps.settings;
     this.now = deps.now ?? (() => new Date());
+  }
+
+  /**
+   * 全站用户名模式（P5 第十一批）。未设置 = 'single'。
+   *
+   * 直接读库不走 RuntimeSettings 的 TTL 缓存：全局切换后必须立即可见，
+   * 否则「切完 30 秒内注册的用户」会拿到旧值，出现与全站不一致的账号。
+   */
+  private async readGlobalProfileMode(): Promise<ProfileMode> {
+    if (!this.settings) return 'single';
+    const raw = await this.settings.get(RuntimeSettingKeys.profileMode);
+    return raw === 'multi' ? 'multi' : 'single';
   }
 
   // ---- 校验 ----
@@ -306,6 +327,8 @@ export class IdentityService {
         passwordHash,
         role: 'user',
         now,
+        // 注册初值跟全站走（P5 第十一批）：全局是 multi 的新账号可直接纳名池/加角色
+        profileMode: await this.readGlobalProfileMode(),
       });
       const profileId = randomUUID();
       await this.profiles.insert({
@@ -644,31 +667,34 @@ export class IdentityService {
   }
 
   /**
-   * 首次决定模式（存量多角色用户下次登录必须走这条）。
+   * 首次选择保留 ID（P5 第十一批收窄：只决定「留谁」，不再决定模式）。
    *
-   * 选 'single' 时必须给出要保留的角色；其余角色转预留（数据与名字都留着），
-   * 并从此刻开始 30 天窗口 —— 这正是产品上「切回单用户名后，想用别的 ID 要等
-   * 冷却期满再从预留口里挑」的语义。只有原本就 ≤ 1 个角色时不启动窗口（无可缩减）。
+   * 模式是全站统一的（`PROFILE_MODE` 设置），用户侧唯一还存在的模式相关
+   * 决策就是这一条：全局切到 single 时名下有多个使用中 ID 的账号会进入
+   * 「待选择」态（decided_at = NULL），下次进个人中心强制弹窗选保留谁，
+   * 其余角色转预留并从此开始 30 天窗口。
+   *
+   * 已决定的账号调用这里 → 403：模式由站点统一设置，个人无任何切换入口。
    */
-  async decideInitialMode(input: {
+  async decideKeepId(input: {
     userId: string;
-    mode: ProfileMode;
     keepProfileId?: string | null;
   }): Promise<ProfileModeState> {
     const user = await this.users.findById(input.userId);
     if (!user) throw new AppError('NOT_FOUND', '用户不存在');
     if (user.profileModeDecidedAt !== null) {
       throw new AppError(
-        'VALIDATION_ERROR',
-        '用户名模式已确定，如需更改请使用切换模式',
+        'FORBIDDEN',
+        '用户名模式由站点统一设置，个人无权调整',
       );
     }
 
+    const mode = user.profileMode;
     const now = this.now();
     const profiles = await this.profiles.listByUserId(input.userId);
 
     let keep: ProfileRow | null = null;
-    if (input.mode === 'single') {
+    if (mode === 'single') {
       if (profiles.length === 0) {
         // 理论不可能（注册即建角色），但不引入额外分支：直接确定模式即可
       } else if (input.keepProfileId) {
@@ -682,7 +708,7 @@ export class IdentityService {
     }
 
     await this.db.transaction(async () => {
-      if (input.mode === 'single' && keep && profiles.length > 1) {
+      if (mode === 'single' && keep && profiles.length > 1) {
         await this.profiles.setStatusForAllExcept(
           input.userId,
           keep.id,
@@ -695,157 +721,89 @@ export class IdentityService {
           this.identityChangeStamp(keep, now),
         );
       }
-      await this.users.decideMode(input.userId, input.mode, now);
+      await this.users.decideMode(input.userId, mode, now);
     });
 
     return this.getProfileModeState(input.userId);
   }
 
   /**
-   * 切换模式（单 <-> 多）。
+   * 管理面板：全站用户名模式（仅超级管理员）。
    *
-   * 单 -> 多：预留角色全部放回 active。**不设冷却** —— 多用户名模式本身的规则
-   *   就是「无冷却」，把切换也拦掉等于给多模式加了它不该有的限制。
-   *   代价（如实记录）：用户可以「单模式被冷却挡住 -> 切到多模式改名 -> 切回单模式」
-   *   绕过 30 天窗口。这是两条产品规则叠加的必然结果，不是实现疏漏；
-   *   若日后要堵，做法是让「单 -> 多」也要求窗口已结束（一行判断）。
-   * 多 -> 单：必须指定保留哪个 active 角色（多于 1 个可用时），其余转预留，
-   *   并从此开始 30 天窗口。
+   * P5 第十一批（用户拍板）：用户名模式不再按账号各自设置 —— 由超级管理员
+   * 在管理面板统一切换，影响全部账号。这里返回当前模式与切换影响面统计，
+   * 供确认弹窗展示「有多少账号会被强制选择保留 ID」。
    */
-  async switchMode(input: {
+  async getGlobalProfileMode(actor: {
     userId: string;
+    role: UserRole;
+  }): Promise<{
     mode: ProfileMode;
-    keepProfileId?: string | null;
-  }): Promise<ProfileModeState> {
-    const user = await this.users.findById(input.userId);
-    if (!user) throw new AppError('NOT_FOUND', '用户不存在');
-    this.assertModeDecided(user);
-    if (user.profileMode === input.mode) {
-      throw new AppError(
-        'VALIDATION_ERROR',
-        input.mode === 'single' ? '当前已是单用户名模式' : '当前已是多用户名模式',
-      );
+    stats: {
+      totalUsers: number;
+      multiActiveUsers: number;
+      undecidedUsers: number;
+    };
+  }> {
+    if (actor.role !== 'super_admin') {
+      throw new AppError('FORBIDDEN', '仅超级管理员可以查看用户名模式');
     }
-
-    const now = this.now();
-    const active = await this.profiles.listActiveByUserId(input.userId);
-
-    let keep: ProfileRow | null = null;
-    if (input.mode === 'single') {
-      if (active.length === 0) {
-        throw new AppError('VALIDATION_ERROR', '账号没有可用角色，无法切换到单用户名模式');
-      }
-      if (input.keepProfileId) {
-        keep = active.find((p) => p.id === input.keepProfileId) ?? null;
-        if (!keep) {
-          // 分两种情况给出精确原因。预留角色不能直接成为「保留下来的那个」——
-          // 那等于绕开冷却启用预留角色，所以必须是 PROFILE_RESERVED 而不是「不存在」。
-          //
-          // 这条分支在当前规则下不可达（多用户名模式里不存在 reserved 角色），
-          // 保留它是防御性的：数据一旦被手工改成「multi + reserved」，这里必须挡住
-          // 而不是静默把预留角色扶成 active。
-          const other = await this.profiles.findById(input.keepProfileId);
-          if (other && other.userId === input.userId) {
-            throw new AppError(
-              'PROFILE_RESERVED',
-              '只能保留当前可用的角色 ID；预留角色需等冷却期满后单独启用',
-            );
-          }
-          throw new AppError('NOT_FOUND', '角色不存在');
-        }
-      } else if (active.length === 1) {
-        keep = active[0]!;
-      } else {
-        throw new AppError('VALIDATION_ERROR', '请选择要保留的角色 ID');
-      }
-    }
-
-    await this.db.transaction(async () => {
-      if (input.mode === 'single' && keep) {
-        await this.profiles.setStatusForAllExcept(
-          input.userId,
-          keep.id,
-          'reserved',
-          now,
-        );
-        await this.profiles.markNameChanged(
-          keep.id,
-          this.identityChangeStamp(keep, now),
-        );
-      } else if (input.mode === 'multi') {
-        await this.profiles.setStatusForAll(input.userId, 'active', now);
-      }
-      await this.users.setProfileMode(input.userId, input.mode, now);
-    });
-
-    return this.getProfileModeState(input.userId);
+    const mode = await this.readGlobalProfileMode();
+    return { mode, stats: await this.users.countProfileModeStats() };
   }
 
   /**
-   * 管理面板：代用户调整用户名模式（仅超级管理员）。
+   * 管理面板：切换全站用户名模式（仅超级管理员）。
    *
-   * 产品规则（P5 第十批用户拍板）：用户名模式自助切换是**超管专属能力**，
-   * 等级 1 及以下的账号不能自由切换，只能「被动接受」由管理面板代设的改动。
-   * 这里不做第二套状态机 —— 按目标用户是否已首次决定分派到既有的
-   * `decideInitialMode` / `switchMode`，副作用（预留/保留/30 天窗口）保持一致。
+   * 切到 single：名下有多个使用中 ID 的账号进入「待选择」态（decided_at 置
+   * NULL），下次进个人中心强制弹窗选保留 ID，选定的留下、其余转预留（30 天
+   * 窗口随之启动）；只有 ≤1 个可用 ID 的账号不受影响。
+   * 切到 multi：仅同步各用户的模式副本，无强制动作（multi 无冷却、无强制选择）。
+   *
+   * 设置写入与用户副本迁移**故意不分同一个事务**：SettingRepository 与本服务
+   * 可能持有不同连接，跨仓库事务不可靠。先写设置（事实源）再刷副本，中途
+   * 失败重跑一次即可收敛 —— 本方法对「已是目标模式」幂等，直接返回不迁移。
    */
-  async adminSetProfileMode(
+  async setGlobalProfileMode(
     actor: { userId: string; role: UserRole },
-    targetUserId: string,
-    input: { mode: ProfileMode; keepProfileId?: string | null },
-  ): Promise<ProfileModeState> {
+    mode: ProfileMode,
+  ): Promise<{
+    mode: ProfileMode;
+    stats: {
+      totalUsers: number;
+      multiActiveUsers: number;
+      undecidedUsers: number;
+    };
+  }> {
     if (actor.role !== 'super_admin') {
       throw new AppError('FORBIDDEN', '仅超级管理员可以调整用户名模式');
     }
-    const target = await this.users.findById(targetUserId);
-    if (!target) throw new AppError('NOT_FOUND', '用户不存在');
-
-    if (target.profileModeDecidedAt === null) {
-      return this.decideInitialMode({
-        userId: targetUserId,
-        mode: input.mode,
-        keepProfileId: input.keepProfileId ?? null,
-      });
+    if (mode !== 'single' && mode !== 'multi') {
+      throw new AppError('VALIDATION_ERROR', '无效的用户名模式');
     }
-    return this.switchMode({
-      userId: targetUserId,
-      mode: input.mode,
-      keepProfileId: input.keepProfileId ?? null,
-    });
-  }
-
-  /**
-   * 管理面板：目标用户的模式详情（仅超级管理员）。
-   *
-   * 返回状态快照 + 活跃/预留角色清单：面板要把「切为单用户名时保留哪一个」
-   * 渲染成可选项，只有状态没有名字的话弹窗没法让人选。
-   */
-  async adminGetProfileMode(
-    actor: { userId: string; role: UserRole },
-    targetUserId: string,
-  ): Promise<{
-    state: ProfileModeState;
-    activeProfiles: ProfileSummary[];
-    reservedProfiles: ProfileSummary[];
-  }> {
-    if (actor.role !== 'super_admin') {
-      throw new AppError('FORBIDDEN', '仅超级管理员可以查看用户名模式详情');
+    if (!this.settings) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        '当前实例未接入设置存储，无法切换全局用户名模式',
+      );
     }
-    const target = await this.users.findById(targetUserId);
-    if (!target) throw new AppError('NOT_FOUND', '用户不存在');
 
-    const [state, active, reserved] = await Promise.all([
-      this.getProfileModeState(targetUserId),
-      this.profiles.listActiveByUserId(targetUserId),
-      this.profiles.listReservedByUserId(targetUserId),
-    ]);
-    const brief = (rows: ProfileRow[]): ProfileSummary[] =>
-      rows.map((p) => ({ id: p.id, name: p.name }));
-    return {
-      state,
-      activeProfiles: brief(active),
-      reservedProfiles: brief(reserved),
-    };
+    const current = await this.readGlobalProfileMode();
+    if (current === mode) {
+      return { mode, stats: await this.users.countProfileModeStats() };
+    }
+
+    const now = this.now();
+    await this.settings.setMany(
+      { [RuntimeSettingKeys.profileMode]: mode },
+      now,
+    );
+    await this.users.syncProfileModeForAll(mode, now);
+    if (mode === 'single') {
+      await this.users.markMultiActiveUndecided(now);
+    }
+
+    return { mode, stats: await this.users.countProfileModeStats() };
   }
 
   /**

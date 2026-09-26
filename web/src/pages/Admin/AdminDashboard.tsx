@@ -1,12 +1,13 @@
 import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
 import { useState, useEffect } from 'react'
 import { Layout, Menu, Spin, Statistic, Row, Col, Card, message } from 'antd'
-import { 
-  DashboardOutlined, 
-  UserOutlined, 
+import {
+  DashboardOutlined,
+  UserOutlined,
   SkinOutlined,
   SettingOutlined,
   AppstoreOutlined,
+  UserSwitchOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useAuthStore } from '../../store/authStore'
@@ -17,6 +18,7 @@ import UserManagement from './UserManagement'
 import SkinApproval from './SkinApproval'
 import CapeApproval from './CapeApproval'
 import { SystemSettings } from './SystemSettings'
+import ProfileModeSettings from './ProfileModeSettings'
 import AdminSkinManagement from './AdminSkinManagement'
 import AdminCapeManagement from './AdminCapeManagement'
 import AdminErrorBoundary from './AdminErrorBoundary'
@@ -100,6 +102,12 @@ export function AdminDashboard(_props: AdminDashboardProps) {
       label: t('admin.capeManagement'),
       // level >= 1 可用（管理员可管理所有披风）
     },
+    // 「用户名模式」单独一页（P5 第十一批）：全站统一设置，仅超管可见可切
+    ...(isSuperAdmin ? [{
+      key: 'profile-mode',
+      icon: <UserSwitchOutlined />,
+      label: t('admin.profileModePageTitle'),
+    }] : []),
     // 「黑名单」页签已摘除：MSCTS 既没有封禁名单表也没有 `/api/admin/blacklist` 端点，
     // 旧版页面靠兼容层返回假数据（永远「暂无记录」）撑着 —— 那是死页面。
     // 封禁能力本身在（用户管理里的封禁按钮走 PATCH /api/admin/users/:id），
@@ -126,6 +134,8 @@ export function AdminDashboard(_props: AdminDashboardProps) {
           return <AdminSkinManagement />
         case 'cape-management':
           return <AdminCapeManagement />
+        case 'profile-mode':
+          return <ProfileModeSettings />
         case 'settings':
           return <SystemSettings />
         default:

@@ -94,20 +94,17 @@ export const accountSecurityService = {
   },
 
   /**
-   * 保存模式选择。
+   * 提交「保留哪个 ID」的选择（P5 第十一批收窄）。
    *
-   * 首次决定与后续切换共用一个端点：当前该走哪条路由**服务端**根据
-   * `decidedAt` 判断，前端不要自己猜（猜错会出现「以为在决定、实为切换」的错位）。
-   * `keepProfileId` 在选 'single' 且当前 active 角色多于 1 个时必填。
+   * 模式已改为全站统一（`PROFILE_MODE` 设置），个人不再有任何模式切换入口 ——
+   * 这个端点只剩一个用途：全局切到单用户名后，名下有多个使用中 ID 的账号
+   * 在强制弹窗里选保留谁（其余转预留并启动 30 天窗口）。已决定的账号调用
+   * 会拿到 403，前端不应在已决定时打开这个弹窗。
    */
-  saveProfileMode(
-    mode: ProfileMode,
-    keepProfileId?: string | null,
-  ): Promise<ProfileModeState> {
+  decideKeepProfile(keepProfileId?: string | null): Promise<ProfileModeState> {
     return apiRequest<ProfileModeState>('/api/me/profile-mode', {
       method: 'POST',
       json: {
-        mode,
         ...(keepProfileId ? { keepProfileId } : {}),
       },
     })

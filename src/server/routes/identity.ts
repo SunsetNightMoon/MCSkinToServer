@@ -248,38 +248,21 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   });
 
   /**
-   * 决定或切换模式。
+   * 首次选择保留 ID（P5 第十一批收窄）。
    *
-   * 用一个端点承载两件事（而不是 decide / switch 分开）：对界面而言就是同一个
-   * 「保存我的选择」按钮，而「当前该走哪条路」由服务端的状态决定 ——
-   * 让前端自己判断就会出现「前端以为在决定、后端认为在切换」的错位。
-   * 响应体始终返回切换后的完整状态，前端不需要再拉一次。
-   *
-   * **P5 第十批：自助切换是超管专属能力。** 等级 1 及以下的账号不能自由切换，
-   * 只能由超级管理员在管理面板代设（`PUT /api/admin/users/:id/profile-mode`）。
-   * 读取（GET）不受限 —— 个人中心要显示当前模式，等级 0/1 的用户也需要看。
+   * 全局切到 single 时名下有多个使用中 ID 的账号会进入「待选择」态，
+   * 这里就是那个强制弹窗的提交端点。模式本身是全站统一的（`PROFILE_MODE`
+   * 设置），任何账号（含超管）都没有自助切换入口 —— 已决定的账号调用
+   * 这里会拿到 403。响应体返回选择后的完整状态，前端不需要再拉一次。
    */
   router.post('/api/me/profile-mode', auth, async (req, res) => {
-    if (req.context!.role !== 'super_admin') {
-      throw new AppError(
-        'FORBIDDEN',
-        '用户名模式仅超级管理员可自行切换，请联系超级管理员在管理面板调整',
-      );
-    }
     const userId = req.context!.userId;
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const mode = String(body['mode'] ?? '');
-    if (mode !== 'single' && mode !== 'multi') {
-      throw new AppError('VALIDATION_ERROR', 'mode 只能是 single 或 multi');
-    }
     const keepProfileId =
       body['keepProfileId'] === undefined || body['keepProfileId'] === null
         ? null
         : String(body['keepProfileId']);
-    const current = await deps.identity.getProfileModeState(userId);
-    const state = current.decisionRequired
-      ? await deps.identity.decideInitialMode({ userId, mode, keepProfileId })
-      : await deps.identity.switchMode({ userId, mode, keepProfileId });
+    const state = await deps.identity.decideKeepId({ userId, keepProfileId });
     res.json(state);
   });
 

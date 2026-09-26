@@ -145,14 +145,16 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
   );
 
   // ==========================================================================
-  // B. 多用户名模式：无冷却、上限 10；多 -> 单 需指定保留者并以此刻起算冷却
+  // B. 多用户名模式：无冷却、上限 10；回到单模式走「全局切换 + 强制选保留 ID」
   // ==========================================================================
 
-  // 单 -> 多：**刻意不设冷却**。产品上多用户名模式的规则就是「无冷却」，
-  // 把切换也拦掉等于给多模式加了它不该有的限制。代价是「切到多模式改名再切回」
-  // 可以绕过单模式的 30 天窗口 —— 这是两条规则叠加的必然结果，此处显式记录，
-  // 免得日后有人以为是漏改。
-  state = await identity.switchMode({ userId: reg.user.id, mode: 'multi' });
+  // P5 第十一批：模式是全站统一设置（PROFILE_MODE），个人不再有任何切换入口。
+  // 测试里用「直接改用户副本 + 触发待选择」模拟管理面板的全局切换效果 ——
+  // 与 setGlobalProfileMode 对单用户做的事一致（syncProfileModeForAll +
+  // markMultiActiveUndecided）。原先「切到多模式改名再切回可绕过冷却」的
+  // 讨论随之失效：个人切换已不存在，绕过通道一并消失。
+  await users.setProfileMode(reg.user.id, 'multi', new Date());
+  state = await identity.getProfileModeState(reg.user.id);
   assert.equal(state.mode, 'multi');
   assert.equal(state.activeLimit, 10, '多模式下可用角色上限为 10');
   assert.equal(state.reservedCount, 0);
@@ -160,12 +162,6 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
   // 多模式下改名不受冷却限制（上面的窗口仍在，但只对单模式生效）
   await identity.renameProfile(reg.user.id, reg.profile.id, nm());
   await identity.renameProfile(reg.user.id, reg.profile.id, nm());
-
-  await assertCode(
-    () => identity.switchMode({ userId: reg.user.id, mode: 'multi' }),
-    'VALIDATION_ERROR',
-    '切换到当前已有模式',
-  );
 
   // 补到 10 个（已有 1 个），第 11 个必须被拒
   const extraIds: string[] = [];
@@ -181,29 +177,37 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
     '超过 10 个角色的上限',
   );
 
-  // 多 -> 单 而不指定保留者：可用角色多于 1 个，必须拒绝
+  // 模拟全局切回 single：副本刷平 + 多活跃账号标记待选择（生产路径的两步）
+  await users.setProfileMode(reg.user.id, 'single', new Date());
+  await users.markMultiActiveUndecided(new Date());
+  const pendingAfterSwitch = await identity.getProfileModeState(reg.user.id);
+  assert.equal(
+    pendingAfterSwitch.decisionRequired,
+    true,
+    '全局切到 single 后，多活跃账号应进入待选择态',
+  );
+
+  // 待选择状态下选保留者但不给 ID → 拒绝
   await assertCode(
-    () => identity.switchMode({ userId: reg.user.id, mode: 'single' }),
+    () => identity.decideKeepId({ userId: reg.user.id }),
     'VALIDATION_ERROR',
-    '多 -> 单 未指定保留角色',
+    '选择保留 ID 未指定角色',
   );
 
   // 指定一个不存在的角色当保留者 → NOT_FOUND
   await assertCode(
     () =>
-      identity.switchMode({
+      identity.decideKeepId({
         userId: reg.user.id,
-        mode: 'single',
         keepProfileId: randomUUID(),
       }),
     'NOT_FOUND',
-    '多 -> 单 指定了不存在的角色',
+    '指定了不存在的保留角色',
   );
 
   const keepId = extraIds[0]!;
-  state = await identity.switchMode({
+  state = await identity.decideKeepId({
     userId: reg.user.id,
-    mode: 'single',
     keepProfileId: keepId,
   });
   assert.equal(state.mode, 'single');
@@ -337,7 +341,6 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
     ['新建角色', () => identity.createProfile(pendingId, nm())],
     ['改名', () => identity.renameProfile(pendingId, pendingProfiles[0]!.id, nm())],
     ['删除角色', () => identity.deleteProfile(pendingId, pendingProfiles[0]!.id)],
-    ['切换模式', () => identity.switchMode({ userId: pendingId, mode: 'multi' })],
     [
       '启用预留角色',
       () => identity.activateReservedProfile(pendingId, pendingProfiles[0]!.id),
@@ -346,17 +349,16 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
     await assertCode(fn, 'MODE_CHOICE_REQUIRED', `待选择状态下${what}`);
   }
 
-  // 选单模式但不给保留者 → 拒绝
+  // 选择保留 ID 但不给保留者 → 拒绝
   await assertCode(
-    () => identity.decideInitialMode({ userId: pendingId, mode: 'single' }),
+    () => identity.decideKeepId({ userId: pendingId }),
     'VALIDATION_ERROR',
-    '选择单用户名模式但未指定保留角色',
+    '选择保留 ID 但未指定保留角色',
   );
   await assertCode(
     () =>
-      identity.decideInitialMode({
+      identity.decideKeepId({
         userId: pendingId,
-        mode: 'single',
         keepProfileId: randomUUID(),
       }),
     'NOT_FOUND',
@@ -364,9 +366,8 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
   );
 
   const keep = pendingProfiles[1]!;
-  const decided = await identity.decideInitialMode({
+  const decided = await identity.decideKeepId({
     userId: pendingId,
-    mode: 'single',
     keepProfileId: keep.id,
   });
   assert.equal(decided.decisionRequired, false, '选完就不再弹');
@@ -381,9 +382,9 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
   assert.notEqual(decided.decidedAt, null, '决定时刻应写回 users');
 
   await assertCode(
-    () => identity.decideInitialMode({ userId: pendingId, mode: 'multi' }),
-    'VALIDATION_ERROR',
-    '重复决定模式',
+    () => identity.decideKeepId({ userId: pendingId }),
+    'FORBIDDEN',
+    '已决定的账号没有选择入口（模式由站点统一设置）',
   );
 
   // 决定之后再走普通规则：单模式下仍然不能新建
@@ -393,7 +394,7 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
     '决定为单模式后新建角色',
   );
 
-  // 待选择的另一条路：直接选多模式 → 全部保持 active，且不启动窗口
+  // 待选择的另一条路：全局为多模式时，直接确认即可 → 全部保持 active，不启动窗口
   const multiPendingId = randomUUID();
   await env.db.transaction(async () => {
     await users.insert({
@@ -413,10 +414,9 @@ async function exercise(env: Env, emailPrefix: string, tag: string): Promise<voi
       });
     }
   });
-  const asMulti = await identity.decideInitialMode({
-    userId: multiPendingId,
-    mode: 'multi',
-  });
+  // 全局多模式下，用户的模式副本已被刷成 multi（生产路径 syncProfileModeForAll）
+  await users.setProfileMode(multiPendingId, 'multi', new Date());
+  const asMulti = await identity.decideKeepId({ userId: multiPendingId });
   assert.equal(asMulti.mode, 'multi');
   assert.equal(asMulti.activeCount, 2, '选多模式应把角色全部保持可用');
   assert.equal(asMulti.reservedCount, 0);

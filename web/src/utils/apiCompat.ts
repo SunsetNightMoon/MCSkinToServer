@@ -174,8 +174,6 @@ function toLegacyUserRow(u: any): Record<string, any> {
     ban_reason: u?.banReason ?? null,
     created_at: u?.createdAt ?? '',
     last_login_at: u?.lastLoginAt ?? null,
-    // P5 第十批：用户名模式（管理面板「用户名模式」弹窗用它回显当前值）
-    profile_mode: u?.profileMode ?? 'single',
   }
 }
 
@@ -616,6 +614,9 @@ export async function compatFetch(
     '/api/admin/settings',
     '/api/admin/test-smtp',
     '/api/admin/email-template',
+    // 全站用户名模式（P5 第十一批）：GET 读模式+统计 / PUT 全局切换，
+    // 后端原样 JSON，无需翻译 —— 与 settings 同等对待
+    '/api/admin/profile-mode',
     // 代用户重发验证邮件（POST）与手动放行/收回邮箱验证（PUT）：
     // 后端 `admin.ts` 里早就实现了，但前缀兜底把它们拦成 501，
     // 于是 UserManagement 上那两个按钮点了只会弹「敬请期待」。
