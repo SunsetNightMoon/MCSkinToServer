@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import { dialectDirName, loadConfig, resolveRateLimit } from '../config.js';
+import {
+  dialectDirName,
+  loadConfig,
+  resolveCaptchaGenerateRateLimit,
+  resolveRateLimit,
+  resolveRefreshRateLimit,
+} from '../config.js';
 import { createDatabase } from '../db/index.js';
 import { createCacheLayer } from '../cache/index.js';
 import { runMigrations } from '../migrate/runner.js';
@@ -9,10 +15,12 @@ import { RuntimeSettings } from '../site/runtimeSettings.js';
 import { SecretBox, MASTER_SECRET_ENV } from '../util/secretBox.js';
 import { AccountTokenRepository } from '../repositories/accountTokenRepository.js';
 import { EmailChangeRepository } from '../repositories/emailChangeRepository.js';
+import { CaptchaRepository } from '../repositories/captchaRepository.js';
 import { SmtpMailer } from '../mail/smtpMailer.js';
 import { MailService } from '../mail/mailService.js';
 import { EmailFlow } from '../account/emailFlow.js';
 import { EmailChangeFlow } from '../account/emailChangeFlow.js';
+import { CaptchaService } from '../account/captcha.js';
 import { TokenService } from '../auth/tokens.js';
 import { IdentityService } from '../auth/identity.js';
 import { purgeExpiredAccounts } from '../auth/accountLifecycle.js';
@@ -124,6 +132,9 @@ async function main(): Promise<void> {
 
   const accountTokens = new AccountTokenRepository(db);
   const emailChangeRepo = new EmailChangeRepository(db);
+  // ---- 0004：人机验证（自托管数学题；开关由 ENABLE_CAPTCHA 控制）----
+  const captchaRepo = new CaptchaRepository(db);
+  const captcha = new CaptchaService({ challenges: captchaRepo });
   const smtpMailer = new SmtpMailer(runtimeSettings);
   const mailService = new MailService({
     mailer: smtpMailer,
@@ -199,6 +210,8 @@ async function main(): Promise<void> {
     // ---- P5 可选依赖：未注入就不做限流、设置读取直连数据库 ----
     rateLimiter: cacheLayer.rateLimiter,
     rateLimitSettings: resolveRateLimit(config),
+    refreshRateLimitSettings: resolveRefreshRateLimit(config),
+    captchaGenerateRateLimitSettings: resolveCaptchaGenerateRateLimit(config),
     cache: cacheLayer.cache,
     settingsCacheTtlMs: config.settingsCacheTtlMs,
     // P5：站点地址 / 开关 / 邮件
@@ -206,6 +219,7 @@ async function main(): Promise<void> {
     runtimeSettings,
     emailFlow,
     emailChangeFlow,
+    captcha,
     mailService,
     secretBox,
   });

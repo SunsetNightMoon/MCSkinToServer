@@ -92,5 +92,9 @@ export interface RegisterDTO {
 export interface LoginDTO {
   email: string
   password: string
+  // 0004 人机验证：注册/登录页在 `captcha-type` 返回 'math' 时回传这两个字段。
+  // 后端只在 `ENABLE_CAPTCHA` 开启时校验；关闭时带上也无害。
+  captcha_session_id?: string
+  captcha_answer?: string
   turnstile_token?: string
 }

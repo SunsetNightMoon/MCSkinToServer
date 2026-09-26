@@ -14,10 +14,20 @@ import { SqliteConnection } from '../src/db/sqlite.js';
 import { runMigrations } from '../src/migrate/runner.js';
 import { SettingRepository } from '../src/repositories/settingRepository.js';
 import { createIdentityRouter } from '../src/server/routes/identity.js';
+import { createYggdrasilRouter } from '../src/server/routes/yggdrasil.js';
+import { createCaptchaRouter } from '../src/server/routes/captcha.js';
 import { bodyKey, clientIp, rateLimit } from '../src/server/rateLimit.js';
 import { errorHandler } from '../src/server/errorHandler.js';
 import { AppError } from '../src/errors.js';
-import { DEFAULT_SETTINGS_CACHE_TTL_MS } from '../src/config.js';
+import {
+  DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT,
+  DEFAULT_RATE_LIMIT,
+  DEFAULT_REFRESH_RATE_LIMIT,
+  DEFAULT_SETTINGS_CACHE_TTL_MS,
+  resolveCaptchaGenerateRateLimit,
+  type AppConfig,
+  type RateLimitSettings,
+} from '../src/config.js';
 import type { DatabaseConnection } from '../src/types.js';
 import type { IdentityService } from '../src/auth/identity.js';
 import type { TokenService } from '../src/auth/tokens.js';
@@ -450,6 +460,231 @@ test('POST /api/auth/login：未注入限流器时行为与加限流前完全一
   } finally {
     await server.close();
   }
+});
+
+// ------------------------------------------------- refresh 限流（按来源地址）
+
+/**
+ * `POST /refresh` 的限流键必须取**来源地址**，刻意不按用户名。
+ *
+ * 为什么值得专门写测试：启动器（HMCL 等）会在 accessToken 临近过期时自动
+ * 定期刷新。若按账号计数，一次正常挂机就会把配额耗光，表现为「挂机一阵后
+ * 启动器突然掉线，重新登录又好」，日志里只有一串 429 —— 事后极难归因。
+ * 所以这里的断言不是「有没有 429」，而是「键长什么样、换 token 会不会重置」。
+ */
+function refreshApp(
+  rateLimiter?: RateLimiterPort,
+  refreshRateLimit?: RateLimitSettings,
+): Express {
+  const identity = {
+    refreshYggdrasil: async (input: { accessToken: string; clientToken: string }) => ({
+      accessToken: 'refreshed-access-token',
+      clientToken: input.clientToken,
+    }),
+  } as unknown as IdentityService;
+
+  const app = express();
+  app.use(express.json());
+  app.use(
+    createYggdrasilRouter({
+      identity,
+      sessions: {} as never,
+      profiles: {} as never,
+      textureBuilder: {} as never,
+      assetUrlResolver: {} as never,
+      rateLimiter,
+      refreshRateLimit,
+    }),
+  );
+  app.use((_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
+  app.use(errorHandler);
+  return app;
+}
+
+/** 记录每次 consume 用到的键，便于断言「键取的是什么」 */
+class RecordingRateLimiter implements RateLimiterPort {
+  readonly keys: string[] = [];
+  private readonly inner = new MemoryRateLimiter();
+
+  async consume(key: string, limit: number, windowMs: number) {
+    this.keys.push(key);
+    return this.inner.consume(key, limit, windowMs);
+  }
+
+  async reset(key: string): Promise<void> {
+    await this.inner.reset(key);
+  }
+
+  async close(): Promise<void> {
+    await this.inner.close();
+  }
+}
+
+function refreshCall(baseUrl: string, accessToken: string): Promise<Response> {
+  return fetch(`${baseUrl}/refresh`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ accessToken, clientToken: 'launcher-client-token' }),
+  });
+}
+
+test('POST /refresh：第 N+1 次返回 429，且限流键是来源地址而非账号', async () => {
+  const limiter = new RecordingRateLimiter();
+  const server = await listen(
+    refreshApp(limiter, { enabled: true, max: 3, windowMs: 60_000 }),
+  );
+
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      const res = await refreshCall(server.baseUrl, `access-token-${i}`);
+      assert.equal(res.status, 200, `第 ${i} 次应放行，实得 ${res.status}`);
+    }
+
+    // 关键：四次请求用的是**四个不同的 accessToken**，仍被同一窗口拦住
+    const blocked = await refreshCall(server.baseUrl, 'access-token-4');
+    assert.equal(blocked.status, 429, '同一来源地址的刷新必须共用配额');
+    const body = (await blocked.json()) as Record<string, unknown>;
+    assert.equal(body['error'], 'TOO_MANY_REQUESTS');
+    assert.ok(Number(body['retryAfterSeconds']) >= 1);
+    assert.ok(blocked.headers.get('retry-after'));
+
+    // 键形如 `mscts:rl:yggrefresh:<ip>`，且与 token 无关
+    assert.equal(limiter.keys.length, 4);
+    for (const key of limiter.keys) {
+      assert.equal(key, limiter.keys[0], `限流键不得随 accessToken 变化：${key}`);
+      assert.match(key, /^mscts:rl:yggrefresh:/);
+    }
+    assert.match(limiter.keys[0]!, /^mscts:rl:yggrefresh:127\.0\.0\.1$/);
+
+    // 另一个 IP 的窗口是独立的（这里直接用同一限流器验证隔离性）
+    const other = await limiter.consume(RateLimitKeys.yggdrasilRefresh('203.0.113.9'), 3, 60_000);
+    assert.equal(other.allowed, true, '不同来源地址不应共享配额');
+  } finally {
+    await server.close();
+    await limiter.close();
+  }
+});
+
+test('POST /refresh：未注入限流器时行为与加限流前完全一致', async () => {
+  const server = await listen(refreshApp(undefined, { enabled: true, max: 1, windowMs: 60_000 }));
+
+  try {
+    for (let i = 0; i < 8; i += 1) {
+      const res = await refreshCall(server.baseUrl, `access-token-${i}`);
+      assert.equal(res.status, 200, '未注入限流器时不得出现 429');
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /refresh：默认参数为 30 次 / 5 分钟（给启动器后台刷新留余量）', () => {
+  assert.equal(DEFAULT_REFRESH_RATE_LIMIT.enabled, true);
+  assert.equal(DEFAULT_REFRESH_RATE_LIMIT.max, 30);
+  assert.equal(DEFAULT_REFRESH_RATE_LIMIT.windowMs, 5 * 60 * 1000);
+});
+
+// ------------------------------------------- 验证码出题端点限流（按来源地址）
+
+/**
+ * `GET /api/captcha/generate` 必须有**自己的一套**限流参数。
+ *
+ * 回归的是实测踩到的一个坑：它原先复用认证端点的 5 次/5 分钟，结果正常用户
+ * 「进页面取一题 → 答错点换一道 → 严格模式下挂载重复一次」就能打满；打满后
+ * 前端因为不检查 response.ok，把 429 当成成功解析，题干渲染成空白输入框 ——
+ * 用户填不出、看不到任何提示，注册整条路被堵死。
+ */
+function captchaApp(rateLimiter?: RateLimiterPort, generateRateLimit?: RateLimitSettings): Express {
+  const captcha = {
+    generate: async (sessionId: string) => ({
+      sessionId,
+      question: '3 + 4 = ?',
+      expiresInSeconds: 600,
+    }),
+  };
+
+  const app = express();
+  app.use(express.json());
+  app.use(createCaptchaRouter({ captcha: captcha as never, rateLimiter, generateRateLimit }));
+  app.use((_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
+  app.use(errorHandler);
+  return app;
+}
+
+test('GET /api/captcha/generate：第 N+1 次返回 429，限流键按来源地址', async () => {
+  const limiter = new RecordingRateLimiter();
+  const server = await listen(captchaApp(limiter, { enabled: true, max: 2, windowMs: 60_000 }));
+
+  try {
+    for (let i = 1; i <= 2; i += 1) {
+      const res = await fetch(`${server.baseUrl}/api/captcha/generate?sessionId=s${i}`);
+      assert.equal(res.status, 200, `第 ${i} 次应放行，实得 ${res.status}`);
+    }
+    const blocked = await fetch(`${server.baseUrl}/api/captcha/generate?sessionId=s3`);
+    assert.equal(blocked.status, 429);
+    const body = (await blocked.json()) as Record<string, unknown>;
+    assert.equal(body['error'], 'TOO_MANY_REQUESTS');
+    assert.match(String(body['message']), /验证码请求过于频繁/);
+
+    // 键形如 `mscts:rl:captcha:<ip>`，与 sessionId 无关
+    assert.equal(limiter.keys.length, 3);
+    for (const key of limiter.keys) {
+      assert.equal(key, limiter.keys[0], `限流键不得随 sessionId 变化：${key}`);
+      assert.match(key, /^mscts:rl:captcha:127\.0\.0\.1$/);
+    }
+  } finally {
+    await server.close();
+    await limiter.close();
+  }
+});
+
+test('GET /api/captcha/generate：未注入限流器时行为与加限流前完全一致', async () => {
+  const server = await listen(captchaApp(undefined, { enabled: true, max: 1, windowMs: 60_000 }));
+
+  try {
+    for (let i = 0; i < 6; i += 1) {
+      const res = await fetch(`${server.baseUrl}/api/captcha/generate?sessionId=s${i}`);
+      assert.equal(res.status, 200, '未注入限流器时不得出现 429');
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test('验证码出题限流默认参数为 10 次 / 5 分钟，且与认证端点分开', () => {
+  assert.equal(DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.enabled, true);
+  assert.equal(DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.max, 10);
+  assert.equal(DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.windowMs, 5 * 60 * 1000);
+  assert.notEqual(
+    DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.max,
+    DEFAULT_RATE_LIMIT.max,
+    '必须比认证端点的 5 次宽松，否则正常用户几步就撞上限',
+  );
+});
+
+test('出题限流解析：总开关关闭时一并关掉，避免「关了限流但验证码还在挡」', () => {
+  const base = {
+    dialect: 'sqlite',
+    sqlitePath: ':memory:',
+    migrationsRoot: '.',
+    uploadDir: '.',
+    publicBaseUrl: 'http://localhost/uploads',
+    rsaPrivateKeyPath: './k.pem',
+    skinDomains: [],
+  } as unknown as AppConfig;
+
+  assert.equal(resolveCaptchaGenerateRateLimit(base).max, 10);
+  assert.equal(resolveCaptchaGenerateRateLimit(base).enabled, true);
+
+  const disabled = { ...base, rateLimit: { enabled: false } } as unknown as AppConfig;
+  assert.equal(resolveCaptchaGenerateRateLimit(disabled).enabled, false);
+
+  const custom = {
+    ...base,
+    captchaGenerateRateLimit: { max: 50, windowMs: 60_000 },
+  } as unknown as AppConfig;
+  assert.equal(resolveCaptchaGenerateRateLimit(custom).max, 50);
+  assert.equal(resolveCaptchaGenerateRateLimit(custom).windowMs, 60_000);
 });
 
 // ---------------------------------------------------------------- 设置缓存

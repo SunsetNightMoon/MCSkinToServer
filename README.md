@@ -386,6 +386,113 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   2. **第三方登录仍无任何真实实现**：4 个端点**故意 501**；`docs/oauth-provider-guide.md` 已给出接入契约与回调检查清单，落地需另行开工
   3. **`OAuthCallback.tsx` 是死代码**（旧前端遗留，指向尚未实现的回调），指南里已标注
 
+## P5 第五批：数学题验证码（0004）+ 三项修正
+
+### 四项决策（先说结论）
+
+1. **验证码自托管，不接 Cloudflare Turnstile** —— 不引外部 JS、不把访客 IP 交给第三方。因此 `/api/captcha/captcha-type` **只可能返回 `'math'` 或 `'none'`，响应里不含 `siteKey`**（旧前端的 `turnstile` 分支永远走不到，但保留不影响）。
+2. **出题端点必须有自己的一套限流参数**，不能复用认证端点的 5 次/5 分钟（理由见下「实测踩到的两个缺陷」）。
+3. **`POST /refresh` 限流按来源 IP，不按用户名**（理由见下）。
+4. **「单 → 多」绕过 30 天窗口不修** —— 是否堵由管理员按运营需要决定，本批不动。
+
+### 迁移 0004（双方言）
+
+`schema/sqlite/0004_captcha_challenges.sql` + `schema/postgresql/0004_captcha_challenges.sql`，单表 `captcha_challenges`：
+
+| 列 | 说明 |
+|---|---|
+| `id` | 主键（PG 为 UUID） |
+| `session_id` | **UNIQUE**；由**客户端**生成并持有，后端据此找回答案 |
+| `answer_hash` | 答案的 sha256（**只为避免整表被 dump 时直接泄露，不是安全边界** —— 答案空间只有 0..100，字典一查就穿） |
+| `expires_at` | TTL **10 分钟**（用户在页面挂载时就取题，可能要填一会儿才提交） |
+| `used_at` | 非空即已消费 |
+
+### 仓储 / 服务 / 路由
+
+- `src/repositories/captchaRepository.ts`：`replace()`（**事务内先 DELETE 同 `session_id` 再 INSERT**，保证「同一 sessionId 只留最新一题」）、`findBySessionId()`、`consume(sessionId, at)`（原子 `WHERE session_id=? AND used_at IS NULL AND expires_at > ?` + `RETURNING`）、`deleteExpired(before)`、`countAll()`。时间列在 PG 上需 `::timestamptz` 绑参（沿用 `phAt(db.dialect, i)` 的写法）。
+- `src/account/captcha.ts`：`generateQuestion()`（`+`：1..20 加 1..20；`-`：被减数 5..30 且差 ≥4，**不出负数**；`×`：2..9 乘 2..9）、`normalizeAnswer()`（容忍空白、前导零、`+` 号与 number 入参；拒绝小数与非数字）、`CaptchaService`（`generate()` 校验 sessionId → `replace()` → 顺带 `deleteExpired()`，清理失败只 warn；`verify()` **先消费再比对**）。
+- `src/server/routes/captcha.ts`：
+  - `GET /api/captcha/captcha-type` → `Cache-Control: no-store` + `{ type: enabled ? 'math' : 'none' }`
+  - `GET /api/captcha/generate?sessionId=…`（**按 IP 限流**）→ 未注入服务时明确 **503 `CAPTCHA_UNAVAILABLE`**（不静默给空题目）
+
+**验证码的三条硬规则**（都有测试兜着）：
+
+1. `session_id` 由客户端提供，后端据此找回答案；同一 id 重新出题**覆盖**旧题。
+2. **先消费再比对**：答错也把题烧掉 —— 否则可以拿一道题穷举 0..200 就猜中了。
+3. 不存在 / 已用过 / 已过期 / 答案错，**统一回 `CAPTCHA_INVALID`**（不区分，避免成为探测预言机）。
+
+### 接线（`identity.ts` / `app.ts` / `main.ts` / 前端）
+
+- `identity.ts` 新增 `assertCaptcha(body)`，**放在 `register` 与 `login` 的最前面（早于密码校验）**：开关关闭 → 直接放行；开关打开但服务未注入 → **fail-closed** 抛 `CAPTCHA_INVALID`（绝不因为部署漏配而把闸门关掉）。
+- 前端 `authService.ts` 的 `register` / `login` **原先只转发 `email/password/profileName`**，页面塞进 DTO 的 `captcha_session_id` / `captcha_answer` 被静默丢弃 → 现象是「开了验证码、答对也被拒」。本批补齐转发。
+
+### 实测踩到的两个缺陷（都已修，都有回归测试）
+
+用真实浏览器截图验收时才暴露出来的，服务层测试全绿也发现不了：
+
+**缺陷 1：出题端点复用了 5 次/5 分钟的限流，正常用户几步就打满。**
+
+取证：截图里题干是**空白输入框**。手工打满后确认是 429。真人路径「进页面取一题 → 答错点换一道 → React 严格模式下挂载被调用两次」即可耗尽；且限流按 IP 计，共用出口地址（宿舍 / 机房 NAT）下多人会互相误伤。
+
+修复：新增 `DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT`（**10 次 / 5 分钟**），可用 `CAPTCHA_GENERATE_RATE_LIMIT_MAX` / `CAPTCHA_GENERATE_RATE_LIMIT_WINDOW_MS` 覆盖，**总开关仍是 `RATE_LIMIT_DISABLED`**（排障时关一处就该全关）。
+
+**缺陷 2：出题失败在前端是「静默死路」。**
+
+`loadCaptcha()` 不检查 `response.ok`，把 429 的**错误响应当成功解析**，`data.question` 为 `undefined` → 渲染成空白题干，用户填不出、也看不到任何提示；更外层还有两个帮凶：
+
+- `apiCompat.ts` 把 `/api/captcha/*` 的非 2xx **包成合成的 200**（`json({ question: '' })`），调用方看到的 `ok` 永远是 `true`，后端那份「请等 258 秒后重试」的文案被彻底吞掉；
+- 改用 `Form.Item` 的 `help` 插槽显示文案时，**文字确实进了 DOM 但 antd 的 explain 动效不落定**，截图里完全看不到（与批4 记录的「虚拟时间下 AntD 入场动画不推进」是同一类问题）。
+
+修复三处：① `apiCompat` 对 `/api/captcha/*` 改为**完全透传**（连状态码一起交回，真·网络异常才降级 503）；② `Register.tsx` / `Login.tsx` / `loadCaptcha` 检查 `ok` 与 `data.question`，失败时置错误态；③ 错误文案改用**普通 `div` + 内联样式（零动效、必现）**，并在题目未就绪时**拦住提交**（否则只会换来一句笼统的「注册失败」）。
+
+### 密码口径统一（前后端）
+
+原先同一站内有**两套口径**：后端 `password.length < 8 || > 128`，前端注册 / 初始化 `min: 6`、改密码 `length < 6`、重置密码本地常量 `8`。新增 `web/src/utils/passwordPolicy.ts`（`MIN_PASSWORD_LENGTH = 8` / `MAX_PASSWORD_LENGTH = 128`），注册页、初始化向导、重置密码、个人中心改密码四处全部改为引用同一常量；i18n 四语言 20 处文案由「6 位」改为「8 位」，并**删掉死键 `profile.enterNewPasswordMin6`**（无任何代码引用）。
+
+### `web/src/i18n/locales/nul` 生成问题（第二次，不再允许出现）
+
+**根因**：`nul` 是 Windows 的 **DOS 保留设备名**，PowerShell 的 `>` 重定向（.NET 会补 `\\?\` 前缀绕过 Win32 设备名解析）会**真的**在磁盘上建出名为 `nul` 的文件。
+
+**实测不可删**（排查过程已记在 `tests/repoHygiene.test.ts` 文件头）：`CreateFileW(path, DELETE)` 返回 `ACCESS_DENIED`（err=5）；与「进程占用」无关（`FILE_SHARE_NONE` 独占打开**成功**、Restart Manager `RmGetList` 返回 0）；与 ACL 无关（ACL 里用户有 `Modify`）。`del` / `rm` / `Remove-Item -LiteralPath` / `[IO.File]::Delete` / `\\?\Volume{…}\` 卷 GUID 路径 / `FILE_FLAG_POSIX_SEMANTICS` / `FileDispositionInfo(Ex)` / `MoveFileEx(DELAY_UNTIL_REBOOT)` **全部失败**。
+
+**处理**：整目录 `renameSync` 移出项目 → `mkdirSync` 重建 → 复制 4 个语言 JSON 回来（**sha256 逐文件校验一致**），`nul` 留在仓库外的 `G:\Skin2.catnight.top\.junk-i18n\locales\`。
+
+**防复发**：新增守卫测试 `tests/repoHygiene.test.ts`，扫描 `con/prn/aux/nul/com1-9/lpt1-9`（大小写不敏感、带扩展名也算，如 `nul.txt`），跳过 `node_modules/.git/dist/coverage/data/INDEV/.workbuddy/.junk-i18n`；排在两个测试脚本的**最前面**，一旦有人再生成这类文件，套件立刻红。
+
+### Yggdrasil `POST /refresh` 限流
+
+原先 `authenticate` / `signout` 有 5 次/5 分钟（按用户名），`refresh` **完全没接**限流。
+
+新增 `DEFAULT_REFRESH_RATE_LIMIT`（**30 次 / 5 分钟**）+ `REFRESH_RATE_LIMIT_MAX` / `REFRESH_RATE_LIMIT_WINDOW_MS`，限流键 `mscts:rl:yggrefresh:<ip>`。
+
+**为什么按 IP 不按用户名**：启动器（HMCL 等）会在 accessToken 临近过期时**自动定期刷新**，按账号计数等于把正常后台行为判成攻击，症状是「挂机一阵后突然掉线，重新登录又好」，而日志里只有一串 429 —— 事后极难归因。按 IP 只压「同一出口地址的高频刷新」。
+
+**换前缀绕不过**：本 router 被挂到 4 个前缀（`/authserver`、`/api/yggdrasil`、`/`、`/api/yggdrasil/authserver`），但限流键只取客户端地址。
+
+`resolveCaptchaGenerateRateLimit()` 与 `resolveRefreshRateLimit()` 都**从 `resolveRateLimit()` 取总开关**，保证 `RATE_LIMIT_DISABLED=true` 能一次关全，不会出现「关掉了限流但某个端点还在挡」。
+
+### 新增 / 改动端点
+
+| 端点 | 认证 | 说明 |
+|---|---|---|
+| `GET /api/captcha/captcha-type` | 匿名 | `{ type: 'math' \| 'none' }`，`Cache-Control: no-store`，**不含 siteKey** |
+| `GET /api/captcha/generate` | 匿名 | 出题；**按来源 IP 限流**（默认 10 次/5 分钟）；未注入服务时 503 `CAPTCHA_UNAVAILABLE` |
+
+### 验收（数字均为实际输出）
+
+- `npx tsc --noEmit` 后端 + 前端**均零错误**；`cd web && npm run build` 通过（1m 2s，chunk 体积警告为既有）
+- `npm test`（仅 SQLite）：**209 tests / 167 pass / 0 fail / 42 skipped**
+- `TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL` 全开：**209 tests / 209 pass / 0 fail / 0 skipped**
+- i18n 四语言各 **1073** 键，键集完全一致
+- 新增测试文件：`tests/captcha.test.ts`（24 项，双方言：题干自洽 / 答案规范化 / 一题一次 / 答错即烧 / 同 id 覆盖 / 过期 / 清理 / 开关接线 / fail-closed）、`tests/repoHygiene.test.ts`（1 项，保留设备名守卫）；`tests/cache.test.ts` 补 4 项（refresh 与出题限流的键形、第 N+1 次 429、未注入限流器时行为不变、默认值与总开关解析）
+
+**真实开发环境端到端 + 截图验收**（后端 :3000 / 前端 :5173，均自行重启）
+
+- 后端链路：注册 → 提权 → 登录 → `PUT /api/admin/settings {ENABLE_CAPTCHA:true}` → `captcha-type` 立刻变 `'math'`（**无需重启，运行时缓存已刷新**）→ 不带验证码注册 **400 `CAPTCHA_INVALID` 且不建号** → 出题（`2 × 5 = ?`）→ 带正确答案注册 **201** → **复用已消费的题登录 → 400**
+- 截图 4 张（`G:/Skin2.catnight.top/.shots/`）：`11-register-captcha-ok.png`（题干 `16 + 6 = ?` 正常渲染、密码提示经 `--force-device-scale-factor=2` 放大后确认是**「密码至少8位」**）、`14-…`/`16-error-real-message.png`（限流后题干变 `—`、答案框禁用、**红色错误文案显示后端原文「验证码请求过于频繁，请在 258 秒后重试」**）、`17-login-captcha-error.png`（登录页同样生效）
+- 收尾：清空 Redis 出题限流键、关闭 `ENABLE_CAPTCHA`、删除临时管理员与全部 `.tmp-*` 脚本；开发库 `captcha_challenges` 归零、无残留测试账号
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

@@ -13,6 +13,14 @@ export const RateLimitKeys = {
   /** Yggdrasil authenticate / signout：按用户名（邮箱） */
   yggdrasilAccount: (account: string): string =>
     `${KEY_PREFIX}:rl:yggdrasil:${account.toLowerCase()}`,
+  /**
+   * Yggdrasil `POST /refresh`：**按来源地址**。
+   *
+   * 不能按用户名 —— 启动器会在 token 临近过期时自动定期刷新（HMCL 挂机时尤其频繁），
+   * 按账号计数等于把正常后台行为判成攻击，症状是「挂机一阵后启动器突然掉线」。
+   * 按 IP 计只压「同一出口地址的高频刷新」，且上限比登录宽松。
+   */
+  yggdrasilRefresh: (ip: string): string => `${KEY_PREFIX}:rl:yggrefresh:${ip}`,
   /** Web 登录：按邮箱 */
   webLogin: (email: string): string =>
     `${KEY_PREFIX}:rl:login:${email.toLowerCase()}`,
@@ -44,6 +52,13 @@ export const RateLimitKeys = {
    */
   emailChange: (userId: string): string =>
     `${KEY_PREFIX}:rl:emailchange:${userId}`,
+  /**
+   * 0004：人机验证**出题**端点，按来源地址。
+   *
+   * 数学题本身没有难度，所以「批量预生成答案」只能靠限制出题速率来挡 ——
+   * 这是整个验证码方案里唯一真正起作用的那道闸。
+   */
+  captchaGenerate: (ip: string): string => `${KEY_PREFIX}:rl:captcha:${ip}`,
 } as const;
 
 /** 缓存键 */

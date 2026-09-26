@@ -49,6 +49,8 @@ const TABLES_ADDED_LATER = [
   'backup_email_tokens',
   'email_change_requests',
   'email_change_tokens',
+  // 0004_captcha_challenges
+  'captcha_challenges',
 ];
 
 /** 全部迁移跑完后应当存在的业务表 */
@@ -66,7 +68,7 @@ function cleanupSqlite(t: { after: (fn: () => Promise<void>) => void }, db: Sqli
  * schema/<dialect>/ 下真实存在的迁移版本清单。
  * 新增迁移时只需在这里加一项（下方断言数处共用，避免漏改）。
  */
-const EXPECTED_MIGRATIONS = ['0001', '0002', '0003'];
+const EXPECTED_MIGRATIONS = ['0001', '0002', '0003', '0004'];
 
 test('sqlite: 空库执行全部迁移成功', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
@@ -198,6 +200,7 @@ const PG_DROP_ALL =
   'DROP TABLE IF EXISTS profile_assets, favorites, asset_reviews, minecraft_sessions, ' +
   'login_sessions, tokens, email_verification_tokens, password_reset_tokens, ' +
   'backup_email_tokens, email_change_requests, email_change_tokens, ' +
+  'captcha_challenges, ' +
   'oauth_accounts, blacklist_entries, system_settings, assets, blobs, profiles, users, ' +
   'schema_migrations CASCADE';
 

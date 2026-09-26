@@ -17,6 +17,8 @@ import {
 } from '../../services/accountSecurityService'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { useTranslation } from 'react-i18next'
+// 密码长度口径：与后端（8-128 位）保持一致，见 utils/passwordPolicy.ts 的说明
+import { MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy'
 
 const { Text } = Typography
 
@@ -530,7 +532,7 @@ export function UserProfile() {
       message.error(t('profile.fillAllFields'))
       return
     }
-    if (newPassword.length < 6) {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
       message.error(t('profile.passwordMinLength'))
       return
     }

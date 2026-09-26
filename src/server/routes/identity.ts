@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { IdentityService } from '../../auth/identity.js';
 import type { TokenService } from '../../auth/tokens.js';
 import type { EmailFlow } from '../../account/emailFlow.js';
+import type { CaptchaService } from '../../account/captcha.js';
 import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
@@ -39,6 +40,11 @@ export interface IdentityRouteDependencies {
   runtimeSettings?: RuntimeSettings;
   /** 邮箱流程；仅在开启「要求邮箱验证」时用到，未注入则该开关无法生效 */
   emailFlow?: EmailFlow;
+  /**
+   * 0004：人机验证服务。仅在 `ENABLE_CAPTCHA` 开启时用到；
+   * **开启但未注入时注册/登录直接拒绝** —— 安全开关设成「开了但没人执行」比没开更糟。
+   */
+  captcha?: CaptchaService;
   /** 限流器；未注入则不做限流（测试场景） */
   rateLimiter?: RateLimiterPort;
   /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
@@ -85,8 +91,45 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
         ]
       : [];
 
+  /**
+   * 人机验证闸门（0004）。开关关闭时是空操作。
+   *
+   * ## 为什么放在最前面（早于密码校验）
+   *
+   * 验证码的全部意义就是**在密码被尝试之前**拦住自动化脚本。若放在密码校验之后，
+   * 撞库脚本可以先高速试密码、只在最后才需要过验证码 —— 等于没装。
+   * 这里不会泄露任何账号信息（验证码与邮箱无关），所以不存在「提前暴露账号是否存在」
+   * 的问题（那个顾虑只适用于 EMAIL_NOT_VERIFIED 这类依赖账号状态的检查）。
+   *
+   * ## 失败即消费
+   *
+   * 校验成功或失败都会把这道题烧掉（见 CaptchaService.verify）。因此密码输错重试时
+   * 必须换一道题 —— 旧版前端在 catch 分支里正是这么做的。这样做是为了避免
+   * 「一道题反复试密码」。
+   */
+  const assertCaptcha = async (
+    body: Record<string, unknown>,
+  ): Promise<void> => {
+    if (!deps.runtimeSettings) return;
+    if (!(await deps.runtimeSettings.enableCaptcha())) return;
+
+    if (!deps.captcha) {
+      // 开关开了但服务没接上：宁可拒绝，也不要让「已开启验证码」变成一句空话
+      throw new AppError(
+        'CAPTCHA_INVALID',
+        '本站已启用验证码，但验证码服务未启用，请联系管理员',
+      );
+    }
+    await deps.captcha.verify(
+      body['captcha_session_id'] ?? body['captchaSessionId'],
+      body['captcha_answer'] ?? body['captchaAnswer'],
+    );
+  };
+
   router.post('/api/auth/register', ...registerLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+
+    await assertCaptcha(body);
 
     // 注册总开关：关闭时不建号（管理员仍可用管理端接口/直接改库加人）
     if (deps.runtimeSettings && !(await deps.runtimeSettings.allowRegistration())) {
@@ -143,6 +186,9 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
 
   router.post('/api/auth/login', ...loginLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+
+    await assertCaptcha(body);
+
     const result = await deps.identity.loginWeb({
       email: String(body['email'] ?? ''),
       password: String(body['password'] ?? ''),

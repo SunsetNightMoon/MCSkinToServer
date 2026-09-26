@@ -6,10 +6,11 @@ import type { TextureProfileBuilder } from '../../yggdrasil/textures.js';
 import type { AssetUrlResolver } from '../../storage/assetUrl.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
+import { DEFAULT_REFRESH_RATE_LIMIT } from '../../config.js';
 import { illegalArgument } from '../../yggdrasil/errors.js';
 import { normalizeUuid, toShortUuid } from '../../yggdrasil/uuid.js';
 import { buildForProfile } from '../../yggdrasil/buildForProfile.js';
-import { bodyKey, rateLimit } from '../rateLimit.js';
+import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
 import { RateLimitKeys } from '../../cache/keys.js';
 
 /**
@@ -35,6 +36,13 @@ export interface YggdrasilRouteDependencies {
   rateLimiter?: RateLimiterPort;
   /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
   rateLimit?: RateLimitSettings;
+  /**
+   * `POST /refresh` 专用限流参数；缺省用 DEFAULT_REFRESH_RATE_LIMIT。
+   *
+   * 与上面那套分开是刻意的：refresh 按 **IP** 计（不能按用户名，见 RateLimitKeys.yggdrasilRefresh），
+   * 且上限更宽松 —— 它是启动器的后台定期行为，不是登录尝试。
+   */
+  refreshRateLimit?: RateLimitSettings;
 }
 
 const MAX_BATCH_NAMES = 10;
@@ -71,8 +79,33 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
         ]
       : [];
 
-  // ---- 认证五端点（相对路径，挂载前缀见文件头注释）----
+  /**
+   * `POST /refresh` 限流：**按来源地址**，刻意不按用户名。
+   *
+   * 为什么不按用户名：启动器会在 accessToken 临近过期时**自动定期刷新**。
+   * 按账号计数会把这种正常后台行为判成攻击，症状是「挂机一阵后启动器突然掉线，
+   * 重新登录又好」，而日志里只看到一串 429 —— 极难排查。
+   *
+   * 按 IP 计只压「同一出口地址的高频刷新」；上限也放宽（DEFAULT_REFRESH_RATE_LIMIT），
+   * 让共用出口地址（宿舍 / 机房 NAT）下的正常用户不会互相误伤。
+   *
+   * 注：本 router 被挂到 4 个前缀（/authserver、/api/yggdrasil、/、/api/yggdrasil/authserver），
+   * 但限流键只取客户端地址，因此换前缀不会绕过限流。
+   */
+  const refreshSettings = deps.refreshRateLimit ?? DEFAULT_REFRESH_RATE_LIMIT;
+  const refreshLimit: ReturnType<typeof rateLimit>[] =
+    deps.rateLimiter && refreshSettings.enabled
+      ? [
+          rateLimit({
+            limiter: deps.rateLimiter,
+            settings: refreshSettings,
+            keyOf: (req) => RateLimitKeys.yggdrasilRefresh(clientIp(req)),
+            message: (seconds) => `请求过于频繁，请在 ${seconds} 秒后重试`,
+          }),
+        ]
+      : [];
 
+  // ---- 认证五端点（相对路径，挂载前缀见文件头注释）----
   router.post('/authenticate', ...credentialLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const session = await deps.identity.authenticateYggdrasil({
@@ -84,7 +117,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
     res.json(session);
   });
 
-  router.post('/refresh', async (req, res) => {
+  router.post('/refresh', ...refreshLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const session = await deps.identity.refreshYggdrasil({
       accessToken: requireString(body['accessToken'], 'accessToken'),

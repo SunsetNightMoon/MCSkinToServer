@@ -583,12 +583,35 @@ export async function compatFetch(
     return notSupported()
   }
 
-  // ── 验证码：MSCTS 未启用验证码（批 2 自托管数学题尚未落地），返回"关闭"信号 ──
-  if (path === '/api/captcha/captcha-type') {
-    return json({ type: 'none' })
-  }
-  if (path.startsWith('/api/captcha/')) {
-    return json({ question: '' })
+  // ── 人机验证（0004 自托管数学题） ──
+  //
+  // 后端已实现 `GET /api/captcha/captcha-type`（`{ type: 'math' | 'none' }`）
+  // 与 `GET /api/captcha/generate?sessionId=…`（`{ question }`）。
+  //
+  // 为什么必须**透传**而不是在这里写死 `{ type: 'none' }`：管理员在后台打开
+  // 「启用验证码」后后端会返回 `'math'`，写死 `'none'` 会让整块验证码 UI
+  // **永远**不渲染 —— 后端点了灯、前端看不见。这里曾经就是写死的。
+  //
+  // 透传失败（旧后端没有此端点 / 网络异常 / 非 2xx）时回落 `'none'`，
+  // 与「未开启验证码」的表现一致，不会把登录注册页卡住。
+  if (path === '/api/captcha/captcha-type' || path.startsWith('/api/captcha/')) {
+    try {
+      // **完全透传，连状态码一起交回调用方。**
+      //
+      // 以前这里把非 2xx 包成合成的 200（`json(fallback)`），结果是调用方看到的
+      // `response.ok` 永远是 true：出题端点因限流返 429、因服务未注入返 503 时，
+      // 页面只会拿到一个空的 `question`，于是渲染出一个空白题干 —— 用户填不出、
+      // 也看不到任何原因，注册登录整条路被静默堵死。
+      // 后端这两个端点已经带明确文案，必须原样交回，让页面能说明白到底怎么了。
+      return await rawFetch(url, init)
+    } catch {
+      // 真·网络异常（后端没起来 / 代理挂了）时请求根本没到后端，没有状态码可透传。
+      // 这种情况按「未启用验证码」表现，避免把登录注册页整个卡住。
+      return jsonResponse(
+        path === '/api/captcha/captcha-type' ? { type: 'none' } : { question: '' },
+        503,
+      )
+    }
   }
 
   // ── 第三方登录开关（预留端口） ──

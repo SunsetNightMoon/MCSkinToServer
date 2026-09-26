@@ -49,6 +49,9 @@ export function Login() {
   const [emailOptions, setEmailOptions] = useState<SelectProps<string>['options']>([])
   const [captchaSessionId, setCaptchaSessionId] = useState<string>('')
   const [captchaQuestion, setCaptchaQuestion] = useState<string>('')
+  // 出题失败（限流/服务不可用）时的提示与加载态：没有这两项，失败就表现为空白题干
+  const [captchaError, setCaptchaError] = useState<string>('')
+  const [captchaLoading, setCaptchaLoading] = useState(false)
   // MSCTS 未启用验证码：后端返回 type='none'，此时整块验证码 UI 不渲染
   const [captchaType, setCaptchaType] = useState<'turnstile' | 'math' | 'none'>('none')
   const [turnstileToken, setTurnstileToken] = useState<string>('')
@@ -78,14 +81,38 @@ export function Login() {
   }
 
   const loadCaptcha = async () => {
+    setCaptchaLoading(true)
+    setCaptchaError('')
     try {
       const sessionId = Math.random().toString(36).substring(2, 15)
       const response = await fetch(`/api/captcha/generate?sessionId=${sessionId}`)
+      // 必须查 response.ok：拿到 429/503 时若照旧读 data.question，题干会渲染成
+      // 一个空白输入框 —— 用户填不出、也看不到任何提示，登录这条路就堵死了。
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        setCaptchaSessionId('')
+        setCaptchaQuestion('')
+        setCaptchaError(
+          data?.errorMessage || data?.message || t('auth.captchaLoadFailed'),
+        )
+        return
+      }
       const data = await response.json()
+      if (!data?.question) {
+        setCaptchaSessionId('')
+        setCaptchaQuestion('')
+        setCaptchaError(t('auth.captchaLoadFailed'))
+        return
+      }
       setCaptchaSessionId(sessionId)
       setCaptchaQuestion(data.question)
     } catch (error) {
       console.error('加载验证码失败:', error)
+      setCaptchaSessionId('')
+      setCaptchaQuestion('')
+      setCaptchaError(t('auth.captchaLoadFailed'))
+    } finally {
+      setCaptchaLoading(false)
     }
   }
 
@@ -102,7 +129,8 @@ export function Login() {
           loadCaptcha()
         }
       } catch {
-        loadCaptcha()
+        // 问不到类型就按「不启用」处理。此时 UI 不渲染，再去出题只会白烧配额。
+        setCaptchaType('none')
       }
     }
     fetchCaptchaType()
@@ -129,6 +157,12 @@ export function Login() {
   }, [])
 
   const onFinish = async (values: any) => {
+    // 题目没就绪就提交必然是白跑一趟（后端只会回 CAPTCHA_INVALID），
+    // 而且会把「为什么失败」掩盖成一句笼统的登录失败。这里先拦住并说清原因。
+    if (captchaType === 'math' && !captchaSessionId) {
+      message.error(captchaError || t('auth.captchaLoadFailed'))
+      return
+    }
     setLoading(true)
     try {
       const loginData: any = {
@@ -377,11 +411,32 @@ export function Login() {
                     <Input
                       value={captchaQuestion}
                       disabled
+                      status={captchaError ? 'error' : undefined}
+                      placeholder={captchaError ? '—' : undefined}
                       style={{ width: '180px', fontWeight: 'bold' }}
                       size="large"
                     />
-                    <Button onClick={loadCaptcha} size="large">{t('auth.captchaRefresh')}</Button>
+                    <Button onClick={loadCaptcha} loading={captchaLoading} size="large">
+                      {t('auth.captchaRefresh')}
+                    </Button>
                   </div>
+                  {/*
+                    错误文案刻意用普通 div + 内联样式，不走 Form.Item 的 help 插槽。
+                    实测 help 的文字确实进了 DOM，但 antd 的 explain 动效让它
+                    始终不落定（截图里完全看不到），等于没有提示。这里零动效、必现。
+                  */}
+                  {captchaError ? (
+                    <div
+                      style={{
+                        color: '#ff4d4f',
+                        fontSize: 13,
+                        lineHeight: '20px',
+                        marginTop: 8,
+                      }}
+                    >
+                      {captchaError}
+                    </div>
+                  ) : null}
                 </Form.Item>
 
                 <Form.Item
@@ -389,7 +444,12 @@ export function Login() {
                   label={t('auth.captchaAnswerLabel')}
                   rules={[{ required: true, message: t('auth.captchaAnswerPlaceholder') }]}
                 >
-                  <Input placeholder={t('auth.captchaAnswerPlaceholder')} style={{ width: '180px' }} size="large" />
+                  <Input
+                    disabled={!captchaSessionId}
+                    placeholder={t('auth.captchaAnswerPlaceholder')}
+                    style={{ width: '180px' }}
+                    size="large"
+                  />
                 </Form.Item>
               </>
             ))}

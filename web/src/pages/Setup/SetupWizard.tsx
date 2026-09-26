@@ -3,6 +3,8 @@ import { Dropdown, Form, Input, message, Radio } from 'antd';
 import { CheckOutlined, GlobalOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
+// 密码长度口径：与后端（8-128 位）保持一致，见 utils/passwordPolicy.ts 的说明
+import { MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy';
 
 interface SetupData {
   siteName: string;
@@ -633,7 +635,7 @@ export default function SetupWizard() {
                 name="password"
                 rules={[
                   { required: true, message: t('setup.validation.passwordRequired') },
-                  { min: 6, message: t('setup.validation.passwordMin') },
+                  { min: MIN_PASSWORD_LENGTH, message: t('setup.validation.passwordMin') },
                 ]}
                 style={{ marginBottom: 20 }}
               >

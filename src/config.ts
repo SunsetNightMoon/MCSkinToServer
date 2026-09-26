@@ -40,6 +40,24 @@ export interface AppConfig {
   redisUrl?: string;
   /** 认证端点限流参数；缺省见 DEFAULT_RATE_LIMIT。测试构造 AppConfig 时可省略 */
   rateLimit?: Partial<RateLimitSettings>;
+  /**
+   * Yggdrasil `POST /refresh` 专用限流参数；缺省见 DEFAULT_REFRESH_RATE_LIMIT。
+   *
+   * 单独一套的原因：refresh 是**启动器的后台定期行为**，不是登录尝试。
+   * 用认证端点的 5 次/5 分钟会让长时间挂机的启动器被误伤（表现为「挂机一阵
+   * 后突然掉线」），所以它按 IP 计、且上限更宽松。
+   */
+  refreshRateLimit?: Partial<RateLimitSettings>;
+  /**
+   * 验证码出题端点（`GET /api/captcha/generate`）专用限流参数；
+   * 缺省见 DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT。
+   *
+   * 单独一套的原因：它复用认证端点的 5 次/5 分钟时**实测被正常用户打满** ——
+   * 页面挂载取一题、答错点「换一道」、React 严格模式还会重复挂载一次，
+   * 几步就到顶；而耗尽后的表现是题干空白、用户完全无法注册。且它按 IP 计，
+   * 共用出口地址（宿舍/机房 NAT）下多人会互相误伤。
+   */
+  captchaGenerateRateLimit?: Partial<RateLimitSettings>;
   /** 站点公开设置缓存 TTL（毫秒）；缺省见 DEFAULT_SETTINGS_CACHE_TTL_MS */
   settingsCacheTtlMs?: number;
 }
@@ -60,6 +78,39 @@ export const DEFAULT_RATE_LIMIT: RateLimitSettings = {
   windowMs: 5 * 60 * 1000,
 };
 
+/**
+ * `POST /refresh` 的缺省限流：**按来源地址**、比认证端点宽松。
+ *
+ * 取值理由：启动器在 accessToken 临近过期时自动刷新。单个账号正常使用远达不到
+ * 30 次/5 分钟；而一个共用出口地址（宿舍/机房 NAT）下十几台机器同时刷新时，
+ * 5 次/5 分钟会立刻误伤。这里的目标是压掉「脚本式高频刷新」，不是限制正常用户。
+ */
+export const DEFAULT_REFRESH_RATE_LIMIT: RateLimitSettings = {
+  enabled: true,
+  max: 30,
+  windowMs: 5 * 60 * 1000,
+};
+
+/**
+ * 验证码出题端点的缺省限流：**按来源地址**，10 次/5 分钟。
+ *
+ * 取值理由分两层：
+ *
+ * 1. **它需要一套自己的参数，不能复用认证端点的 5 次/5 分钟。** 实测正常用户
+ *    就能打满：进入注册页取一题、答错点「换一道」、React 严格模式下挂载被调用
+ *    两次 …… 而打满之后的症状是**题干空白且没有任何提示**，用户根本无从判断，
+ *    连注册都做不了。
+ * 2. **上限放到 10 而不是像 refresh 那样 30。** 这里要挡的是「脚本一次性领走
+ *    大量题目、把答案全存下来慢慢用」。真正的批量闸门其实是按 IP 的**注册**与
+ *    **登录**限流（每个账号还得配一个自己算对的答案），出题端点只是收紧预生成
+ *    的速度；10 次足够真人正常流程，也让共用出口地址下的多人不至于立刻互相误伤。
+ */
+export const DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT: RateLimitSettings = {
+  enabled: true,
+  max: 10,
+  windowMs: 5 * 60 * 1000,
+};
+
 export const DEFAULT_SETTINGS_CACHE_TTL_MS = 30 * 1000;
 
 /** 补齐缺省值；调用方只关心最终生效值 */
@@ -69,6 +120,39 @@ export function resolveRateLimit(config: AppConfig): RateLimitSettings {
     enabled: partial.enabled ?? DEFAULT_RATE_LIMIT.enabled,
     max: partial.max ?? DEFAULT_RATE_LIMIT.max,
     windowMs: partial.windowMs ?? DEFAULT_RATE_LIMIT.windowMs,
+  };
+}
+
+/**
+ * refresh 专用限流的最终值。
+ *
+ * **总开关仍然是 `RATE_LIMIT_DISABLED`**（即 `rateLimit.enabled`）：排障/压测时
+ * 关一处就该全关，不能出现「关掉了限流但 refresh 还在挡」这种情况。
+ */
+export function resolveRefreshRateLimit(config: AppConfig): RateLimitSettings {
+  const master = resolveRateLimit(config);
+  const partial = config.refreshRateLimit ?? {};
+  return {
+    enabled: master.enabled && (partial.enabled ?? DEFAULT_REFRESH_RATE_LIMIT.enabled),
+    max: partial.max ?? DEFAULT_REFRESH_RATE_LIMIT.max,
+    windowMs: partial.windowMs ?? DEFAULT_REFRESH_RATE_LIMIT.windowMs,
+  };
+}
+
+/**
+ * 验证码出题端点的最终限流值。
+ *
+ * 与 refresh 同样的规矩：**总开关仍然是 `RATE_LIMIT_DISABLED`**（即 `rateLimit.enabled`）。
+ * 排障时关一处就该全关，不能出现「关掉了限流但验证码还在挡」。
+ */
+export function resolveCaptchaGenerateRateLimit(config: AppConfig): RateLimitSettings {
+  const master = resolveRateLimit(config);
+  const partial = config.captchaGenerateRateLimit ?? {};
+  return {
+    enabled:
+      master.enabled && (partial.enabled ?? DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.enabled),
+    max: partial.max ?? DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.max,
+    windowMs: partial.windowMs ?? DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.windowMs,
   };
 }
 
@@ -116,6 +200,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       windowMs: positiveInt(
         env['AUTH_RATE_LIMIT_WINDOW_MS'],
         DEFAULT_RATE_LIMIT.windowMs,
+      ),
+    },
+    refreshRateLimit: {
+      // enabled 由总开关决定（见 resolveRefreshRateLimit），这里不单独读
+      max: positiveInt(
+        env['REFRESH_RATE_LIMIT_MAX'],
+        DEFAULT_REFRESH_RATE_LIMIT.max,
+      ),
+      windowMs: positiveInt(
+        env['REFRESH_RATE_LIMIT_WINDOW_MS'],
+        DEFAULT_REFRESH_RATE_LIMIT.windowMs,
+      ),
+    },
+    captchaGenerateRateLimit: {
+      // enabled 由总开关决定（见 resolveCaptchaGenerateRateLimit），这里不单独读
+      max: positiveInt(
+        env['CAPTCHA_GENERATE_RATE_LIMIT_MAX'],
+        DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.max,
+      ),
+      windowMs: positiveInt(
+        env['CAPTCHA_GENERATE_RATE_LIMIT_WINDOW_MS'],
+        DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.windowMs,
       ),
     },
     settingsCacheTtlMs: positiveInt(

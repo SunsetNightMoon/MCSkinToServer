@@ -5,6 +5,7 @@ import { Alert, Button, Form, Input, message } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { usePageTitle } from '../../hooks/usePageTitle'
 import { AuthLayout } from './AuthLayout'
+import { MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy'
 
 /**
  * 重置密码落地页：从重置邮件里的链接进入，携带一次性令牌。
@@ -16,7 +17,7 @@ import { AuthLayout } from './AuthLayout'
  * 前端若比后端宽松，用户会填完提交才被拒，且看到的还是通用错误。
  */
 
-const MIN_PASSWORD_LENGTH = 8
+// 常量已统一到 utils/passwordPolicy.ts（原先本页是 8、注册页是 6，站内两套口径）
 
 export function ResetPassword() {
   const { t } = useTranslation()

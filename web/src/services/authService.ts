@@ -59,6 +59,13 @@ export const authService = {
         email: data.email,
         password: data.password,
         profileName: data.profile_name,
+        // 0004 人机验证：这几个字段**必须转发**。
+        // 页面（Register.tsx）早就把 captcha_session_id / captcha_answer 放进了
+        // RegisterDTO，但这里没有透传 —— 结果是「管理员开了验证码，用户答对了
+        // 也照样被拒」，且前端看起来一切正常（字段在页面里、类型也对）。
+        captcha_session_id: data.captcha_session_id,
+        captcha_answer: data.captcha_answer,
+        turnstile_token: data.turnstile_token,
       },
     })
     return {
@@ -72,7 +79,14 @@ export const authService = {
   async login(data: LoginDTO): Promise<any> {
     const res = await apiRequest<MsctsAuthResponse>('/api/auth/login', {
       method: 'POST',
-      json: { email: data.email, password: data.password },
+      json: {
+        email: data.email,
+        password: data.password,
+        // 同 register：验证码字段必须透传，否则登录在被要求验证码时必然 400
+        captcha_session_id: data.captcha_session_id,
+        captcha_answer: data.captcha_answer,
+        turnstile_token: data.turnstile_token,
+      },
     })
 
     // 登录后拉取默认角色皮肤（顶栏头像）

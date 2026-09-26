@@ -28,12 +28,14 @@ import { createIdentityRouter } from './routes/identity.js';
 import { createAccountRouter } from './routes/account.js';
 import { createEmailChangeRouter } from './routes/emailChange.js';
 import { createOAuthRouter } from './routes/oauth.js';
+import { createCaptchaRouter } from './routes/captcha.js';
 import { createAssetRouter } from './routes/assets.js';
 import { createLibraryRouter } from './routes/library.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createSettingRouter } from './routes/settings.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
+import type { CaptchaService } from '../account/captcha.js';
 
 /**
  * Express 应用工厂（蓝图 §2.1）：
@@ -66,6 +68,15 @@ export interface AppDependencies {
   rateLimiter?: RateLimiterPort;
   /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
   rateLimitSettings?: RateLimitSettings;
+  /** `POST /refresh` 专用限流参数（按 IP）；缺省用 DEFAULT_REFRESH_RATE_LIMIT */
+  refreshRateLimitSettings?: RateLimitSettings;
+  /**
+   * 验证码出题端点专用限流参数（按 IP）；缺省用 DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT。
+   *
+   * 与 `rateLimitSettings` 分开：认证端点是 5 次/5 分钟，出题端点复用它会被
+   * 正常用户几步打满，打满后题干空白、注册被堵死（见 config.ts 的取值说明）。
+   */
+  captchaGenerateRateLimitSettings?: RateLimitSettings;
   /** 通用缓存；未注入时设置读取直连数据库 */
   cache?: CachePort;
   /** 站点设置缓存 TTL（毫秒）；缺省 30s */
@@ -84,6 +95,12 @@ export interface AppDependencies {
   mailService?: MailService;
   /** 0003：备用邮箱与邮箱变更流程；未注入则相关端点不挂载 */
   emailChangeFlow?: EmailChangeFlow;
+  /**
+   * 0004：人机验证服务（自托管数学题）。
+   * 未注入时 `/api/captcha/generate` 返回 503（明确报部署问题），
+   * 而 `/api/captcha/captcha-type` 仍可用 —— 开关关着时它返回 `'none'`。
+   */
+  captcha?: CaptchaService;
   /**
    * 批4-F：第三方登录 provider 列表来源。
    * 未注入时读模块级注册表（宿主在自己的启动脚本里 `registerOAuthProvider`）。
@@ -193,6 +210,7 @@ export function createApp(deps: AppDependencies): Express {
     assetUrlResolver: deps.assetUrlResolver,
     rateLimiter: deps.rateLimiter,
     rateLimit: deps.rateLimitSettings,
+    refreshRateLimit: deps.refreshRateLimitSettings,
   });
   app.use('/authserver', yggRouter);
   app.use('/api/yggdrasil', yggRouter);
@@ -216,6 +234,7 @@ export function createApp(deps: AppDependencies): Express {
       tokenService,
       runtimeSettings: deps.runtimeSettings,
       emailFlow: deps.emailFlow,
+      captcha: deps.captcha,
       rateLimiter: deps.rateLimiter,
       rateLimit: deps.rateLimitSettings,
     }),
@@ -249,6 +268,16 @@ export function createApp(deps: AppDependencies): Express {
 
   // ---- 第三方登录预留端口（批4-F；无 provider 时前端小格子不渲染）----
   app.use(createOAuthRouter({ providers: deps.oauthProviders }));
+
+  // ---- 人机验证（0004；开关关着时 captcha-type 返回 'none'，前端不渲染）----
+  app.use(
+    createCaptchaRouter({
+      captcha: deps.captcha,
+      runtimeSettings: deps.runtimeSettings,
+      rateLimiter: deps.rateLimiter,
+      generateRateLimit: deps.captchaGenerateRateLimitSettings,
+    }),
+  );
 
   // ---- 素材上传/衣柜端点（P2）----
   app.use(
