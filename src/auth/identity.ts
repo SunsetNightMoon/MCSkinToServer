@@ -782,6 +782,73 @@ export class IdentityService {
   }
 
   /**
+   * 管理面板：代用户调整用户名模式（仅超级管理员）。
+   *
+   * 产品规则（P5 第十批用户拍板）：用户名模式自助切换是**超管专属能力**，
+   * 等级 1 及以下的账号不能自由切换，只能「被动接受」由管理面板代设的改动。
+   * 这里不做第二套状态机 —— 按目标用户是否已首次决定分派到既有的
+   * `decideInitialMode` / `switchMode`，副作用（预留/保留/30 天窗口）保持一致。
+   */
+  async adminSetProfileMode(
+    actor: { userId: string; role: UserRole },
+    targetUserId: string,
+    input: { mode: ProfileMode; keepProfileId?: string | null },
+  ): Promise<ProfileModeState> {
+    if (actor.role !== 'super_admin') {
+      throw new AppError('FORBIDDEN', '仅超级管理员可以调整用户名模式');
+    }
+    const target = await this.users.findById(targetUserId);
+    if (!target) throw new AppError('NOT_FOUND', '用户不存在');
+
+    if (target.profileModeDecidedAt === null) {
+      return this.decideInitialMode({
+        userId: targetUserId,
+        mode: input.mode,
+        keepProfileId: input.keepProfileId ?? null,
+      });
+    }
+    return this.switchMode({
+      userId: targetUserId,
+      mode: input.mode,
+      keepProfileId: input.keepProfileId ?? null,
+    });
+  }
+
+  /**
+   * 管理面板：目标用户的模式详情（仅超级管理员）。
+   *
+   * 返回状态快照 + 活跃/预留角色清单：面板要把「切为单用户名时保留哪一个」
+   * 渲染成可选项，只有状态没有名字的话弹窗没法让人选。
+   */
+  async adminGetProfileMode(
+    actor: { userId: string; role: UserRole },
+    targetUserId: string,
+  ): Promise<{
+    state: ProfileModeState;
+    activeProfiles: ProfileSummary[];
+    reservedProfiles: ProfileSummary[];
+  }> {
+    if (actor.role !== 'super_admin') {
+      throw new AppError('FORBIDDEN', '仅超级管理员可以查看用户名模式详情');
+    }
+    const target = await this.users.findById(targetUserId);
+    if (!target) throw new AppError('NOT_FOUND', '用户不存在');
+
+    const [state, active, reserved] = await Promise.all([
+      this.getProfileModeState(targetUserId),
+      this.profiles.listActiveByUserId(targetUserId),
+      this.profiles.listReservedByUserId(targetUserId),
+    ]);
+    const brief = (rows: ProfileRow[]): ProfileSummary[] =>
+      rows.map((p) => ({ id: p.id, name: p.name }));
+    return {
+      state,
+      activeProfiles: brief(active),
+      reservedProfiles: brief(reserved),
+    };
+  }
+
+  /**
    * 启用预留口里的一个角色（单用户名模式下唯一的「换 ID」路径之一）。
    *
    * 它消耗与改名同一个 30 天窗口：换角色和改名字对「这个账号当前叫什么」而言

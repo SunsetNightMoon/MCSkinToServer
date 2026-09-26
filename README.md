@@ -716,6 +716,53 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第十批：用户名模式切换收归超级管理员（等级 0/1 被动接受，管理面板代设）
+
+**起因**：用户要求「用户名模式仅限等级 2 使用，1 以下的用户不可自由更改切换，只能被动接受改动，列入管理面板，不影响部分功能使用」。两项决策（用户拍板）：**代改权限仅超管**（等级 1 在面板也看不到入口）；**启用预留角色（换 ID）不在此限**，所有用户照旧可用（仍受 30 天冷却约束）。
+
+### 规则矩阵
+
+| 操作 | 等级 0/1 | 等级 2（super_admin） |
+|---|---|---|
+| `GET /api/me/profile-mode` 读状态 | 200（不受限） | 200 |
+| `POST /api/me/profile-mode` 自切 | **403 FORBIDDEN** | 200 |
+| `GET/PUT /api/admin/users/:id/profile-mode` | **403**（等级 1 也不行） | 200 |
+| 启用预留角色 / 改名 | 照旧（30 天冷却） | 照旧 |
+
+### 落地（后端）
+
+- `src/server/routes/identity.ts`：`POST /api/me/profile-mode` 入口加超管门槛，非 super_admin → 403（错误文案「用户名模式仅超级管理员可自行切换，请联系超级管理员在管理后台调整」）；**GET 读取不设限**（个人中心仍显示当前模式）。
+- `src/auth/identity.ts`：新增 `adminSetProfileMode(actor, targetId, {mode, keepProfileId})`——actor 必须超管；复用既有状态机（未决定→首决；已决定→切换），single↔multi 的预留/保留/30 天窗口副作用原样保留。
+- `src/server/routes/admin.ts`：新增两端点（`auth + requireSuperAdmin`）：
+  - `GET /api/admin/users/:id/profile-mode` → `{state, activeProfiles, reservedProfiles}`（弹窗渲染用）
+  - `PUT /api/admin/users/:id/profile-mode` → 代设，返回 `{ok, state}`
+
+### 落地（前端）
+
+- `web/src/pages/Profile/UserProfile.tsx`：等级 <2 隐藏「切换为单/多用户名」按钮，改显只读提示（`profile.modeSuperOnlyHint`）；**首决弹窗不再对等级 <2 自动弹出**（`decisionRequired && user.level >= 2`）——存量未决定账号的首决改由超管在面板完成。预留口激活、改名等其他功能不动。
+- `web/src/pages/Admin/UserManagement.tsx`：新增「用户名模式」列（模式 Tag + 仅超管可见的「调整」按钮）+ 代设弹窗（当前模式、single/multi 单选、切 single 且多角色时必须选保留谁）。
+- `web/src/utils/apiCompat.ts`：`toLegacyUserRow` 补 `profile_mode` 字段。
+- i18n 四语言：`profile.modeSuperOnlyHint` + `admin.profileMode*`（Adjust/Title/Current/Updated 等）共 7 key。
+
+### 测试
+
+- `tests/adminProfileMode.test.ts`（新，7 项双方言 14）：L0/L1 自切 403、L1 调面板端点 403、超管自切 200、超管代设含状态机副作用（single→multi→single、保留角色、窗口时间戳）、未决定用户代首决路径。
+- `tests/emailChange.test.ts`：走 HTTP 的模式切换用例改为**先直库提权 super_admin 再调端点**（原以等级 0 身份自切，现会 403）。
+
+### 验收（数字均为实际输出）
+
+- 后端 + 前端 `tsc --noEmit` 零错误
+- 基线 `npm test`（仅 SQLite）：**300 tests / 214 pass / 0 fail / 86 skipped**
+- 全开门控（`TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL`）`npm run test:pg`：**300 tests / 300 pass / 0 fail / 0 skipped**
+- **后端(:3000)与前端(:5173)均已重启**（按约定双端重启，不依赖 HMR）
+- 真实环境 curl 矩阵：tester1(L0) 读 200 / 自切 403；hmcl(L2) 自切 multi 200 → 回切 single 200；hmcl 代设 tester1 GET 200 → PUT multi 200 → PUT single 200（用户侧同步生效）；user2 临时提权 L1：用户列表 200（功能不受影响）、模式 GET/PUT/自切全 403，测毕已还原 `user`
+- 无头截图 4 张（`G:/Skin2.catnight.top/.shots/`）：`30-batch10-tester1-profile.png`（只读提示、无切换按钮）、`31-batch10-hmcl-profile.png`（有「切换为多用户名」）、`32-batch10-admin-users.png`（模式列 + 调整按钮）、`33-batch10-admin-mode-modal.png`（代设弹窗：标题/当前模式/单选两项）。截图页均以 `--dump-dom` 文本级断言复核（切换按钮计数、提示文案、弹窗标题与正文）
+- 备注：面板里超管对自己那行也有「调整」按钮（等价于其自切权限，无害）；软删除用户（`logo-batch9@`）在用户列表照旧显示（既有行为），其行同样有按钮——与「编辑角色」等既有操作口径一致
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+---
+
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

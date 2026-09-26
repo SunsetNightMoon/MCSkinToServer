@@ -254,8 +254,18 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
    * 「保存我的选择」按钮，而「当前该走哪条路」由服务端的状态决定 ——
    * 让前端自己判断就会出现「前端以为在决定、后端认为在切换」的错位。
    * 响应体始终返回切换后的完整状态，前端不需要再拉一次。
+   *
+   * **P5 第十批：自助切换是超管专属能力。** 等级 1 及以下的账号不能自由切换，
+   * 只能由超级管理员在管理面板代设（`PUT /api/admin/users/:id/profile-mode`）。
+   * 读取（GET）不受限 —— 个人中心要显示当前模式，等级 0/1 的用户也需要看。
    */
   router.post('/api/me/profile-mode', auth, async (req, res) => {
+    if (req.context!.role !== 'super_admin') {
+      throw new AppError(
+        'FORBIDDEN',
+        '用户名模式仅超级管理员可自行切换，请联系超级管理员在管理面板调整',
+      );
+    }
     const userId = req.context!.userId;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const mode = String(body['mode'] ?? '');

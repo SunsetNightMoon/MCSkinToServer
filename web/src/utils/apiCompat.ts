@@ -174,6 +174,8 @@ function toLegacyUserRow(u: any): Record<string, any> {
     ban_reason: u?.banReason ?? null,
     created_at: u?.createdAt ?? '',
     last_login_at: u?.lastLoginAt ?? null,
+    // P5 第十批：用户名模式（管理面板「用户名模式」弹窗用它回显当前值）
+    profile_mode: u?.profileMode ?? 'single',
   }
 }
 

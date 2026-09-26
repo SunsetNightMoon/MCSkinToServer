@@ -1,6 +1,6 @@
 import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
 import { useState, useEffect } from 'react'
-import { Table, Tag, Button, Space, message, Modal, Form, Select, DatePicker, Popconfirm, Typography, Tooltip } from 'antd'
+import { Table, Tag, Button, Space, message, Modal, Form, Select, DatePicker, Popconfirm, Typography, Tooltip, Spin, Radio } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useTranslation } from 'react-i18next'
 
@@ -18,6 +18,8 @@ interface UserRecord {
   email_verified: number
   banned_until: string | null
   created_at: string
+  /** P5 第十批：用户名模式（single | multi），由 compat 层从 profileMode 映射 */
+  profile_mode?: string
 }
 
 function getRoleName(level: number, t: (key: string) => string): string {
@@ -69,6 +71,18 @@ export default function UserManagement() {
 
   // 邮箱验证操作
   const [sendingVerification, setSendingVerification] = useState<string | null>(null)
+
+  // 用户名模式弹窗（P5 第十批，仅超管）：代用户切换 single / multi
+  const [modeModalOpen, setModeModalOpen] = useState(false)
+  const [modeModalLoading, setModeModalLoading] = useState(false)
+  const [modeSaving, setModeSaving] = useState(false)
+  const [modeDetail, setModeDetail] = useState<{
+    state: { mode: string; decisionRequired: boolean }
+    activeProfiles: Array<{ id: string; name: string }>
+    reservedProfiles: Array<{ id: string; name: string }>
+  } | null>(null)
+  const [pendingMode, setPendingMode] = useState<'single' | 'multi'>('single')
+  const [pendingKeepId, setPendingKeepId] = useState<string | null>(null)
 
   useEffect(() => {
     loadUsers()
@@ -245,6 +259,62 @@ export default function UserManagement() {
     return true
   }
 
+  // 打开用户名模式弹窗：先拉目标用户的模式详情（含活跃/预留角色清单）
+  const openModeModal = async (user: UserRecord) => {
+    setEditingUser(user)
+    setModeDetail(null)
+    setModeModalOpen(true)
+    setModeModalLoading(true)
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}/profile-mode`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.errorMessage || t('common.operationFailed'))
+      setModeDetail(data)
+      setPendingMode(data.state?.mode === 'multi' ? 'multi' : 'single')
+      setPendingKeepId(data.activeProfiles?.[0]?.id ?? null)
+    } catch (err: any) {
+      message.error(err.message || t('common.operationFailed'))
+      setModeModalOpen(false)
+    } finally {
+      setModeModalLoading(false)
+    }
+  }
+
+  // 提交模式调整
+  const handleModeSubmit = async () => {
+    if (!editingUser || !modeDetail) return
+    // 切为单用户名且目标账号有多个可用角色时，必须先定保留谁（后端也会拦）
+    if (pendingMode === 'single' && (modeDetail.activeProfiles?.length ?? 0) > 1 && !pendingKeepId) {
+      message.warning(t('profile.modeChooseKeepRequired'))
+      return
+    }
+    setModeSaving(true)
+    try {
+      const res = await fetch(`/api/admin/users/${editingUser.id}/profile-mode`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          mode: pendingMode,
+          keepProfileId: pendingMode === 'single' ? pendingKeepId : null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.errorMessage || t('common.operationFailed'))
+      message.success(t('admin.profileModeUpdated'))
+      setModeModalOpen(false)
+      loadUsers()
+    } catch (err: any) {
+      message.error(err.message || t('common.operationFailed'))
+    } finally {
+      setModeSaving(false)
+    }
+  }
+
   const columns: ColumnsType<UserRecord> = [
     {
       title: t('admin.userId'),
@@ -272,6 +342,25 @@ export default function UserManagement() {
           {isSuperAdmin && record.id !== currentUser?.id && record.level < 2 && (
             <Button type="link" size="small" onClick={() => openRoleModal(record)}>
               {t('common.edit')}
+            </Button>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: t('admin.profileMode'),
+      dataIndex: 'profile_mode',
+      key: 'profile_mode',
+      width: 170,
+      render: (mode: string | undefined, record: UserRecord) => (
+        <Space>
+          <Tag color={mode === 'multi' ? 'purple' : 'blue'}>
+            {mode === 'multi' ? t('profile.modeMulti') : t('profile.modeSingle')}
+          </Tag>
+          {/* 代设用户名模式仅超管可见（等级 1 管理员也看不到入口） */}
+          {isSuperAdmin && (
+            <Button type="link" size="small" onClick={() => openModeModal(record)}>
+              {t('admin.profileModeAdjust')}
             </Button>
           )}
         </Space>
@@ -455,6 +544,81 @@ export default function UserManagement() {
             <div>{t('admin.level0Desc')}</div>
           </div>
         </Form>
+      </Modal>
+
+      {/* 用户名模式弹窗（仅超管）：代用户切换 single / multi */}
+      <Modal
+        title={`${t('admin.profileModeTitle')} - ${editingUser?.email}`}
+        open={modeModalOpen}
+        onOk={handleModeSubmit}
+        onCancel={() => setModeModalOpen(false)}
+        confirmLoading={modeSaving}
+        okText={t('admin.confirmModify')}
+        cancelText={t('common.cancel')}
+        okButtonProps={{ disabled: modeDetail !== null && pendingMode === modeDetail.state.mode }}
+        width={520}
+      >
+        {modeModalLoading ? (
+          <div style={{ padding: '24px 0', textAlign: 'center' }}>
+            <Spin />
+          </div>
+        ) : modeDetail ? (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <Text type="secondary">{t('admin.profileModeCurrent')}：</Text>
+              <Tag color={modeDetail.state.mode === 'multi' ? 'purple' : 'blue'}>
+                {modeDetail.state.mode === 'multi' ? t('profile.modeMulti') : t('profile.modeSingle')}
+              </Tag>
+            </div>
+            <Radio.Group
+              value={pendingMode}
+              onChange={(e) => {
+                const next = e.target.value as 'single' | 'multi'
+                setPendingMode(next)
+                if (next === 'single') {
+                  setPendingKeepId(modeDetail.activeProfiles?.[0]?.id ?? null)
+                }
+              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <Radio value="single">
+                <div style={{ fontWeight: 500 }}>{t('profile.modeSingle')}</div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t('profile.modeSingleDesc')}
+                </Text>
+              </Radio>
+              <Radio value="multi">
+                <div style={{ fontWeight: 500 }}>{t('profile.modeMulti')}</div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {t('profile.modeMultiDesc')}
+                </Text>
+              </Radio>
+            </Radio.Group>
+
+            {/* 切为单用户名且目标有多于 1 个可用角色时，必须指定保留哪一个 */}
+            {pendingMode === 'single' && (modeDetail.activeProfiles?.length ?? 0) > 1 && (
+              <div style={{ marginTop: 20 }}>
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                  {t('profile.modeKeepWhich')}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.7 }}>
+                  {t('profile.modeKeepHint', { count: (modeDetail.activeProfiles?.length ?? 0) - 1 })}
+                </Text>
+                <Radio.Group
+                  value={pendingKeepId}
+                  onChange={(e) => setPendingKeepId(e.target.value as string)}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                >
+                  {modeDetail.activeProfiles.map((p) => (
+                    <Radio key={p.id} value={p.id}>
+                      <Text code>{p.name}</Text>
+                    </Radio>
+                  ))}
+                </Radio.Group>
+              </div>
+            )}
+          </>
+        ) : null}
       </Modal>
 
       {/* 封禁弹窗 */}

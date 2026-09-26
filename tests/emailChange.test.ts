@@ -918,6 +918,16 @@ test('emailChange: HTTP 端点（sqlite）', async (t) => {
     '错误体应同时带 message 与 errorMessage（旧前端读后者）',
   );
 
+  // P5 第十批：用户名模式自助切换仅超管 —— 普通用户先被 403 拦下
+  // （守卫在读 mode 参数之前，所以非法 mode 也不会泄漏成 400）
+  res = await call('POST', '/api/me/profile-mode', { mode: 'multi' });
+  assert.equal(res.status, 403, JSON.stringify(res.body));
+  assert.equal(res.body['error'], 'FORBIDDEN');
+
+  // 提权为 super_admin 后继续原有流程。
+  // token 校验每请求从库里读角色（findByHashWithUser），所以无需重发 token。
+  await users.updateAdminFields(userId, { role: 'super_admin' }, clock);
+
   // POST /api/me/profile-mode：切到多模式 → 200 且返回完整状态
   res = await call('POST', '/api/me/profile-mode', { mode: 'multi' });
   assert.equal(res.status, 200, JSON.stringify(res.body));

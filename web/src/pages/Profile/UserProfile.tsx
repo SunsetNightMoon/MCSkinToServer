@@ -170,7 +170,9 @@ export function UserProfile() {
       }
       // 存量多角色账号：一进页面就把「先选一个 ID」的弹窗推出来。
       // 不推的话用户点任何写操作都只会拿到 409，却不知道要做什么。
-      if (mode.decisionRequired && !modeModalOpen) {
+      // P5 第十批：自助决定/切换仅超管可用 —— 等级 1 及以下不再弹窗
+      // （弹了也只会 403），等超管在管理面板代设。
+      if (mode.decisionRequired && !modeModalOpen && (user?.level ?? 0) >= 2) {
         setPendingMode('single')
         setPendingKeepId(null)
         setModeModalOpen(true)
@@ -1000,17 +1002,28 @@ export function UserProfile() {
             </div>
           )}
 
-          <Space wrap>
-            {modeIsSingle ? (
-              <Button onClick={() => openModeModal('multi')}>
-                {t('profile.switchToMulti')}
-              </Button>
-            ) : (
-              <Button onClick={() => openModeModal('single')}>
-                {t('profile.switchToSingle')}
-              </Button>
-            )}
-          </Space>
+          {/*
+            P5 第十批：用户名模式自助切换是超管专属（等级 1 及以下只能被动接受
+            管理面板代设的改动）。按钮只给 level 2；其余用户显示只读说明，
+            预留口激活、改名等功能照旧可用。
+          */}
+          {user.level >= 2 ? (
+            <Space wrap>
+              {modeIsSingle ? (
+                <Button onClick={() => openModeModal('multi')}>
+                  {t('profile.switchToMulti')}
+                </Button>
+              ) : (
+                <Button onClick={() => openModeModal('single')}>
+                  {t('profile.switchToSingle')}
+                </Button>
+              )}
+            </Space>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', lineHeight: 1.7 }}>
+              {t('profile.modeSuperOnlyHint')}
+            </Text>
+          )}
         </div>
       )}
 
