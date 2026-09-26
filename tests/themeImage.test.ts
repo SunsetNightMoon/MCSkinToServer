@@ -218,6 +218,10 @@ const PNG = Buffer.from([
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
 const GIF = Buffer.from('GIF89a---', 'utf8');
 const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'utf8');
+const SVG_OK = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>',
+  'utf8',
+);
 
 /** 上传一张主题图（原始字节，与前端兼容层转换后发出的请求形状一致） */
 async function upload(
@@ -285,12 +289,14 @@ async function seedUser(
   return { id: res.user.id, token: res.token.token };
 }
 
-/** 4 个类型名与设置键的对应关系（上传按类型走，展示按设置键走） */
+/** 4 组背景图 + 2 个站点图标：上传按类型走，展示按设置键走 */
 const CASES: Array<{ type: string; key: string }> = [
   { type: 'light-bg', key: 'LIGHT_BG_IMAGE' },
   { type: 'dark-bg', key: 'DARK_BG_IMAGE' },
   { type: 'login-bg', key: 'LOGIN_BG_IMAGE' },
   { type: 'login-embed', key: 'LOGIN_EMBED_IMAGE' },
+  { type: 'favicon', key: 'SITE_FAVICON' },
+  { type: 'logo', key: 'SITE_LOGO' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -319,7 +325,7 @@ for (const { label, enabled } of dialects) {
 // ---------------------------------------------------------------------------
 
 for (const { label, enabled } of dialects) {
-  test(`[${label}] theme: 四个类型都能上传，落盘且立刻写进对应设置键`, { skip: !enabled }, async () => {
+  test(`[${label}] theme: 四个背景位 + 两个图标位都能上传，落盘且立刻写进对应设置键`, { skip: !enabled }, async () => {
     const admin = await seedUser(label, 'admin');
 
     for (const { type, key } of CASES) {
@@ -394,10 +400,13 @@ for (const { label, enabled } of dialects) {
 for (const { label, enabled } of dialects) {
   test(`[${label}] theme: 拒绝 SVG（同源可执行文档）`, { skip: !enabled }, async () => {
     const admin = await seedUser(label, 'admin');
-    for (const ct of ['image/svg+xml', 'text/xml', 'text/html']) {
-      const res = await upload(label, 'login-embed', SVG, ct, admin.token);
-      assert.equal(res.status, 400, `${ct} 必须被拒绝`);
-      assert.equal(res.body.error, 'VALIDATION_ERROR');
+    // 背景图/内嵌图四个位都拒：它们是拿来当「页面」用的，SVG 被打开就是 XSS 面
+    for (const bg of ['light-bg', 'dark-bg', 'login-bg', 'login-embed']) {
+      for (const ct of ['image/svg+xml', 'text/xml', 'text/html']) {
+        const res = await upload(label, bg, SVG, ct, admin.token);
+        assert.equal(res.status, 400, `${bg} + ${ct} 必须被拒绝`);
+        assert.equal(res.body.error, 'VALIDATION_ERROR');
+      }
     }
   });
 
@@ -449,6 +458,104 @@ for (const { label, enabled } of dialects) {
         return true;
       },
     );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 站点图标（favicon / logo）：SVG 与 ICO 只给这两个位用
+// ---------------------------------------------------------------------------
+
+for (const { label, enabled } of dialects) {
+  test(`[${label}] icon: favicon/logo 收 SVG（含 BOM 与 <svg 开头），写 SITE_* 设置键`, { skip: !enabled }, async () => {
+    const admin = await seedUser(label, 'admin');
+    const samples: Array<{ bytes: Buffer; name: string }> = [
+      {
+        bytes: Buffer.from(
+          '<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>',
+          'utf8',
+        ),
+        name: '<?xml 开头的标准 SVG',
+      },
+      { bytes: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8'), name: '<svg 开头（无 xml 声明）' },
+      {
+        bytes: Buffer.concat([
+          Buffer.from([0xef, 0xbb, 0xbf]),
+          Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>', 'utf8'),
+        ]),
+        name: '带 UTF-8 BOM 的 SVG',
+      },
+    ];
+    for (const [type, key] of [
+      ['favicon', 'SITE_FAVICON'],
+      ['logo', 'SITE_LOGO'],
+    ] as const) {
+      for (const s of samples) {
+        const res = await upload(label, type, s.bytes, 'image/svg+xml', admin.token);
+        assert.equal(
+          res.status,
+          201,
+          `${type} + ${s.name} 应上传成功：${JSON.stringify(res.body)}`,
+        );
+        assert.match(String(res.body.url), /\.svg$/, '扩展名必须是 .svg（不信任文件名）');
+        assert.equal(await publicSetting(label, key), res.body.url, `${key} 应被立刻写入`);
+      }
+    }
+  });
+
+  test(`[${label}] icon: favicon 收 ICO（含别名 MIME）；HTML 冒充 SVG 被拒`, { skip: !enabled }, async () => {
+    const admin = await seedUser(label, 'admin');
+    // ICO 魔数：00 00 01 00
+    const ico = Buffer.from([0, 0, 1, 0, 1, 0, 0x10, 0x10]);
+    let lastUrl = '';
+    for (const ct of ['image/x-icon', 'image/vnd.microsoft.icon']) {
+      const res = await upload(label, 'favicon', ico, ct, admin.token);
+      assert.equal(res.status, 201, `${ct} 应被接受`);
+      assert.match(String(res.body.url), /\.ico$/, '扩展名必须是 .ico');
+      lastUrl = String(res.body.url);
+    }
+    // 内容相同 → 哈希相同 → 两次上传指向同一个对象，设置键指向它
+    assert.equal(await publicSetting(label, 'SITE_FAVICON'), lastUrl);
+
+    // HTML 冒充：<!DOCTYPE html> 里没有 <svg，必须拒
+    const html = Buffer.from(
+      '<!DOCTYPE html><html><body><p>not an svg</p></body></html>',
+      'utf8',
+    );
+    const fake = await upload(label, 'favicon', html, 'image/svg+xml', admin.token);
+    assert.equal(fake.status, 400, 'HTML 冒充 SVG 必须被拒');
+    assert.equal(fake.body.error, 'VALIDATION_ERROR');
+
+    // XHTML（<?xml + <svg）是合法 SVG
+    const xhtml = Buffer.from(
+      '<?xml version="1.0"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg xmlns="http://www.w3.org/2000/svg"/>',
+      'utf8',
+    );
+    const ok = await upload(label, 'logo', xhtml, 'image/svg+xml', admin.token);
+    assert.equal(ok.status, 201, `XHTML 形式的 SVG 应被接受：${JSON.stringify(ok.body)}`);
+  });
+
+  test(`[${label}] icon: 移除 favicon 清键删文件；外链直链只清键不动磁盘`, { skip: !enabled }, async () => {
+    const admin = await seedUser(label, 'admin');
+    const up = await upload(label, 'favicon', SVG_OK, 'image/svg+xml', admin.token);
+    assert.equal(up.status, 201);
+    const path = diskPathOf(label, String(up.body.url));
+    assert.ok(existsSync(path));
+
+    const del = await remove(label, 'favicon', admin.token);
+    assert.equal(del.status, 200);
+    assert.equal(del.body.removed, true);
+    assert.equal(await publicSetting(label, 'SITE_FAVICON'), '');
+    assert.ok(!existsSync(path), '上传的图标文件应被删除（省空间）');
+
+    // 手填外链：移除只清设置键，磁盘上没有可删的东西
+    await env(label).settings.setMany(
+      { SITE_LOGO: 'https://cdn.example.com/brand/logo.png' },
+      new Date(),
+    );
+    const del2 = await remove(label, 'logo', admin.token);
+    assert.equal(del2.status, 200);
+    assert.equal(del2.body.removed, false, '外链没有本服务文件，removed=false');
+    assert.equal(await publicSetting(label, 'SITE_LOGO'), '');
   });
 }
 

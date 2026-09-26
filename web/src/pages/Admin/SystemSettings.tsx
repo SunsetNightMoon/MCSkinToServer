@@ -155,6 +155,9 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
   const [customEnabled, setCustomEnabled] = useState(false)
   const [customHtml, setCustomHtml] = useState('')
   const [customCss, setCustomCss] = useState('')
+  // 站点图标/徽标的本服务地址（上传后展示预览；手填外链也有预览，但不参与文件清理）
+  const [faviconPreview, setFaviconPreview] = useState<string>('')
+  const [logoPreview, setLogoPreview] = useState<string>('')
 
   const loadSettings = async () => {
     setLoadingSettings(true)
@@ -187,6 +190,9 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
         HOMEPAGE_TEXT: String(data.HOMEPAGE_TEXT || t('landing.welcomeText')),
         HOMEPAGE_BUTTON_TEXT: String(data.HOMEPAGE_BUTTON_TEXT || t('landing.enterProfile')),
       })
+      // 只有显式设置过的图标才出预览（缺省值 /favicon.svg 是静态资源，不是上传物）
+      setFaviconPreview(String(data.SITE_FAVICON || ''))
+      setLogoPreview(String(data.SITE_LOGO || ''))
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
     } finally {
@@ -195,6 +201,65 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
   }
 
   useEffect(() => { loadSettings() }, [])
+
+  // ---- 站点图标/徽标：上传 / 移除 ----
+  //
+  // 后端与主题背景图共用同一对端点（/api/admin/upload-theme-image?type=…），
+  // 兼容层会把 FormData 拆成 raw 字节；上传成功即写设置键（与主题图同一语义），
+  // 移除时后端只删「本服务上传的文件」，手填的外链只清设置键不动磁盘。
+  const uploadIcon = async (
+    type: 'favicon' | 'logo',
+    file: File,
+    formKey: 'SITE_FAVICON' | 'SITE_LOGO',
+    setPreview: (url: string) => void,
+    successMsg: string,
+  ) => {
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const res = await fetchWithAuth(`/api/admin/upload-theme-image?type=${type}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.errorMessage || t('admin.uploadFailed'));
+      setPreview(data.url);
+      form.setFieldsValue({ [formKey]: data.url });
+      message.success(successMsg);
+    } catch (err: any) {
+      message.error(err.message || t('admin.uploadFailed'));
+    }
+    return false;
+  };
+
+  const removeIcon = async (
+    type: 'favicon' | 'logo',
+    formKey: 'SITE_FAVICON' | 'SITE_LOGO',
+    setPreview: (url: string) => void,
+    successMsg: string,
+  ) => {
+    try {
+      const res = await fetchWithAuth(`/api/admin/theme-image/${type}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.errorMessage || t('admin.deleteFailed'));
+      }
+      setPreview('');
+      form.setFieldsValue({ [formKey]: '' });
+      message.success(successMsg);
+    } catch (err: any) {
+      message.error(err.message || t('admin.deleteFailed'));
+    }
+  };
+
+  const handleUploadFavicon = (file: File) =>
+    uploadIcon('favicon', file, 'SITE_FAVICON', setFaviconPreview, t('admin.faviconUploaded'));
+  const handleRemoveFavicon = () =>
+    removeIcon('favicon', 'SITE_FAVICON', setFaviconPreview, t('admin.faviconRemoved'));
+  const handleUploadLogo = (file: File) =>
+    uploadIcon('logo', file, 'SITE_LOGO', setLogoPreview, t('admin.logoUploaded'));
+  const handleRemoveLogo = () =>
+    removeIcon('logo', 'SITE_LOGO', setLogoPreview, t('admin.logoRemoved'));
 
   const handleSave = async (values: any) => {
     setLoading(true)
@@ -364,16 +429,78 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
               name="SITE_FAVICON"
               tooltip={t('admin.siteFaviconTooltip')}
             >
-              <Input placeholder="/favicon.svg" />
+              <Input
+                placeholder="/favicon.svg"
+                addonAfter={
+                  <Upload
+                    accept=".svg,.png,.webp,.gif,.jpg,.jpeg,.ico"
+                    showUploadList={false}
+                    beforeUpload={handleUploadFavicon}
+                  >
+                    <UploadOutlined style={{ cursor: 'pointer' }} />
+                  </Upload>
+                }
+              />
             </Form.Item>
+            {faviconPreview && (
+              <Form.Item label={t('admin.faviconPreview')}>
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <img
+                    src={faviconPreview}
+                    alt="favicon"
+                    style={{ width: 48, height: 48, objectFit: 'contain', display: 'block' }}
+                  />
+                  <Button
+                    type="primary"
+                    danger
+                    size="small"
+                    style={{ position: 'absolute', top: -8, right: -8, zIndex: 10 }}
+                    onClick={handleRemoveFavicon}
+                  >
+                    {t('common.remove')}
+                  </Button>
+                </div>
+              </Form.Item>
+            )}
 
             <Form.Item
               label={t('admin.siteLogo')}
               name="SITE_LOGO"
               tooltip={t('admin.siteLogoTooltip')}
             >
-              <Input placeholder="/logo.png" />
+              <Input
+                placeholder="/logo.png"
+                addonAfter={
+                  <Upload
+                    accept=".svg,.png,.webp,.gif,.jpg,.jpeg,.ico"
+                    showUploadList={false}
+                    beforeUpload={handleUploadLogo}
+                  >
+                    <UploadOutlined style={{ cursor: 'pointer' }} />
+                  </Upload>
+                }
+              />
             </Form.Item>
+            {logoPreview && (
+              <Form.Item label={t('admin.logoPreview')}>
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <img
+                    src={logoPreview}
+                    alt="logo"
+                    style={{ maxWidth: 160, maxHeight: 48, display: 'block' }}
+                  />
+                  <Button
+                    type="primary"
+                    danger
+                    size="small"
+                    style={{ position: 'absolute', top: -8, right: -8, zIndex: 10 }}
+                    onClick={handleRemoveLogo}
+                  >
+                    {t('common.remove')}
+                  </Button>
+                </div>
+              </Form.Item>
+            )}
 
             <Form.Item
               label={t('admin.homepageTitlePrefix')}

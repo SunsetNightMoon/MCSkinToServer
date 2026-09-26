@@ -624,6 +624,60 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第八批：站点图标/徽标支持上传（SVG 只给图标用）
+
+### 起因：站点设置里「站点图标 / 顶栏徽标」只是两个手填 URL 的文本框
+
+第七批把主题背景图做通了，但 `SITE_FAVICON` / `SITE_LOGO` 还是纯文本框 ——
+想换图标得自己把文件塞进静态目录再手敲路径。本批把第七批的站点图片机制**推广**：
+类型注册表从 4 个背景位扩到 6 个（`favicon → SITE_FAVICON`、`logo → SITE_LOGO`），
+端点、兼容层、存储路径（`theme/` 前缀）全部复用，**零新增路由**。
+
+### 三项决策（用户拍板，2026-09-25）
+
+1. **SVG 只给站点图标用，4 组背景图一律拒收** —— 理由不是对称而是暴露面：
+   背景图/内嵌图是拿来当**页面**用的（`open()` / CSS background 铺满视口），
+   SVG 被当文档打开时内嵌 `<script>` 就执行；favicon/logo 是拿来当**资源**引用的
+   （`<img src>` / `<link rel=icon>` 下脚本不执行），且上传者本就是管理员，
+   手填外链 SVG 的效果一模一样 —— 拦它不减少风险，只损失功能。
+2. **favicon 与 logo 格式集一致**：SVG / PNG / WebP / GIF / JPEG / ICO
+   （ICO 同时收 `image/x-icon` 与别名 `image/vnd.microsoft.icon`）。
+3. **手填直链保留**：文本框仍在；移除做智能判断 —— 值是本服务上传的
+   `theme/…` 地址才删磁盘文件，外链直链只清设置键（`removed:false`）。
+
+### 实现
+
+- `src/site/themeImage.ts`：`TYPE_FORMATS` 按类型声明格式集（位图集 / 图标集），
+  报错文案直接从格式集生成（两处不会漂移）；新增 SVG 判定
+  （BOM/空白后以 `<?xml` / `<!DOCTYPE` / `<svg` 开头，**且前 1KB 内确实出现 `<svg`** ——
+  防 HTML 冒充）与 ICO 魔数判定（`00 00 01 00`）。
+- `admin.ts` 的 `raw()` 解析器白名单补 `image/svg+xml` 与两种 ICO MIME
+  —— **解析器清单必须 ⊇ 服务层格式集**，否则图标上传会被解析层静默丢弃（`req.body` 为空），
+  服务层只会报「上传内容为空」，看不出真原因。
+- `SystemSettings.tsx`（SiteSettings 卡片）：两个图标字段各加「上传 / 移除」
+  （`Input` 的 `addonAfter` 挂上传按钮，沿用主题图交互）+ 预览块
+  （favicon 48×48、logo 最高 48px）；`uploadIcon` / `removeIcon` 两个小工厂
+  避免复制 4 份 handler。上传成功即写设置键（与主题图同语义）+ 回填表单值。
+- i18n：四语言补 6 个 key（uploaded/removed/preview ×2）并改写两个 tooltip。
+
+### 验收（数字均为实际输出）
+
+- `npx tsc --noEmit` 后端/前端各 0 错误
+- `npm test`（仅 SQLite）：**286 tests / 207 pass / 0 fail / 79 skipped**；
+  全开门控：**286 tests / 286 pass / 0 fail / 0 skipped**（themeImage.test.ts 25 → 31 项：
+  六个图片位上传矩阵 / favicon·logo 收 SVG（`<?xml`、`<svg`、BOM、XHTML DOCTYPE 四种形态）
+  / ICO 与别名 MIME / 背景位拒 SVG·ICO / HTML 冒充 SVG 拒 / 移除清键删文件 / 外链只清键）
+- 真实环境（:3000 已重启）：SVG favicon 上传 201 → `SITE_FAVICON` 立刻可读 →
+  换 ICO 时上一版 `.svg` 文件被删 → 外链移除 `removed:false` 且磁盘不动 →
+  logo 移除 `removed:true` 文件消失；`data/uploads/theme/` 里用户已传的三张背景图全程未动
+- 截图：`G:/Skin2.catnight.top/.shots/27-admin-site-icons.png`
+  （两个图标字段带上传入口 + SVG 预览 + 移除按钮）
+- 收尾：删除注入页 `_shot8.html`、`.wbscratch-icon/` 与 Edge profile、临时账号（`shot-*` 本批新建者）；
+  验证用 favicon/logo 已移除（键清空、文件删除）
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+---
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

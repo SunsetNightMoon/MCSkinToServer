@@ -38,8 +38,8 @@ import { AppError } from '../../errors.js';
  * - PUT   /api/admin/email-template    保存邮件模板
  * - GET   /api/admin/stats             仪表盘概览（用户/皮肤/待审三个数）
  * - GET   /api/admin/stats/daily?days= 仪表盘趋势序列（按日，缺失补 0）
- * - POST  /api/admin/upload-theme-image?type=  上传主题背景图（raw 位图字节，成功即写设置键）
- * - DELETE /api/admin/theme-image/:type        移除主题背景图（清设置键 + 删文件）
+ * - POST  /api/admin/upload-theme-image?type=  上传站点图片（4 组背景图 + favicon/logo 图标；raw 字节，成功即写设置键）
+ * - DELETE /api/admin/theme-image/:type        移除站点图片（清设置键 + 删本服务上传的文件；外链直链只清键）
  * 全部要求 admin 及以上（requireRole(1)）。
  *
  * 用户管理那三个端点（send-verification / verify-email）不是可有可无的补充：
@@ -97,14 +97,24 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
   };
 
   /**
-   * 主题图上传的 body 解析：只认位图 Content-Type。
+    * 站点图片上传的 body 解析：只认图片 Content-Type（位图 + 站点图标的 SVG/ICO）。
    *
    * limit 与 `MAX_THEME_IMAGE_BYTES` 同值（这里是闸门，服务层那道是兜底）。
    * 类型不在白名单时 `raw()` **不解析**（`req.body` 为空）→ 服务层会以
    * 「上传内容为空」拒绝，路径上不会出现「解析器悄悄吞掉合法图片」。
+   * 注意这里的清单必须 ⊇ 服务层 `TYPE_FORMATS` 里出现过的每一种 MIME，
+   * 否则 favicon/logo 的 SVG、ICO 会在解析层就被丢弃，报错还看不出来原因。
    */
   const rawImage = raw({
-    type: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+    type: [
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+      'image/gif',
+      'image/svg+xml',
+      'image/x-icon',
+      'image/vnd.microsoft.icon',
+    ],
     limit: MAX_THEME_IMAGE_BYTES,
   });
 
@@ -398,15 +408,16 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
   });
 
   /**
-   * 上传主题背景图（明亮/暗色/登录页/登录嵌入）。
+   * 上传站点图片（4 组背景图 + favicon / logo 两个站点图标）。
    *
    * **收 raw 字节而不是 multipart**：与本项目素材上传同一约定 ——
    * 不引 multer，前端直接用 `fetch(url, { body: file })` 发原始字节。
    * 旧前端原先发的是 FormData（后端从来没有这个路由，所以也没人发现），
-   * 现按约定改成原始字节。
+   * 现按约定改成原始字节（兼容层负责拆 FormData）。
    *
-   * 上传成功即写入对应的设置键（`LIGHT_BG_IMAGE` 等），不必让管理员再点一次「保存」：
-   * 按钮语义就是「换背景」，写了不算等于没换。
+   * 上传成功即写入对应的设置键（`LIGHT_BG_IMAGE` / `SITE_FAVICON` 等），
+   * 不必让管理员再点一次「保存」：按钮语义就是「换图」，写了不算等于没换。
+   * 各类型允许的格式不同（SVG/ICO 只给图标用），见 `themeImage.ts` 的 `TYPE_FORMATS`。
    */
   router.post(
     '/api/admin/upload-theme-image',
