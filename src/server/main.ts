@@ -9,6 +9,9 @@ import { TokenRepository } from '../repositories/tokenRepository.js';
 import { UserRepository } from '../repositories/userRepository.js';
 import { ProfileRepository } from '../repositories/profileRepository.js';
 import { MinecraftSessionRepository } from '../repositories/minecraftSessionRepository.js';
+import { BlobRepository } from '../repositories/blobRepository.js';
+import { AssetRepository } from '../repositories/assetRepository.js';
+import { TextureService } from '../textures/ingest.js';
 import { TextureProfileBuilder } from '../yggdrasil/textures.js';
 import { AssetUrlResolver } from '../storage/assetUrl.js';
 import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
@@ -54,6 +57,13 @@ async function main(): Promise<void> {
   });
   const textureBuilder = new TextureProfileBuilder(rsaKeyPair.privateKeyPem);
   const assetUrlResolver = new AssetUrlResolver(storage);
+  const textureService = new TextureService({
+    db,
+    storage,
+    blobs: new BlobRepository(db),
+    assets: new AssetRepository(db),
+    profiles: profileRepository,
+  });
 
   const app = createApp({
     config,
@@ -63,9 +73,11 @@ async function main(): Promise<void> {
     rsaKeyPair,
     identity,
     profileRepository,
+    assetRepository: new AssetRepository(db),
     minecraftSessions,
     textureBuilder,
     assetUrlResolver,
+    textures: textureService,
   });
   const port = Number(process.env['PORT'] ?? 3000);
   const server = app.listen(port, () => {

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, type TestContext } from 'node:test';
 import { TokenService } from '../src/auth/tokens.js';
 import { TokenRepository, type UserRole } from '../src/repositories/tokenRepository.js';
@@ -19,7 +20,7 @@ import { AssetUrlResolver, LocalDiskStorage, blobStorageKey } from '../src/stora
  * token 套件在 SQLite 与 PostgreSQL 上都跑（PG 需 TEST_DATABASE_URL）。
  */
 
-const SCHEMA_DIR = resolve('schema');
+const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
 const TEST_DATABASE_URL = process.env['TEST_DATABASE_URL'];
 
 // ---------------------------------------------------------------------------

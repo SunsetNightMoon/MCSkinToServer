@@ -19,7 +19,8 @@
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.10.0",
     "express": "^5.1.0",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

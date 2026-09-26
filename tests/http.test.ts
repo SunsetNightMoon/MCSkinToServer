@@ -4,7 +4,8 @@ import express, { type Express } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { after, before, test } from 'node:test';
 import { TokenService } from '../src/auth/tokens.js';
 import { IdentityService } from '../src/auth/identity.js';
@@ -12,6 +13,9 @@ import { TokenRepository, type UserRole } from '../src/repositories/tokenReposit
 import { UserRepository } from '../src/repositories/userRepository.js';
 import { ProfileRepository } from '../src/repositories/profileRepository.js';
 import { MinecraftSessionRepository } from '../src/repositories/minecraftSessionRepository.js';
+import { BlobRepository } from '../src/repositories/blobRepository.js';
+import { AssetRepository } from '../src/repositories/assetRepository.js';
+import { TextureService } from '../src/textures/ingest.js';
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
 import { AssetUrlResolver } from '../src/storage/assetUrl.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
@@ -30,7 +34,7 @@ import type { AppConfig } from '../src/config.js';
  * P0 收尾：Express 骨架 / 健康检查 / 统一认证中间件 / 错误映射。
  */
 
-const SCHEMA_DIR = resolve('schema');
+const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
 
 interface TestCtx {
   baseUrl: string;
@@ -101,9 +105,17 @@ before(async () => {
     rsaKeyPair,
     identity,
     profileRepository: new ProfileRepository(db),
+    assetRepository: new AssetRepository(db),
     minecraftSessions: new MinecraftSessionRepository(db),
     textureBuilder: new TextureProfileBuilder(rsaKeyPair.privateKeyPem),
     assetUrlResolver: new AssetUrlResolver(storage),
+    textures: new TextureService({
+      db,
+      storage,
+      blobs: new BlobRepository(db),
+      assets: new AssetRepository(db),
+      profiles: new ProfileRepository(db),
+    }),
   };
   const server = createApp(deps).listen(0, '127.0.0.1');
   await new Promise<void>((r) => server.once('listening', () => r()));

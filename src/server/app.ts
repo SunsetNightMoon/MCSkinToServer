@@ -9,9 +9,12 @@ import type { RsaKeyPair } from '../yggdrasil/keys.js';
 import type { TextureProfileBuilder } from '../yggdrasil/textures.js';
 import type { MinecraftSessionRepository } from '../repositories/minecraftSessionRepository.js';
 import type { ProfileRepository } from '../repositories/profileRepository.js';
+import type { AssetRepository } from '../repositories/assetRepository.js';
+import type { TextureService } from '../textures/ingest.js';
 import { buildMetadataDto } from '../yggdrasil/metadata.js';
 import { createYggdrasilRouter } from './routes/yggdrasil.js';
 import { createIdentityRouter } from './routes/identity.js';
+import { createAssetRouter } from './routes/assets.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
 
@@ -31,9 +34,12 @@ export interface AppDependencies {
   // ---- P1 身份链路 ----
   identity: IdentityService;
   profileRepository: ProfileRepository;
+  assetRepository: AssetRepository;
   minecraftSessions: MinecraftSessionRepository;
   textureBuilder: TextureProfileBuilder;
   assetUrlResolver: AssetUrlResolver;
+  // ---- P2 上传链路 ----
+  textures: TextureService;
 }
 
 const EMPTY_BYTES = new Uint8Array(0);
@@ -99,6 +105,16 @@ export function createApp(deps: AppDependencies): Express {
   // ---- Web 身份端点（P1：注册/登录/登出 + 角色管理）----
   app.use(
     createIdentityRouter({ identity: deps.identity, tokenService }),
+  );
+
+  // ---- 素材上传/衣柜端点（P2）----
+  app.use(
+    createAssetRouter({
+      tokenService,
+      textures: deps.textures,
+      assets: deps.assetRepository,
+      assetUrlResolver: deps.assetUrlResolver,
+    }),
   );
 
   // ---- 本地存储静态挂载（URL 由 StoragePort 统一生成）----

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, type TestContext } from 'node:test';
 import { PostgresConnection } from '../src/db/postgres.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
@@ -13,6 +14,9 @@ import { TokenRepository } from '../src/repositories/tokenRepository.js';
 import { UserRepository } from '../src/repositories/userRepository.js';
 import { ProfileRepository } from '../src/repositories/profileRepository.js';
 import { MinecraftSessionRepository } from '../src/repositories/minecraftSessionRepository.js';
+import { BlobRepository } from '../src/repositories/blobRepository.js';
+import { AssetRepository } from '../src/repositories/assetRepository.js';
+import { TextureService } from '../src/textures/ingest.js';
 import { LocalDiskStorage, blobStorageKey } from '../src/storage/index.js';
 import { sha256Hex } from '../src/util/crypto.js';
 import { AssetUrlResolver } from '../src/storage/assetUrl.js';
@@ -27,7 +31,7 @@ import type { AppConfig } from '../src/config.js';
  * 双方言：SQLite 恒跑；PostgreSQL 由 TEST_DATABASE_URL 门控。
  */
 
-const SCHEMA_DIR = resolve('schema');
+const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
 const TEST_DATABASE_URL = process.env['TEST_DATABASE_URL'];
 
 const EMAIL = `alice-${Date.now()}@test.local`;
@@ -166,9 +170,17 @@ async function startHttp(
     rsaKeyPair,
     identity,
     profileRepository: new ProfileRepository(db),
+    assetRepository: new AssetRepository(db),
     minecraftSessions: new MinecraftSessionRepository(db),
     textureBuilder: new TextureProfileBuilder(rsaKeyPair.privateKeyPem),
     assetUrlResolver: new AssetUrlResolver(storage),
+    textures: new TextureService({
+      db,
+      storage,
+      blobs: new BlobRepository(db),
+      assets: new AssetRepository(db),
+      profiles: new ProfileRepository(db),
+    }),
   };
   const server = createApp(deps).listen(0, '127.0.0.1');
   await new Promise<void>((r) => server.once('listening', () => r()));

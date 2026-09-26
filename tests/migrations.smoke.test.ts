@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { PostgresConnection } from '../src/db/postgres.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
@@ -16,7 +17,7 @@ import { runMigrations } from '../src/migrate/runner.js';
  *  5. PostgreSQL 全套（需 TEST_DATABASE_URL，指向可随意销毁的空临时库）
  */
 
-const SCHEMA_DIR = resolve('schema');
+const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
 const CORE_TABLES = [
   'users',
   'profiles',

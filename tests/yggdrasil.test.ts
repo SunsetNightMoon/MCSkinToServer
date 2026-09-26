@@ -3,7 +3,8 @@ import { createVerify } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { ProfileRepository } from '../src/repositories/profileRepository.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
@@ -31,9 +32,9 @@ import { sha256Hex } from '../src/util/crypto.js';
  * 模型 metadata 语义、rejected 素材排除规则、metadata DTO。
  */
 
-const SCHEMA_DIR = resolve('schema');
+const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
 const VECTOR = JSON.parse(
-  await readFile(resolve('tests/fixtures/yggdrasil-vector.json'), 'utf8'),
+  await readFile(join(SCHEMA_DIR, '..', 'tests', 'fixtures', 'yggdrasil-vector.json'), 'utf8'),
 ) as {
   privateKeyPem: string;
   publicKeyPem: string;
