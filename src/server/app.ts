@@ -36,6 +36,7 @@ import { createSettingRouter } from './routes/settings.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
 import type { CaptchaService } from '../account/captcha.js';
+import type { StatsRepository } from '../repositories/statsRepository.js';
 
 /**
  * Express 应用工厂（蓝图 §2.1）：
@@ -101,6 +102,13 @@ export interface AppDependencies {
    * 而 `/api/captcha/captcha-type` 仍可用 —— 开关关着时它返回 `'none'`。
    */
   captcha?: CaptchaService;
+  /**
+   * 统计聚合（仪表盘概览与趋势）；未注入时 `/api/admin/stats*` 返回 501。
+   *
+   * 分桶时区在 main.ts 构造仓储时通过 `AppConfig.statsTzOffsetMinutes` 定下，
+   * 这里只拿现成实例，不再透传配置项。
+   */
+  stats?: StatsRepository;
   /**
    * 批4-F：第三方登录 provider 列表来源。
    * 未注入时读模块级注册表（宿主在自己的启动脚本里 `registerOAuthProvider`）。
@@ -303,6 +311,7 @@ export function createApp(deps: AppDependencies): Express {
       mailService: deps.mailService,
       settings: deps.settings,
       runtimeSettings: deps.runtimeSettings,
+      stats: deps.stats,
     }),
   );
 

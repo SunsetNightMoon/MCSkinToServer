@@ -60,6 +60,14 @@ export interface AppConfig {
   captchaGenerateRateLimit?: Partial<RateLimitSettings>;
   /** 站点公开设置缓存 TTL（毫秒）；缺省见 DEFAULT_SETTINGS_CACHE_TTL_MS */
   settingsCacheTtlMs?: number;
+  /**
+   * 管理后台趋势图按哪个时区切「一天」，单位分钟（缺省见
+   * DEFAULT_STATS_TZ_OFFSET_MINUTES = 480 即 UTC+8）。
+   *
+   * 必须可配：时间戳一律以 UTC 存储，直接按 UTC 日期分桶会把北京时间
+   * 00:00–08:00 的活动算到前一天。整机容器常跑在 UTC，不能靠进程 TZ。
+   */
+  statsTzOffsetMinutes?: number;
 }
 
 /** 认证端点限流参数 */
@@ -113,6 +121,33 @@ export const DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT: RateLimitSettings = {
 
 export const DEFAULT_SETTINGS_CACHE_TTL_MS = 30 * 1000;
 
+/**
+ * 管理后台趋势图「一天」的分界时区偏移，单位分钟。
+ *
+ * 默认 +480（UTC+8）。理由：时间戳一律以 UTC 存储，而「某天」是给人看的。
+ * 按 UTC 日期分桶会让北京时间 00:00–08:00 的活动落到**前一天** ——
+ * 管理员晚上提交的东西第二天早上看，会显示在前天的柱子上。
+ *
+ * 取值范围 -720..840（UTC-12 至 UTC+14）；越界值回落默认。
+ */
+export const DEFAULT_STATS_TZ_OFFSET_MINUTES = 480;
+
+/** 时区偏移的合法范围（分钟），对应 UTC-12 .. UTC+14 */
+const MIN_TZ_OFFSET_MINUTES = -720;
+const MAX_TZ_OFFSET_MINUTES = 840;
+
+/**
+ * 把时区偏移裁剪到合法范围。
+ *
+ * 越界不报错而是裁剪：这个值只影响趋势图横轴的日期归属，为一个可配项
+ * 让服务起不来不值当。裁剪后仍在合法区，图表最多是日期略偏，不会崩。
+ */
+function clampTzOffset(minutes: number): number {
+  if (minutes < MIN_TZ_OFFSET_MINUTES) return MIN_TZ_OFFSET_MINUTES;
+  if (minutes > MAX_TZ_OFFSET_MINUTES) return MAX_TZ_OFFSET_MINUTES;
+  return minutes;
+}
+
 /** 补齐缺省值；调用方只关心最终生效值 */
 export function resolveRateLimit(config: AppConfig): RateLimitSettings {
   const partial = config.rateLimit ?? {};
@@ -161,6 +196,19 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+/**
+ * 把环境变量解析为**带符号**整数。
+ *
+ * 单独的辅助函数是必需的：时区偏移的合法值是 -720..840，**0 和负数都合法**，
+ * 用 `positiveInt` 会让 `STATS_TZ_OFFSET_MINUTES=0`（UTC）与 `-300`（UTC-5）
+ * 被静默换成 +480 —— 图表日期整体偏移一天，且没有任何提示。
+ */
+function signedInt(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.trunc(value) : fallback;
 }
 
 export class ConfigError extends Error {}
@@ -227,6 +275,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     settingsCacheTtlMs: positiveInt(
       env['SETTINGS_CACHE_TTL_MS'],
       DEFAULT_SETTINGS_CACHE_TTL_MS,
+    ),
+    statsTzOffsetMinutes: clampTzOffset(
+      signedInt(env['STATS_TZ_OFFSET_MINUTES'], DEFAULT_STATS_TZ_OFFSET_MINUTES),
     ),
   };
 }

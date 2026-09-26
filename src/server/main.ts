@@ -32,6 +32,7 @@ import { BlobRepository } from '../repositories/blobRepository.js';
 import { AssetRepository } from '../repositories/assetRepository.js';
 import { FavoriteRepository } from '../repositories/favoriteRepository.js';
 import { SettingRepository } from '../repositories/settingRepository.js';
+import { StatsRepository } from '../repositories/statsRepository.js';
 import { TextureService } from '../textures/ingest.js';
 import { LibraryService } from '../library/libraryService.js';
 import { TextureProfileBuilder } from '../yggdrasil/textures.js';
@@ -135,6 +136,8 @@ async function main(): Promise<void> {
   // ---- 0004：人机验证（自托管数学题；开关由 ENABLE_CAPTCHA 控制）----
   const captchaRepo = new CaptchaRepository(db);
   const captcha = new CaptchaService({ challenges: captchaRepo });
+  // ---- 管理后台统计（仪表盘）：分桶时区可配，默认 UTC+8 ----
+  const stats = new StatsRepository(db, config.statsTzOffsetMinutes);
   const smtpMailer = new SmtpMailer(runtimeSettings);
   const mailService = new MailService({
     mailer: smtpMailer,
@@ -220,6 +223,7 @@ async function main(): Promise<void> {
     emailFlow,
     emailChangeFlow,
     captcha,
+    stats,
     mailService,
     secretBox,
   });

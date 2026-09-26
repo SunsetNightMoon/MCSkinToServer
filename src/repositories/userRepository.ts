@@ -34,6 +34,11 @@ export interface UserRow {
   bannedUntil: string | null;
   banPermanent: boolean;
   banReason: string | null;
+  /**
+   * 本次封禁的下达时刻（0005）。非空 = 当前处于封禁中；解封时清空。
+   * 管理后台「封禁趋势」按这一列分日聚合。
+   */
+  bannedAt: string | null;
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
@@ -73,7 +78,7 @@ export interface NewUserRow {
 
 const USER_COLUMNS =
   'id, user_uid, email, password_hash, role, is_active, email_verified, ' +
-  'banned_until, ban_permanent, ban_reason, created_at, updated_at, last_login_at, ' +
+  'banned_until, ban_permanent, ban_reason, banned_at, created_at, updated_at, last_login_at, ' +
   'deleted_at, purged_at, profile_mode, profile_mode_decided_at, mode_changed_at, ' +
   'backup_email, backup_email_verified, backup_email_verified_at';
 
@@ -89,6 +94,7 @@ function mapUserRow(raw: Record<string, unknown>): UserRow {
     bannedUntil: toIso(raw['banned_until']),
     banPermanent: toBoolean(raw['ban_permanent']),
     banReason: (raw['ban_reason'] as string | null) ?? null,
+    bannedAt: toIso(raw['banned_at']),
     createdAt: toIso(raw['created_at'])!,
     updatedAt: toIso(raw['updated_at'])!,
     lastLoginAt: toIso(raw['last_login_at']),
@@ -213,6 +219,8 @@ export class UserRepository {
       bannedUntil?: string | null;
       banPermanent?: boolean;
       banReason?: string | null;
+      /** 本次封禁下达时刻；解封时传 null 清空（0005） */
+      bannedAt?: string | null;
     },
     now: Date,
   ): Promise<void> {
@@ -226,6 +234,14 @@ export class UserRepository {
     if (fields.isActive !== undefined) {
       sets.push(`is_active = ${phAt(this.db.dialect, i++)}`);
       values.push(this.db.dialect === 'postgres' ? fields.isActive : fields.isActive ? 1 : 0);
+    }
+    if (fields.bannedAt !== undefined) {
+      // PG 的时间列绑参需显式转换，否则 pg 会把字符串当 text 传给 timestamptz
+      const ph = phAt(this.db.dialect, i++);
+      sets.push(
+        `banned_at = ${this.db.dialect === 'postgres' ? `${ph}::timestamptz` : ph}`,
+      );
+      values.push(fields.bannedAt);
     }
     if (fields.bannedUntil !== undefined) {
       sets.push(`banned_until = ${phAt(this.db.dialect, i++)}`);

@@ -328,6 +328,7 @@ export class IdentityService {
       bannedUntil: null,
       banPermanent: false,
       banReason: null,
+      bannedAt: null,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
       lastLoginAt: null,
@@ -1159,6 +1160,9 @@ export class IdentityService {
         fields.banPermanent = false;
         fields.bannedUntil = null;
         fields.banReason = null;
+        // 时间戳必须一并清空：留着它会让「封禁趋势」把解封后的日子仍算作封禁，
+        // 也会让「重新封禁」看起来像是同一次（覆盖为新时刻才对）
+        fields.bannedAt = null;
       } else {
         const permanent = patch.ban.permanent === true;
         if (!permanent) {
@@ -1172,6 +1176,8 @@ export class IdentityService {
         }
         fields.banPermanent = permanent;
         fields.banReason = patch.ban.reason ?? null;
+        // 无论永久还是临时，都记下本次下达时刻（重复封禁会覆盖为最新一次）
+        fields.bannedAt = this.now().toISOString();
       }
     }
 

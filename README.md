@@ -493,6 +493,96 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
 - 收尾：清空 Redis 出题限流键、关闭 `ENABLE_CAPTCHA`、删除临时管理员与全部 `.tmp-*` 脚本；开发库 `captcha_challenges` 归零、无残留测试账号
 - **本批未触碰 GitHub**（`git remote -v` 为空）
 
+## P5 第六批：管理后台仪表盘统计（迁移 0005 + 两个端点）
+
+### 起因：一句「管理后台的仪表盘没有数据反应」
+
+诊断只做了一件事就定位了：**直连后端**。
+
+```
+$ curl -s http://localhost:3000/api/admin/stats
+{"error":"NOT_FOUND","message":"路由不存在",...}
+```
+
+`src/server/routes/` 里 grep `stats` **零命中** —— 后端从来没有这两个端点。而前端的症状是「三张卡片有数字、四张折线图全空白」，这个**不一致本身就是线索**：`apiCompat.ts` 里躺着两处「降级替身」。
+
+| 替身 | 它做了什么 | 后果 |
+|---|---|---|
+| `/api/admin/stats` | 前端拼三个接口：`/api/admin/users` 的 `total` + `/api/library?kind=skin` 的 `total` + 两次 `/api/admin/reviews` 的 `items.length` | 「皮肤总数」取的是**公开素材库**的计数（只含 `public` + `approved`），管理员看到的是「站上公开了几张皮」而不是「站里有多少张皮」（实测 1，实际 3）；`/api/admin/reviews` **不分页也不带总数**，用 `items.length` 当待审计数，数据一多就是错的 |
+| `/api/admin/stats/daily` | **写死返回六个空数组**（注释原文「趋势接口无后端支持」） | 四张折线图永远没有点 |
+
+**这不是渲染坏了，是真的没给数据。** 聚合就该在数据库里做一次，而不是拉几页数据在前端数。
+
+### 三项决策（用户拍板）
+
+1. **封禁趋势** —— 顺手把封禁功能一起做了（时间戳缺失，见下）。
+2. **皮肤总数口径** —— **全部资产，含待审与被拒**（不是公开库那套 `public` + `approved`）。
+3. **待审核趋势语义** —— **当日提交、至今未审**（状态口径，已知局限见下）。
+
+### 迁移 0005（双方言）
+
+`schema/{sqlite,postgresql}/0005_user_banned_at.sql`：`users` 加 `banned_at`（TEXT / TIMESTAMPTZ）+ 索引 `users_banned_at_idx`。
+
+- **语义**：非空 = 当前处于封禁中，值为**本次下达时刻**；解封必须清空；重复封禁覆盖为最新一次。
+- **允许 NULL（不回填）**：存量被禁账号没有可靠的下达时间，回填一个假值会污染趋势图 —— 图上凭空多出一根柱子比空着更糟。
+- **封禁功能本身早就存在**（`PATCH /api/admin/users/:id` + `IdentityService.assertNotBanned` + 登录 403 `USER_BANNED`，链路一直是对的），缺的只是这枚时间戳。
+
+### `src/repositories/statsRepository.ts`（新）
+
+一条 SQL 出三个数（`overview()`），三条聚合 SQL 出趋势（`daily(days)`）：
+
+| 口径 | 定义 | 类型 |
+|---|---|---|
+| `userCount` | `deleted_at IS NULL` 的用户数 | 状态 |
+| `skinCount` | `kind = 'skin'` 的**全部**资产（含 private / pending / rejected） | 状态 |
+| `pendingCount` | `review_status = 'pending'` 的资产数（含披风） | 状态 |
+| `skinUploads` / `capeUploads` | 按 `created_at` 分日的上传数 | 事件 |
+| `userRegistrations` | 按 `created_at` 分日的注册数 | 事件 |
+| `pendingSubmissions` | 该日创建的资产中**当前仍为** `pending` 的数量 | 状态（见下） |
+| `banCounts` | `banned_at IS NOT NULL` 的账号按 `banned_at` 分日 | 状态 |
+
+**「历史事件」与「当前状态」两种口径刻意不统一**：
+
+- `userRegistrations` 是事件口径 —— 注册后又注销的账号仍计入当天（历史事实不会因为后来发生的事而不再是事实）。
+- `pendingSubmissions` 是状态口径 —— 一条资产被审核后，**它所在那一天的计数会下降**。这不是 bug，是「提交时不留流水」这一既有设计决定的（`asset_reviews` 只在管理员审核时插入行）。要变成历史口径，需要在提交时插一条 `status='pending'` 流水；本批不做，代码注释里写明了。
+- `banCounts` 同理：解封后当天计数回落。这是有意的 —— 它的用途是「现在有多少账号处于封禁中、分别从哪天开始」，而不是「历史上封过多少次」。
+
+**时区**：时间戳以 UTC 存储，但「某天」是给人看的。按 UTC 分桶会把北京时间 00:00–08:00 的活动算到**前一天**（管理员晚上提交的东西第二天早上显示在前天的柱子上）。分桶统一按 `STATS_TZ_OFFSET_MINUTES`（默认 `480` = UTC+8）平移后再取日期，`days` 数组用**同一偏移**生成。
+
+三个方言细节都是踩过的：
+
+- **SQLite**：`date(${col}, ?)` —— 修正符可绑参（实测 3.49 支持），`date()` 认带 `Z` 的 ISO 文本。
+- **PostgreSQL**：`timestamptz + interval` **仍是 timestamptz**，不显式 `AT TIME ZONE 'UTC'` 就按**会话 TimeZone** 渲染 → 同一份数据在不同连接上可能落到不同日期。写法固定为 `to_char((col + ($1::interval)) AT TIME ZONE 'UTC', 'YYYY-MM-DD')`。
+- **补零必须在应用层做**：SQL 的 `GROUP BY` 天生不产出没有活动的日子，直接拿结果画图会让空日子整段消失、横轴被压缩。
+- **`signedInt()` 而不是 `positiveInt()`**（`src/config.ts`）：时区偏移的 `0`（UTC）与负数（UTC-5）都合法，用正整数解析会把它们静默换成 `+480`，图表日期整体偏移一天且没有任何提示。越界值**裁剪**到 -720..840 而不是报错（为可配项让服务起不来不值当）。
+
+### 新增端点
+
+| 端点 | 认证 | 说明 |
+|---|---|---|
+| `GET /api/admin/stats` | admin+ | `{ userCount, skinCount, pendingCount }` |
+| `GET /api/admin/stats/daily?days=7` | admin+ | 六个等长数组；`days` 越界/非法**裁剪**到 1..90 而不报 400（展示参数不值得让整块图表报错） |
+| `PATCH /api/admin/users/:id` | admin+ | 既有端点，本批起额外写 `banned_at`（封禁写入 / 解封清空 / 重复封禁覆盖） |
+
+两个 `stats` 端点**必须排在 `/api/admin/assets/:id` 之前**，否则 `stats` 会被当成素材 id。未注入统计仓储时返回 **501 `NOT_IMPLEMENTED`**（「接线口在这里」而不是 500「代码炸了」）。
+
+### 前端（`web/src/utils/apiCompat.ts`）
+
+删掉两处降级替身，`/api/admin/stats` 与 `/api/admin/stats/daily` 改为**完全透传**（含状态码）。同样把 `passthroughError` 用在非 2xx 上 —— 合成的 200 会把后端真实错误一起吞掉，这是本项目第二次栽在这上面（见第五批的验证码缺陷 2）。
+
+### 验收（数字均为实际输出）
+
+- `npx tsc --noEmit` 后端零错误；`cd web && npm run build`（`tsc --noEmit` + vite）通过，`✓ built in 15.62s`（chunk 体积警告为既有）
+- `npm test`（仅 SQLite）：**243 tests / 185 pass / 0 fail / 58 skipped**
+- `TEST_DATABASE_URL` + `TEST_REDIS_URL` + `TEST_SMTP_URL` + `TEST_SMTP_API_URL` 全开：**243 tests / 243 pass / 0 fail / 0 skipped**
+- 新增测试：`tests/adminStats.test.ts`（18 项，含双方言：概览口径 / 空库全 0 / 六数组等长且日期连续 / 当天分桶不错位 / **时区边界（同一行在 UTC+8 与 UTC 下必须落在不同日期）** / `days` 裁剪 / 权限 / 未注入仓储报 501 / 仓储直调与端点结果一致）、`tests/adminBan.test.ts`（16 项，含双方言：迁移默认 NULL / 封禁写入 `banned_at` 并计入当天趋势 / 被封后登录 403 / 解封清空且计数回落 / 临时封禁到期自愈 / 过去时间被拒 / 不能封自己 / 普通用户 403 / 404 / **重复封禁覆盖时间戳（假钟精确断言）**）
+- 真实开发环境（后端 :3000 / 前端 :5173）：`GET /api/admin/stats` → `{"userCount":6,"skinCount":3,"pendingCount":0}`（**`skinCount` 从错误口径的 1 变为 3**）；`?days=7` → `{"days":["2026-09-19",…,"2026-09-25"],"skinUploads":[0,0,0,0,1,2,0],"userRegistrations":[0,0,0,0,2,1,3],"pendingSubmissions":[0,0,0,0,0,0,0],"banCounts":[0,0,0,0,0,0,1]}`；无 token → 401
+- 截图（`G:/Skin2.catnight.top/.shots/`）：`20-admin-dashboard-BEFORE.png`（卡片 4/1/0、**四张图全空白**）→ `21-admin-dashboard-AFTER.png`（卡片 5/3/0、图有线了）→ `22/23-admin-dashboard-*.png`（卡片 **6/3/0**；上传趋势 09-23→1、09-24→2；注册趋势 09-23→2、09-24→1、09-25→3；待审核趋势全 0 平线；**封禁趋势 09-25→1**）
+- 收尾：删除临时注入页 `web/public/_shot-login.html`、临时脚本与凭证、Edge 截图 profile；删除本次验证造的测试账号（`devadmin-*` / `victim-*` / `victim2-*`）
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+---
+
 ## 生产部署（域名类型）
 
 前端是 SPA（构建产物 `web/dist`），后端是同一个 Express 服务。**推荐同域部署**（把 `web/dist` 交给反代静态托管，`/api` 与 `/uploads` 转给后端）；前后端分域也能跑，但要显式设 `VITE_API_URL`（见下）。

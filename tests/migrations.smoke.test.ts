@@ -68,7 +68,20 @@ function cleanupSqlite(t: { after: (fn: () => Promise<void>) => void }, db: Sqli
  * schema/<dialect>/ 下真实存在的迁移版本清单。
  * 新增迁移时只需在这里加一项（下方断言数处共用，避免漏改）。
  */
-const EXPECTED_MIGRATIONS = ['0001', '0002', '0003', '0004'];
+const EXPECTED_MIGRATIONS = ['0001', '0002', '0003', '0004', '0005'];
+
+/**
+ * **只加列不加表的迁移**要点名的列。表名清单（`CORE_TABLES`）对这类迁移完全
+ * 失明 —— 迁移文件写空了、`ALTER TABLE` 打错表名，表断言都照样通过。
+ * 加了新列就在这里补一行。
+ */
+const EXPECTED_USER_COLUMNS = [
+  'deleted_at', // 0002
+  'purged_at', // 0002
+  'profile_mode', // 0003
+  'backup_email_verified_at', // 0003
+  'banned_at', // 0005
+];
 
 test('sqlite: 空库执行全部迁移成功', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
@@ -97,6 +110,13 @@ test('sqlite: 空库执行全部迁移成功', async (t) => {
   );
   for (const v of versions) {
     assert.match(v.checksum, /^[0-9a-f]{64}$/);
+  }
+
+  // 0005 只加列不加表 —— 光看表名察觉不到它有没有真的执行，所以单独断言列
+  const userCols = await db.query<{ name: string }>('PRAGMA table_info(users)');
+  const colNames = userCols.map((c) => c.name);
+  for (const col of EXPECTED_USER_COLUMNS) {
+    assert.ok(colNames.includes(col), `users 缺少列 ${col}`);
   }
 });
 
@@ -227,6 +247,16 @@ test(
     const names = tables.map((r) => r.tablename);
     for (const expected of [...CORE_TABLES, 'schema_migrations']) {
       assert.ok(names.includes(expected), `缺少表 ${expected}`);
+    }
+
+    // 只加列的迁移（0005）光看表名察觉不到，单独断言列
+    const userCols = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users'`,
+    );
+    const colNames = userCols.map((c) => c.column_name);
+    for (const col of EXPECTED_USER_COLUMNS) {
+      assert.ok(colNames.includes(col), `users 缺少列 ${col}`);
     }
 
     const second = await runMigrations(db, join(SCHEMA_DIR, 'postgresql'));

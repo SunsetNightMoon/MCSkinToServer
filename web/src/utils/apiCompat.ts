@@ -362,38 +362,25 @@ export async function compatFetch(
     }
   }
 
-  // ── 管理后台：统计 ──
-  if (path === '/api/admin/stats') {
-    try {
-      const [usersRes, skinsRes, pendingSkins, pendingCapes] = await Promise.all([
-        rawFetch('/api/admin/users?page=1&pageSize=1', { headers }),
-        rawFetch('/api/library?kind=skin&page=1&pageSize=1', { headers }),
-        rawFetch('/api/admin/reviews?kind=skin', { headers }),
-        rawFetch('/api/admin/reviews?kind=cape', { headers }),
-      ])
-      const users = usersRes.ok ? await usersRes.json() : { total: 0 }
-      const skins = skinsRes.ok ? await skinsRes.json() : { total: 0 }
-      const ps = pendingSkins.ok ? await pendingSkins.json() : { items: [] }
-      const pc = pendingCapes.ok ? await pendingCapes.json() : { items: [] }
-      return json({
-        userCount: users?.total ?? 0,
-        skinCount: skins?.total ?? 0,
-        pendingCount: (ps?.items?.length ?? 0) + (pc?.items?.length ?? 0),
-      })
-    } catch {
-      return json({ userCount: 0, skinCount: 0, pendingCount: 0 })
-    }
-  }
-  // 趋势接口无后端支持：返回空序列（图表渲染为空）
-  if (path === '/api/admin/stats/daily') {
-    return json({
-      days: [],
-      skinUploads: [],
-      capeUploads: [],
-      userRegistrations: [],
-      pendingSubmissions: [],
-      banCounts: [],
-    })
+  // ── 管理后台：统计（后端已有聚合端点，直接透传）──
+  //
+  // 这里原先有两处「降级替身」，都是典型的「后端接了、前端看不见」：
+  //
+  //  1. `/api/admin/stats` 在**前端拼三个接口**凑出三个数。后果是「皮肤总数」
+  //     取的是公开素材库的计数（只含 public + approved），管理员看到的是
+  //     「站上公开了几张皮」而不是「站里有多少张皮」；「待审核」用
+  //     `items.length`，而 `/api/admin/reviews` 不分页也不带总数，数据一多就错。
+  //  2. `/api/admin/stats/daily` **写死返回六个空数组**（注释原文写着
+  //     「趋势接口无后端支持」）。四张折线图因此永远是空白 —— 不是渲染坏了，
+  //     而是真的没给数据。
+  //
+  // `GET /api/admin/stats` 与 `GET /api/admin/stats/daily` 现在都在后端
+  // 一次聚合完成，透传即可；聚合口径（排除已注销用户、皮肤含待审与被拒、
+  // 按日缺失补 0、分桶时区）全部由后端决定，前端不再复刻一遍。
+  if (path === '/api/admin/stats' || path === '/api/admin/stats/daily') {
+    const res = await rawFetch(url, init)
+    if (!res.ok) return passthroughError(res)
+    return json(await res.json())
   }
 
   // ── 管理后台：待审核列表 → /api/admin/reviews?kind= ──

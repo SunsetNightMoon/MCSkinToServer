@@ -6,6 +6,8 @@ import type { EmailFlow } from '../../account/emailFlow.js';
 import type { MailService } from '../../mail/mailService.js';
 import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { SettingRepository } from '../../repositories/settingRepository.js';
+import type { StatsRepository } from '../../repositories/statsRepository.js';
+import { MAX_STATS_DAYS, MIN_STATS_DAYS } from '../../repositories/statsRepository.js';
 import { defaultSubject, builtinTemplateHtml } from '../../mail/templates.js';
 import type {
   AssetRepository,
@@ -29,6 +31,8 @@ import { AppError } from '../../errors.js';
  * - POST  /api/admin/test-smtp         测试 SMTP 连接
  * - GET   /api/admin/email-template    读取邮件模板（未配置时返回内置默认）
  * - PUT   /api/admin/email-template    保存邮件模板
+ * - GET   /api/admin/stats             仪表盘概览（用户/皮肤/待审三个数）
+ * - GET   /api/admin/stats/daily?days= 仪表盘趋势序列（按日，缺失补 0）
  * 全部要求 admin 及以上（requireRole(1)）。
  *
  * 用户管理那三个端点（send-verification / verify-email）不是可有可无的补充：
@@ -49,6 +53,8 @@ export interface AdminRouteDependencies {
   settings?: SettingRepository;
   /** 站点运行期设置（取站点名做默认主题、保存后刷新缓存） */
   runtimeSettings?: RuntimeSettings;
+  /** 统计聚合（仪表盘）；未注入则两个 stats 端点返回 502 */
+  stats?: StatsRepository;
 }
 
 const REVIEW_STATUSES: ReadonlySet<string> = new Set(['approved', 'rejected']);
@@ -64,6 +70,39 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
   // requireAuth 写入 req.context，requireAdmin 再做角色门槛 —— 两个都要挂
   const auth = requireAuth(deps.tokenService);
   const admin = requireAdmin;
+
+  /** 统计仓储缺失时统一报「本实例未启用统计」，而不是抛 500 让人以为代码炸了 */
+  const requireStats = (): StatsRepository => {
+    if (!deps.stats) {
+      throw new AppError('NOT_IMPLEMENTED', '本实例未启用统计聚合');
+    }
+    return deps.stats;
+  };
+
+  /**
+   * 仪表盘概览：用户总数 / 皮肤总数 / 待审核。
+   *
+   * 三个数**必须在数据库里聚合**，不能像原先那样由前端拼三个接口：
+   * 拼出来的「皮肤总数」取的是公开素材库的计数（只含 public + approved），
+   * 「待审核」用 `items.length` 而那个接口不分页也不带总数 —— 数据一多就错。
+   */
+  router.get('/api/admin/stats', auth, admin, async (_req, res) => {
+    res.json(await requireStats().overview());
+  });
+
+  /**
+   * 仪表盘趋势：按日序列，六个数组与 `days` 等长（无活动的日子补 0）。
+   *
+   * `days` 非法或越界时**裁剪到 1..90**，不报 400 —— 它只是个展示参数，
+   * 为一个手滑的查询串让整块图表报错不值得。
+   */
+  router.get('/api/admin/stats/daily', auth, admin, async (req, res) => {
+    const raw = Number((req.query as Record<string, unknown>)['days'] ?? 7);
+    const days = Number.isFinite(raw)
+      ? Math.min(Math.max(Math.trunc(raw), MIN_STATS_DAYS), MAX_STATS_DAYS)
+      : 7;
+    res.json(await requireStats().daily(days));
+  });
 
   /**
    * 全量素材列表（含 private / pending / rejected），供管理后台总览与编辑入口。
