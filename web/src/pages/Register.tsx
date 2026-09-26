@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Card, Form, Input, Button, App as AntdApp } from 'antd';
+import { Form, Input, Button, App as AntdApp } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import { useAuthStore } from '../store/auth';
+import { AuthShell } from '../components/AuthShell';
 import type { LoginResponse } from '../api/types';
 
 export function RegisterPage() {
@@ -33,7 +34,7 @@ export function RegisterPage() {
   };
 
   return (
-    <Card bordered>
+    <AuthShell>
       <Form onFinish={(v) => void onFinish(v as never)} layout="vertical">
         <Form.Item
           name="email"
@@ -63,10 +64,10 @@ export function RegisterPage() {
         >
           <Input placeholder="Steve_Minecraft" />
         </Form.Item>
-        <Button type="primary" htmlType="submit" block loading={loading}>
+        <Button type="primary" htmlType="submit" block loading={loading} size="large">
           注册
         </Button>
       </Form>
-    </Card>
+    </AuthShell>
   );
 }

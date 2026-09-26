@@ -144,7 +144,14 @@ export function createApp(deps: AppDependencies): Express {
   );
 
   // ---- 本地存储静态挂载（URL 由 StoragePort 统一生成）----
-  app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d' }));
+  // CORS：Web 端 canvas（头像/3D 预览）跨源读取纹理必须带 ACAO 头
+  app.use(
+    '/uploads',
+    express.static(config.uploadDir, {
+      maxAge: '7d',
+      setHeaders: (res) => res.set('Access-Control-Allow-Origin', '*'),
+    }),
+  );
 
   // ---- 认证探针：当前登录用户（P1 扩展为完整 /api/auth、/api/me）----
   const auth = requireAuth(tokenService);

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Card,
   Table,
   Button,
   Modal,
@@ -85,14 +84,22 @@ export function ProfilesPage() {
   };
 
   return (
-    <Card
-      title="我的角色"
-      extra={
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+        }}
+      >
+        <h2 style={{ color: 'var(--text-primary)', margin: 0 }}>我的角色</h2>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
           新建角色
         </Button>
-      }
-    >
+      </div>
+
+      <div className="glass-card" style={{ borderRadius: 10, padding: 16 }}>
       <Table<ProfileRow>
         rowKey="id"
         loading={loading}
@@ -183,6 +190,7 @@ export function ProfilesPage() {
           <Typography.Text type="secondary">改名后进入 30 天冷却期</Typography.Text>
         </Form>
       </Modal>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -1,0 +1,137 @@
+/* ============================================================
+   Landing — plan3 移植（星空 hero、右对齐、渐变 CTA）
+   ============================================================ */
+
+.landing-page {
+  min-height: 100dvh;
+  color: #fff;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.landing-hero {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: calc(100dvh - 64px);
+  padding: 0 60px 80px;
+}
+
+.landing-hero__content {
+  max-width: 520px;
+  text-align: right;
+}
+
+.landing-hero__title {
+  font-size: clamp(28px, 4vw, 44px);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #fff;
+  margin: 0 0 12px;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+}
+
+.landing-hero__title-accent {
+  color: #7dd3fc;
+}
+
+.landing-hero__subtitle {
+  font-size: clamp(14px, 2vw, 18px);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0 0 40px;
+}
+
+.landing-hero__cta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.landing-hero__btn {
+  height: 48px;
+  padding: 0 36px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.landing-hero__btn--primary {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.4);
+}
+
+.landing-hero__btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(37, 99, 235, 0.5);
+}
+
+.landing-hero__btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.landing-hero__btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+/* ---------- 亮色主题 ---------- */
+
+.landing-page[data-theme='light'] {
+  color: #1a1a2e;
+}
+
+.landing-page[data-theme='light'] .landing-hero__title {
+  color: #1a1a2e;
+  text-shadow: none;
+}
+
+.landing-page[data-theme='light'] .landing-hero__title-accent {
+  color: #2563eb;
+}
+
+.landing-page[data-theme='light'] .landing-hero__subtitle {
+  color: rgba(26, 26, 46, 0.6);
+}
+
+.landing-page[data-theme='light'] .landing-hero__btn--secondary {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(26, 26, 46, 0.8);
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.landing-page[data-theme='light'] .landing-hero__btn--secondary:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #1a1a2e;
+}
+
+/* ---------- 响应式 ---------- */
+
+@media (max-width: 768px) {
+  .landing-hero {
+    justify-content: center;
+    padding: 0 24px 60px;
+  }
+
+  .landing-hero__content {
+    text-align: center;
+    max-width: 100%;
+  }
+
+  .landing-hero__cta {
+    justify-content: center;
+  }
+}
