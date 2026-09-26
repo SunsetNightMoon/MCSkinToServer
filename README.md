@@ -92,14 +92,14 @@ npm test          # SQLite 基线（无需外部服务，门控用例自动 skip
 
 ## 许可
 
-[MIT License with Attribution Addendum](LICENSE)（MIT + 署名附加条款，口径与 Blessing Skin 类似）：
+[MIT License with Attribution Addendum](LICENSE)（MIT + 署名附加条款）：
 
 - 自由与 MIT 一致：使用、复制、修改、合并、出版、分发、再许可、销售均免费
 - **附加条款**：将本软件（含修改版）用于对外提供网站/在线服务时，站点前端必须保留清晰可见的「**Powered by MCSkinToServer**」署名，未经书面许可不得移除、遮挡或篡改；仅分发源代码时只受 MIT 标准条件约束
 
 ## 致谢
 
-- [Blessing Skin](https://github.com/bs-community/blessing-skin-server) —— 长期以来的优秀 Minecraft 皮肤站项目。本项目的整体产品形态与其同源，「MIT + Powered by 署名附加条款」的许可设计也直接受其启发，谨此致谢并尊重该项目带来的价值。
+- [Blessing Skin](https://github.com/bs-community/blessing-skin-server) —— 长期以来的优秀 Minecraft 皮肤站项目。本项目作为皮肤站的整体产品形态与方向受其启发，谨此致谢并尊重该项目带来的价值。
 
 ## 工作约定
 
