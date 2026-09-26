@@ -13,6 +13,7 @@ export const NAV_LINKS: NavItem[] = [
   { path: '/library', label: '公开库' },
   { path: '/wardrobe', label: '我的衣柜', auth: true },
   { path: '/profiles', label: '我的角色', auth: true },
+  { path: '/admin', label: '管理后台', auth: true, admin: true },
 ];
 
 export function AppLayout() {

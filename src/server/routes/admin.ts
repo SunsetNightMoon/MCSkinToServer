@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { TokenService } from '../../auth/tokens.js';
 import type { LibraryService } from '../../library/libraryService.js';
+import type { IdentityService } from '../../auth/identity.js';
 import type {
   AssetRepository,
   AssetKind,
@@ -9,11 +10,13 @@ import { requireAdmin, requireAuth } from '../middleware.js';
 import { AppError } from '../../errors.js';
 
 /**
- * 管理员审核 HTTP 适配层（蓝图 P3）：
+ * 管理员 HTTP 适配层（蓝图 P3/P4）：
  * - GET   /api/admin/reviews?kind=     待审核列表
  * - GET   /api/admin/assets/:id/reviews  审核历史
  * - POST  /api/admin/assets/:id/review   审批（approved/rejected + reason）
  * - PATCH /api/admin/assets/:id          管理员警告 / AI 生成标记
+ * - GET   /api/admin/users             用户列表（分页/搜索）
+ * - PATCH /api/admin/users/:id         角色（仅 super_admin）/ 封禁 / 激活
  * 全部要求 admin 及以上（requireRole(1)）。
  */
 
@@ -21,6 +24,7 @@ export interface AdminRouteDependencies {
   tokenService: TokenService;
   library: LibraryService;
   assets: AssetRepository;
+  identity: IdentityService;
 }
 
 const REVIEW_STATUSES: ReadonlySet<string> = new Set(['approved', 'rejected']);
@@ -88,6 +92,49 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
       },
     );
     res.status(204).end();
+  });
+
+  // ---- 用户管理 ----
+
+  router.get('/api/admin/users', auth, admin, async (req, res) => {
+    const q = req.query as Record<string, unknown>;
+    const page = Math.max(Number(q['page'] ?? 1) || 1, 1);
+    const pageSize = Math.min(Math.max(Number(q['pageSize'] ?? 20) || 20, 1), 100);
+    const search = typeof q['search'] === 'string' && q['search'].trim() !== '' ? q['search'].trim() : undefined;
+    const result = await deps.identity.listUsersForAdmin({ page, pageSize, search });
+    res.json({ ...result, page, pageSize });
+  });
+
+  router.patch('/api/admin/users/:id', auth, admin, async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const role = body['role'];
+    if (role !== undefined && role !== 'user' && role !== 'admin' && role !== 'super_admin') {
+      throw new AppError('VALIDATION_ERROR', 'role 必须为 user / admin / super_admin');
+    }
+    const isActive = body['isActive'] === undefined ? undefined : Boolean(body['isActive']);
+    let ban: { permanent?: boolean; until?: string | null; reason?: string | null } | null | undefined;
+    if (body['ban'] !== undefined) {
+      if (body['ban'] === null) {
+        ban = null; // 解封
+      } else {
+        const b = body['ban'] as Record<string, unknown>;
+        ban = {
+          permanent: b['permanent'] === true,
+          until: typeof b['until'] === 'string' && b['until'] !== '' ? b['until'] : null,
+          reason: typeof b['reason'] === 'string' && b['reason'] !== '' ? b['reason'] : null,
+        };
+      }
+    }
+    const user = await deps.identity.adminUpdateUser(
+      { userId: req.context!.userId, role: req.context!.role },
+      String(req.params['id'] ?? ''),
+      {
+        role: role as 'user' | 'admin' | 'super_admin' | undefined,
+        isActive,
+        ban,
+      },
+    );
+    res.json({ user });
   });
 
   return router;

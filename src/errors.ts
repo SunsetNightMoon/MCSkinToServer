@@ -20,7 +20,8 @@ export type AppErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'USER_BANNED'
   | 'NOT_FOUND'
-  | 'DOWNLOAD_FORBIDDEN';
+  | 'DOWNLOAD_FORBIDDEN'
+  | 'FORBIDDEN';
 
 export class AppError extends Error {
   constructor(

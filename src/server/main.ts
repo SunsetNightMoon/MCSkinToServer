@@ -50,15 +50,16 @@ async function main(): Promise<void> {
   const userRepository = new UserRepository(db);
   const profileRepository = new ProfileRepository(db);
   const minecraftSessions = new MinecraftSessionRepository(db);
+  const assetUrlResolver = new AssetUrlResolver(storage);
   const identity = new IdentityService({
     db,
     users: userRepository,
     profiles: profileRepository,
     tokens: tokenService,
     sessions: minecraftSessions,
+    assetUrlResolver,
   });
   const textureBuilder = new TextureProfileBuilder(rsaKeyPair.privateKeyPem);
-  const assetUrlResolver = new AssetUrlResolver(storage);
   const textureService = new TextureService({
     db,
     storage,

@@ -14,7 +14,10 @@ export interface AuthUser {
 interface AuthState {
   token: string | null;
   user: AuthUser | null;
+  /** 当前用户默认角色的皮肤 URL（顶栏头像） */
+  skinUrl: string | null;
   setAuth: (token: string, user: AuthUser) => void;
+  setSkinUrl: (url: string | null) => void;
   clearAuth: () => void;
 }
 
@@ -23,8 +26,10 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       token: null,
       user: null,
+      skinUrl: null,
       setAuth: (token, user) => set({ token, user }),
-      clearAuth: () => set({ token: null, user: null }),
+      setSkinUrl: (skinUrl) => set({ skinUrl }),
+      clearAuth: () => set({ token: null, user: null, skinUrl: null }),
     }),
     { name: 'mscts-auth' },
   ),

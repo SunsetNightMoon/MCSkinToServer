@@ -134,12 +134,13 @@ export function createApp(deps: AppDependencies): Express {
   // ---- 公开库 / 收藏端点（P3，匿名可读）----
   app.use(createLibraryRouter({ tokenService, library: deps.library }));
 
-  // ---- 管理员审核端点（P3）----
+  // ---- 管理员审核端点（P3，P4 增用户管理）----
   app.use(
     createAdminRouter({
       tokenService,
       library: deps.library,
       assets: deps.assetRepository,
+      identity: deps.identity,
     }),
   );
 

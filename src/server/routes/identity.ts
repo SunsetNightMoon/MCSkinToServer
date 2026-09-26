@@ -77,6 +77,12 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
     res.json({ profiles: list });
   });
 
+  /** 当前用户默认角色的皮肤（顶栏头像） */
+  router.get('/api/me/skin', auth, async (req, res) => {
+    const skin = await deps.identity.getMySkin(req.context!.userId);
+    res.json(skin);
+  });
+
   router.post('/api/profiles', auth, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const profile = await deps.identity.createProfile(

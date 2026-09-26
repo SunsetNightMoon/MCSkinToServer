@@ -9,7 +9,11 @@ import {
   SunOutlined,
   MoonOutlined,
   LogoutOutlined,
+  SettingOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
+import { Dropdown } from 'antd';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/auth';
 import { useSiteStore } from '../store/site';
 import { SkinAvatar } from './SkinAvatar';
@@ -20,19 +24,51 @@ export interface NavItem {
   path: string;
   label: string;
   auth?: boolean;
+  admin?: boolean;
 }
+
+const LANG_ITEMS = [
+  { key: 'SCH', label: '简体中文' },
+  { key: 'TCH', label: '繁體中文' },
+  { key: 'EN', label: 'English' },
+  { key: 'JP', label: '日本語' },
+];
 
 export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick?: () => void }) {
   const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
+  const skinUrl = useAuthStore((s) => s.skinUrl);
+  const setSkinUrl = useAuthStore((s) => s.setSkinUrl);
   const isAuthenticated = token !== null;
   const { theme, toggleTheme } = useSiteStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const [lang, setLang] = useState('SCH');
+
+  // 登录后拉取当前用户默认角色的皮肤（头像显示）
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    api<{ skinUrl: string | null }>('/api/me/skin')
+      .then((res) => {
+        if (!cancelled) setSkinUrl(res.skinUrl);
+      })
+      .catch(() => {
+        /* 忽略：头像回落到默认脸 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, setSkinUrl, location.pathname]);
 
   const isActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/');
 
-  const visibleLinks = links.filter((link) => !link.auth || isAuthenticated);
+  const visibleLinks = links.filter((link) => {
+    if (link.auth && !isAuthenticated) return false;
+    if (link.admin && !(user && (user.role === 'admin' || user.role === 'super_admin'))) return false;
+    return true;
+  });
 
   const handleLogout = async (): Promise<void> => {
     try {
@@ -70,6 +106,18 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
       </div>
 
       <div className="top-nav__right">
+        <Dropdown
+          placement="bottomRight"
+          menu={{
+            items: LANG_ITEMS,
+            onClick: ({ key }) => setLang(key),
+            selectedKeys: [lang],
+          }}
+        >
+          <button className="top-nav__icon-btn" title="语言 Language">
+            <GlobalOutlined />
+          </button>
+        </Dropdown>
         <button
           className="top-nav__icon-btn"
           onClick={toggleTheme}
@@ -79,8 +127,17 @@ export function TopNav({ links, brandOnClick }: { links: NavItem[]; brandOnClick
         </button>
         {isAuthenticated ? (
           <>
+            {user && (user.role === 'admin' || user.role === 'super_admin') && (
+              <button
+                className="top-nav__icon-btn"
+                onClick={() => navigate('/admin')}
+                title="管理后台"
+              >
+                <SettingOutlined />
+              </button>
+            )}
             <div className="top-nav__avatar" title="我的衣柜" onClick={() => navigate('/wardrobe')}>
-              <SkinAvatar size={34} />
+              <SkinAvatar skinUrl={skinUrl ?? undefined} size={34} />
             </div>
             <button
               className="top-nav__icon-btn"

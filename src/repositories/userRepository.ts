@@ -117,4 +117,77 @@ export class UserRepository {
       [at.toISOString(), at.toISOString(), userId],
     );
   }
+
+  /** 管理员用户列表（email 模糊搜索 + 分页），按 user_uid 升序 */
+  async listUsers(options: {
+    offset: number;
+    limit: number;
+    search?: string;
+  }): Promise<{ rows: UserRow[]; total: number }> {
+    const { offset, limit, search } = options;
+    const like = search ? `%${search.toLowerCase()}%` : null;
+    const searchClause = like
+      ? ` WHERE lower(email) LIKE ${phAt(this.db.dialect, 0)}`
+      : '';
+
+    const countRows = await this.db.query<Record<string, unknown>>(
+      `SELECT COUNT(*) AS total FROM users${searchClause}`,
+      like ? [like] : [],
+    );
+    const total = Number(countRows[0]!['total']);
+
+    const rows = await this.db.query<Record<string, unknown>>(
+      `SELECT ${USER_COLUMNS} FROM users${searchClause}
+       ORDER BY user_uid ASC
+       LIMIT ${phAt(this.db.dialect, like ? 1 : 0)}
+       OFFSET ${phAt(this.db.dialect, like ? 2 : 1)}`,
+      like ? [like, limit, offset] : [limit, offset],
+    );
+    return { rows: rows.map(mapUserRow), total };
+  }
+
+  /** 管理员更新用户管理字段（角色/封禁/激活），仅写传入的字段 */
+  async updateAdminFields(
+    userId: string,
+    fields: {
+      role?: UserRole;
+      isActive?: boolean;
+      bannedUntil?: string | null;
+      banPermanent?: boolean;
+      banReason?: string | null;
+    },
+    now: Date,
+  ): Promise<void> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 0;
+    if (fields.role !== undefined) {
+      sets.push(`role = ${phAt(this.db.dialect, i++)}`);
+      values.push(fields.role);
+    }
+    if (fields.isActive !== undefined) {
+      sets.push(`is_active = ${phAt(this.db.dialect, i++)}`);
+      values.push(this.db.dialect === 'postgres' ? fields.isActive : fields.isActive ? 1 : 0);
+    }
+    if (fields.bannedUntil !== undefined) {
+      sets.push(`banned_until = ${phAt(this.db.dialect, i++)}`);
+      values.push(fields.bannedUntil);
+    }
+    if (fields.banPermanent !== undefined) {
+      sets.push(`ban_permanent = ${phAt(this.db.dialect, i++)}`);
+      values.push(this.db.dialect === 'postgres' ? fields.banPermanent : fields.banPermanent ? 1 : 0);
+    }
+    if (fields.banReason !== undefined) {
+      sets.push(`ban_reason = ${phAt(this.db.dialect, i++)}`);
+      values.push(fields.banReason);
+    }
+    sets.push(`updated_at = ${phAt(this.db.dialect, i++)}`);
+    values.push(now.toISOString());
+    values.push(userId);
+
+    await this.db.run(
+      `UPDATE users SET ${sets.join(', ')} WHERE id = ${phAt(this.db.dialect, i++)}`,
+      values,
+    );
+  }
 }

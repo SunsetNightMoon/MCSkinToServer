@@ -12,6 +12,7 @@ import type {
   ProfileRow,
 } from '../repositories/profileRepository.js';
 import type { MinecraftSessionRepository } from '../repositories/minecraftSessionRepository.js';
+import type { AssetUrlResolver } from '../storage/assetUrl.js';
 
 /**
  * 身份应用服务（蓝图 §7.1）：注册 / 登录 / Yggdrasil 五端点 / 角色管理。
@@ -64,6 +65,8 @@ export interface IdentityDependencies {
   profiles: ProfileRepository;
   tokens: TokenService;
   sessions: MinecraftSessionRepository;
+  /** Web 头像/预览 URL 生成（getMySkin 用），可缺省（测试） */
+  assetUrlResolver?: AssetUrlResolver;
   /** 时钟可注入 */
   now?: () => Date;
 }
@@ -84,6 +87,7 @@ export class IdentityService {
   private readonly profiles: ProfileRepository;
   private readonly tokens: TokenService;
   private readonly sessions: MinecraftSessionRepository;
+  private readonly assetUrlResolver?: AssetUrlResolver;
   private readonly now: () => Date;
 
   constructor(deps: IdentityDependencies) {
@@ -92,6 +96,7 @@ export class IdentityService {
     this.profiles = deps.profiles;
     this.tokens = deps.tokens;
     this.sessions = deps.sessions;
+    this.assetUrlResolver = deps.assetUrlResolver;
     this.now = deps.now ?? (() => new Date());
   }
 
@@ -456,5 +461,119 @@ export class IdentityService {
       throw new AppError('VALIDATION_ERROR', '至少保留一个角色');
     }
     await this.profiles.delete(profileId);
+  }
+
+  // ---- Web 头像 / 管理员用户管理 ----
+
+  /** 当前登录用户的默认角色皮肤（顶栏头像用） */
+  async getMySkin(
+    userId: string,
+  ): Promise<{ profileId: string; profileName: string; skinUrl: string | null; model: string | null }> {
+    const profile = await this.profiles.findFirstByUserId(userId);
+    if (!profile) {
+      throw new AppError('NOT_FOUND', '角色不存在');
+    }
+    const state = await this.profiles.findTextureState(profile.id);
+    const skinUrl =
+      state?.skin && this.assetUrlResolver
+        ? this.assetUrlResolver.forBlob(state.skin)
+        : null;
+    return {
+      profileId: profile.id,
+      profileName: profile.name,
+      skinUrl,
+      model: state?.skin?.modelType ?? null,
+    };
+  }
+
+  /** 管理员用户列表（admin 及以上） */
+  async listUsersForAdmin(options: {
+    page: number;
+    pageSize: number;
+    search?: string;
+  }): Promise<{
+    items: Array<Omit<UserRow, 'passwordHash'>>;
+    total: number;
+  }> {
+    const pageSize = Math.min(Math.max(options.pageSize, 1), 100);
+    const page = Math.max(options.page, 1);
+    const { rows, total } = await this.users.listUsers({
+      offset: (page - 1) * pageSize,
+      limit: pageSize,
+      search: options.search,
+    });
+    return {
+      items: rows.map(({ passwordHash: _ph, ...rest }) => rest),
+      total,
+    };
+  }
+
+  /**
+   * 管理员更新用户（角色 / 封禁 / 激活）。
+   * 规则：角色调整仅 super_admin；任何管理员不能修改 super_admin（除非自己是 super_admin）；不能封禁自己。
+   */
+  async adminUpdateUser(
+    actor: { userId: string; role: UserRole },
+    targetUserId: string,
+    patch: {
+      role?: UserRole;
+      isActive?: boolean;
+      ban?: { permanent?: boolean; until?: string | null; reason?: string | null } | null;
+    },
+  ): Promise<Omit<UserRow, 'passwordHash'>> {
+    const target = await this.users.findById(targetUserId);
+    if (!target) {
+      throw new AppError('NOT_FOUND', '用户不存在');
+    }
+    const actorIsSuper = actor.role === 'super_admin';
+
+    if (patch.role !== undefined) {
+      if (!actorIsSuper) {
+        throw new AppError('FORBIDDEN', '仅超级管理员可以调整角色');
+      }
+      if (targetUserId === actor.userId && patch.role !== 'super_admin') {
+        throw new AppError('VALIDATION_ERROR', '不能降级自己的超级管理员角色');
+      }
+    }
+    if (target.role === 'super_admin' && !actorIsSuper) {
+      throw new AppError('FORBIDDEN', '无法修改超级管理员');
+    }
+
+    const fields: Parameters<UserRepository['updateAdminFields']>[1] = {};
+    if (patch.role !== undefined) fields.role = patch.role;
+    if (patch.isActive !== undefined) fields.isActive = patch.isActive;
+
+    if (patch.ban !== undefined) {
+      if (targetUserId === actor.userId) {
+        throw new AppError('VALIDATION_ERROR', '不能封禁自己');
+      }
+      if (patch.ban === null || (!patch.ban.permanent && !patch.ban.until)) {
+        // 解封
+        fields.banPermanent = false;
+        fields.bannedUntil = null;
+        fields.banReason = null;
+      } else {
+        const permanent = patch.ban.permanent === true;
+        if (!permanent) {
+          const until = patch.ban.until ? new Date(patch.ban.until) : null;
+          if (!until || Number.isNaN(until.getTime()) || until.getTime() <= this.now().getTime()) {
+            throw new AppError('VALIDATION_ERROR', '临时封禁必须提供未来的到期时间');
+          }
+          fields.bannedUntil = until.toISOString();
+        } else {
+          fields.bannedUntil = null;
+        }
+        fields.banPermanent = permanent;
+        fields.banReason = patch.ban.reason ?? null;
+      }
+    }
+
+    if (Object.keys(fields).length === 0) {
+      throw new AppError('VALIDATION_ERROR', '没有需要更新的字段');
+    }
+    await this.users.updateAdminFields(targetUserId, fields, this.now());
+    const updated = (await this.users.findById(targetUserId))!;
+    const { passwordHash: _ph, ...rest } = updated;
+    return rest;
   }
 }

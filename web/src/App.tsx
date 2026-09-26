@@ -9,10 +9,19 @@ import { RegisterPage } from './pages/Register';
 import { ProfilesPage } from './pages/Profiles';
 import { WardrobePage } from './pages/Wardrobe';
 import { LibraryPage } from './pages/Library';
+import AdminPage from './pages/Admin';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   if (!token) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore((s) => s.token);
+  const role = useAuthStore((s) => s.user?.role);
+  if (!token) return <Navigate to="/login" replace />;
+  if (role !== 'admin' && role !== 'super_admin') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -65,6 +74,14 @@ export function App() {
               <RequireAuth>
                 <ProfilesPage />
               </RequireAuth>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <RequireAdmin>
+                <AdminPage />
+              </RequireAdmin>
             }
           />
         </Route>
