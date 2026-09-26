@@ -19,7 +19,8 @@ export type AppErrorCode =
   | 'NAME_COOLDOWN'
   | 'INVALID_CREDENTIALS'
   | 'USER_BANNED'
-  | 'NOT_FOUND';
+  | 'NOT_FOUND'
+  | 'DOWNLOAD_FORBIDDEN';
 
 export class AppError extends Error {
   constructor(

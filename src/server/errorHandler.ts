@@ -26,6 +26,8 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
       return 409;
     case 'NOT_FOUND':
       return 404;
+    case 'DOWNLOAD_FORBIDDEN':
+      return 403;
     default:
       return 500;
   }

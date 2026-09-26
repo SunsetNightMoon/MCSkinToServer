@@ -79,3 +79,24 @@ export function requireRole(
 
 export const requireAdmin = requireRole(1);
 export const requireSuperAdmin = requireRole(2);
+
+/**
+ * 可选认证（公开库接口用）：带有效 Bearer token 则写入 req.context，
+ * 没有 / 无效则匿名放行（context = undefined）。无效 token 不报错——
+ * 公开内容对坏 token 的访客也应当可见（与 plan3 行为对齐，避免藏匿内容被探测）。
+ */
+export function optionalAuth(
+  tokenService: TokenService,
+): (req: Request, _res: Response, next: NextFunction) => Promise<void> {
+  return async (req, _res, next) => {
+    const header = req.headers.authorization ?? '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    if (token) {
+      const result = await tokenService.verify(token);
+      if (result.ok) {
+        req.context = result.context;
+      }
+    }
+    next();
+  };
+}

@@ -18,6 +18,8 @@ import { MinecraftSessionRepository } from '../src/repositories/minecraftSession
 import { BlobRepository } from '../src/repositories/blobRepository.js';
 import { AssetRepository } from '../src/repositories/assetRepository.js';
 import { TextureService } from '../src/textures/ingest.js';
+import { LibraryService } from '../src/library/libraryService.js';
+import { FavoriteRepository } from '../src/repositories/favoriteRepository.js';
 import { LocalDiskStorage } from '../src/storage/index.js';
 import { AssetUrlResolver } from '../src/storage/assetUrl.js';
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
@@ -128,6 +130,7 @@ async function startHttp(t: TestContext, db: DatabaseConnection): Promise<HttpCt
     assets: new AssetRepository(db),
     profiles: profileRepository,
   });
+  const assetRepository = new AssetRepository(db);
   const deps: AppDependencies = {
     config,
     database: db,
@@ -136,11 +139,18 @@ async function startHttp(t: TestContext, db: DatabaseConnection): Promise<HttpCt
     rsaKeyPair,
     identity,
     profileRepository,
-    assetRepository: new AssetRepository(db),
+    assetRepository,
     minecraftSessions: new MinecraftSessionRepository(db),
     textureBuilder: new TextureProfileBuilder(rsaKeyPair.privateKeyPem),
     assetUrlResolver: new AssetUrlResolver(storage),
     textures: textureService,
+    library: new LibraryService({
+      assets: assetRepository,
+      favorites: new FavoriteRepository(db),
+      blobs: new BlobRepository(db),
+      users: new UserRepository(db),
+      resolver: new AssetUrlResolver(storage),
+    }),
   };
   const server = createApp(deps).listen(0, '127.0.0.1');
   await new Promise<void>((r) => server.once('listening', () => r()));

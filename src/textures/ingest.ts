@@ -211,6 +211,47 @@ export class TextureService {
     await this.assets.unassign(input.profileId, input.slot);
   }
 
+  /** owner 修改素材元数据（可见性 / 下载策略 / 名称 / 描述） */
+  async updateOwnerFields(
+    userId: string,
+    assetId: string,
+    fields: {
+      name?: string;
+      description?: string;
+      visibility?: 'private' | 'public';
+      downloadPolicy?: 'owner_only' | 'public';
+    },
+  ): Promise<void> {
+    const asset = await this.assets.findById(assetId);
+    if (!asset || asset.ownerUserId !== userId) {
+      throw new AppError('NOT_FOUND', '素材不存在');
+    }
+    const patch: Parameters<AssetRepository['updateOwnerFields']>[2] = {};
+    if (fields.name !== undefined) {
+      const name = String(fields.name).trim();
+      if (name.length === 0 || name.length > 64) {
+        throw new AppError('VALIDATION_ERROR', '素材名称必填且不超过 64 字符');
+      }
+      patch.name = name;
+    }
+    if (fields.description !== undefined) {
+      patch.description = String(fields.description);
+    }
+    if (fields.visibility !== undefined) {
+      if (fields.visibility !== 'private' && fields.visibility !== 'public') {
+        throw new AppError('VALIDATION_ERROR', 'visibility 必须为 private 或 public');
+      }
+      patch.visibility = fields.visibility;
+    }
+    if (fields.downloadPolicy !== undefined) {
+      if (fields.downloadPolicy !== 'owner_only' && fields.downloadPolicy !== 'public') {
+        throw new AppError('VALIDATION_ERROR', 'downloadPolicy 必须为 owner_only 或 public');
+      }
+      patch.downloadPolicy = fields.downloadPolicy;
+    }
+    await this.assets.updateOwnerFields(assetId, patch, this.now());
+  }
+
   /**
    * 删除素材：profile_assets 由 FK CASCADE 解绑；blob 在无引用后连带删除，
    * 保证"删除不留下不可追踪的对象"（蓝图 P2 验收）。

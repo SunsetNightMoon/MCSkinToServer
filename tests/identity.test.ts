@@ -17,6 +17,8 @@ import { MinecraftSessionRepository } from '../src/repositories/minecraftSession
 import { BlobRepository } from '../src/repositories/blobRepository.js';
 import { AssetRepository } from '../src/repositories/assetRepository.js';
 import { TextureService } from '../src/textures/ingest.js';
+import { LibraryService } from '../src/library/libraryService.js';
+import { FavoriteRepository } from '../src/repositories/favoriteRepository.js';
 import { LocalDiskStorage, blobStorageKey } from '../src/storage/index.js';
 import { sha256Hex } from '../src/util/crypto.js';
 import { AssetUrlResolver } from '../src/storage/assetUrl.js';
@@ -162,6 +164,8 @@ async function startHttp(
     tokens: tokenService,
     sessions: new MinecraftSessionRepository(db),
   });
+  const assetRepository = new AssetRepository(db);
+  const profileRepository = new ProfileRepository(db);
   const deps: AppDependencies = {
     config,
     database: db,
@@ -169,8 +173,8 @@ async function startHttp(
     tokenService,
     rsaKeyPair,
     identity,
-    profileRepository: new ProfileRepository(db),
-    assetRepository: new AssetRepository(db),
+    profileRepository,
+    assetRepository,
     minecraftSessions: new MinecraftSessionRepository(db),
     textureBuilder: new TextureProfileBuilder(rsaKeyPair.privateKeyPem),
     assetUrlResolver: new AssetUrlResolver(storage),
@@ -178,8 +182,15 @@ async function startHttp(
       db,
       storage,
       blobs: new BlobRepository(db),
-      assets: new AssetRepository(db),
-      profiles: new ProfileRepository(db),
+      assets: assetRepository,
+      profiles: profileRepository,
+    }),
+    library: new LibraryService({
+      assets: assetRepository,
+      favorites: new FavoriteRepository(db),
+      blobs: new BlobRepository(db),
+      users: new UserRepository(db),
+      resolver: new AssetUrlResolver(storage),
     }),
   };
   const server = createApp(deps).listen(0, '127.0.0.1');

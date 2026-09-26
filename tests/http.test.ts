@@ -16,6 +16,8 @@ import { MinecraftSessionRepository } from '../src/repositories/minecraftSession
 import { BlobRepository } from '../src/repositories/blobRepository.js';
 import { AssetRepository } from '../src/repositories/assetRepository.js';
 import { TextureService } from '../src/textures/ingest.js';
+import { LibraryService } from '../src/library/libraryService.js';
+import { FavoriteRepository } from '../src/repositories/favoriteRepository.js';
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
 import { AssetUrlResolver } from '../src/storage/assetUrl.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
@@ -97,6 +99,8 @@ before(async () => {
     tokens: tokenService,
     sessions: new MinecraftSessionRepository(db),
   });
+  const assetRepository = new AssetRepository(db);
+  const profileRepository = new ProfileRepository(db);
   const deps: AppDependencies = {
     config,
     database: db,
@@ -104,8 +108,8 @@ before(async () => {
     tokenService,
     rsaKeyPair,
     identity,
-    profileRepository: new ProfileRepository(db),
-    assetRepository: new AssetRepository(db),
+    profileRepository,
+    assetRepository,
     minecraftSessions: new MinecraftSessionRepository(db),
     textureBuilder: new TextureProfileBuilder(rsaKeyPair.privateKeyPem),
     assetUrlResolver: new AssetUrlResolver(storage),
@@ -113,8 +117,15 @@ before(async () => {
       db,
       storage,
       blobs: new BlobRepository(db),
-      assets: new AssetRepository(db),
-      profiles: new ProfileRepository(db),
+      assets: assetRepository,
+      profiles: profileRepository,
+    }),
+    library: new LibraryService({
+      assets: assetRepository,
+      favorites: new FavoriteRepository(db),
+      blobs: new BlobRepository(db),
+      users: new UserRepository(db),
+      resolver: new AssetUrlResolver(storage),
     }),
   };
   const server = createApp(deps).listen(0, '127.0.0.1');

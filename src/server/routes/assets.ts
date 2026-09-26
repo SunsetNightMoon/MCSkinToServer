@@ -119,6 +119,22 @@ export function createAssetRouter(deps: AssetRouteDependencies): Router {
     res.status(204).end();
   });
 
+  // ---- owner 修改素材元数据（可见性/下载策略等）----
+  router.patch('/api/assets/:id', auth, async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    await deps.textures.updateOwnerFields(
+      req.context!.userId,
+      String(req.params['id'] ?? ''),
+      {
+        name: body['name'] as string | undefined,
+        description: body['description'] as string | undefined,
+        visibility: body['visibility'] as 'private' | 'public' | undefined,
+        downloadPolicy: body['downloadPolicy'] as 'owner_only' | 'public' | undefined,
+      },
+    );
+    res.status(204).end();
+  });
+
   // ---- 删除素材（解绑 + 无引用时连带删 blob 与文件）----
   router.delete('/api/assets/:id', auth, async (req: Request, res: Response) => {
     await deps.textures.deleteAsset(

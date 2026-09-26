@@ -11,10 +11,13 @@ import type { MinecraftSessionRepository } from '../repositories/minecraftSessio
 import type { ProfileRepository } from '../repositories/profileRepository.js';
 import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { TextureService } from '../textures/ingest.js';
+import type { LibraryService } from '../library/libraryService.js';
 import { buildMetadataDto } from '../yggdrasil/metadata.js';
 import { createYggdrasilRouter } from './routes/yggdrasil.js';
 import { createIdentityRouter } from './routes/identity.js';
 import { createAssetRouter } from './routes/assets.js';
+import { createLibraryRouter } from './routes/library.js';
+import { createAdminRouter } from './routes/admin.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
 
@@ -40,6 +43,8 @@ export interface AppDependencies {
   assetUrlResolver: AssetUrlResolver;
   // ---- P2 上传链路 ----
   textures: TextureService;
+  // ---- P3 公开库/收藏/审核 ----
+  library: LibraryService;
 }
 
 const EMPTY_BYTES = new Uint8Array(0);
@@ -116,6 +121,12 @@ export function createApp(deps: AppDependencies): Express {
       assetUrlResolver: deps.assetUrlResolver,
     }),
   );
+
+  // ---- 公开库 / 收藏端点（P3，匿名可读）----
+  app.use(createLibraryRouter({ tokenService, library: deps.library }));
+
+  // ---- 管理员审核端点（P3）----
+  app.use(createAdminRouter({ library: deps.library, assets: deps.assetRepository }));
 
   // ---- 本地存储静态挂载（URL 由 StoragePort 统一生成）----
   app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d' }));

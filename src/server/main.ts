@@ -11,7 +11,9 @@ import { ProfileRepository } from '../repositories/profileRepository.js';
 import { MinecraftSessionRepository } from '../repositories/minecraftSessionRepository.js';
 import { BlobRepository } from '../repositories/blobRepository.js';
 import { AssetRepository } from '../repositories/assetRepository.js';
+import { FavoriteRepository } from '../repositories/favoriteRepository.js';
 import { TextureService } from '../textures/ingest.js';
+import { LibraryService } from '../library/libraryService.js';
 import { TextureProfileBuilder } from '../yggdrasil/textures.js';
 import { AssetUrlResolver } from '../storage/assetUrl.js';
 import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
@@ -64,6 +66,14 @@ async function main(): Promise<void> {
     assets: new AssetRepository(db),
     profiles: profileRepository,
   });
+  const assetRepository = new AssetRepository(db);
+  const libraryService = new LibraryService({
+    assets: assetRepository,
+    favorites: new FavoriteRepository(db),
+    blobs: new BlobRepository(db),
+    users: userRepository,
+    resolver: assetUrlResolver,
+  });
 
   const app = createApp({
     config,
@@ -73,11 +83,12 @@ async function main(): Promise<void> {
     rsaKeyPair,
     identity,
     profileRepository,
-    assetRepository: new AssetRepository(db),
+    assetRepository,
     minecraftSessions,
     textureBuilder,
     assetUrlResolver,
     textures: textureService,
+    library: libraryService,
   });
   const port = Number(process.env['PORT'] ?? 3000);
   const server = app.listen(port, () => {
