@@ -1,0 +1,35 @@
+MIT License with Attribution Addendum（MIT 许可 + 署名附加条款）
+
+Copyright (c) 2026 SunsetNightMoon <sunsetnightmoon@163.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+ADDITIONAL CONDITIONS (ATTRIBUTION) / 附加条款（署名）:
+
+In addition to the MIT conditions above, when the Software — whether
+unmodified or modified — is used to operate any public-facing website or
+online service, the frontend of that site or service MUST retain a visible
+"Powered by MCSkinToServer" attribution. It may not be removed, obscured,
+or altered without prior written permission from the copyright holder.
+Source code distribution remains subject only to the standard MIT conditions.
+
+在满足上述 MIT 条件之外：将本软件（无论是否修改）用于对外提供网站或在线
+服务的，其站点前端必须保留清晰可见的「Powered by MCSkinToServer」署名，
+未经版权人事先书面许可不得移除、遮挡或篡改。仅分发源代码时，仍只受上述
+MIT 标准条件约束。
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

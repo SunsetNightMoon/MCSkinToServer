@@ -2,6 +2,7 @@
   "name": "mcsts",
   "version": "2.3.1",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Minecraft Skin Texture Server (rebuild)",
   "type": "module",
   "engines": {

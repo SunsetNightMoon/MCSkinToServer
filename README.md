@@ -90,6 +90,13 @@ npm test          # SQLite 基线（无需外部服务，门控用例自动 skip
 
 - [@SunsetNightMoon](https://github.com/SunsetNightMoon) — 开发与维护
 
+## 许可
+
+[MIT License with Attribution Addendum](LICENSE)（MIT + 署名附加条款，口径与 Blessing Skin 类似）：
+
+- 自由与 MIT 一致：使用、复制、修改、合并、出版、分发、再许可、销售均免费
+- **附加条款**：将本软件（含修改版）用于对外提供网站/在线服务时，站点前端必须保留清晰可见的「**Powered by MCSkinToServer**」署名，未经书面许可不得移除、遮挡或篡改；仅分发源代码时只受 MIT 标准条件约束
+
 ## 工作约定
 
 - 重制以「单一事实来源」为核心目标：统一 schema、统一 AuthContext、统一素材 URL 组装、统一迁移入口
