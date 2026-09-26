@@ -102,6 +102,18 @@ npm test          # SQLite 基线（无需外部服务，门控用例自动 skip
 
 - [Blessing Skin](https://github.com/bs-community/blessing-skin-server) —— 长期以来的优秀 Minecraft 皮肤站项目。本项目作为皮肤站的整体产品形态与方向受其启发，谨此致谢并尊重该项目带来的价值。
 
+## AI 协助声明
+
+本项目在开发过程中使用了 AI 协助，使用的模型及分工如下：
+
+| 模型 | 用途 |
+|---|---|
+| GPT-6 Astra | 重制版大致方向指导 |
+| DeepSeek-v4.1-Flash | 代码构建协助 |
+| GLM-5.3-Flash | 代码构建协助 |
+| Qwen3.8-Flash | 代码构建协助 |
+| Hy3 | 旧版 UI 设计（沿用至今） |
+
 ## 工作约定
 
 - 重制以「单一事实来源」为核心目标：统一 schema、统一 AuthContext、统一素材 URL 组装、统一迁移入口
