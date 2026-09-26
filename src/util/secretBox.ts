@@ -11,7 +11,7 @@ import { AppError } from '../errors.js';
  *
  * 背景：`system_settings.value` 是明文 JSON 列，而 SMTP 授权码这类值一旦落库
  * 就等于裸奔 —— 数据库备份、只读副本、误开的日志导出都会把它带出去。
- * 因此 `SMTP_PASS` 落库前先在这里加密，密钥来自环境变量 `MSCTS_SECRET`
+ * 因此 `SMTP_PASS` 落库前先在这里加密，密钥来自环境变量 `MCSTS_SECRET`
  * （与站点设置分离：拿到数据库的人拿不到主密钥）。
  *
  * 算法选择 AES-256-GCM 而非 CBC：
@@ -31,7 +31,7 @@ const KEY_BYTES = 32;
 const MIN_MASTER_SECRET_LENGTH = 16;
 
 /** 环境变量名：主密钥。单独一个变量而不是复用 RSA 私钥，便于轮换与最小暴露 */
-export const MASTER_SECRET_ENV = 'MSCTS_SECRET';
+export const MASTER_SECRET_ENV = 'MCSTS_SECRET';
 
 export class SecretBox {
   private readonly key: Buffer;

@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect } from 'react'
 import { Table, Tag, Button, Space, message, Modal, Form, Select, DatePicker, Popconfirm, Typography, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'

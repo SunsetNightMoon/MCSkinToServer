@@ -86,7 +86,7 @@ const MASTER_SECRET = 'mailpit-test-master-secret-0123456789';
 /** 与请求的 host 刻意不同：邮件链接必须用设置里的站点根，不是当前请求的 origin */
 const SITE_ORIGIN = 'https://skin.mailpit.test';
 const SITE_TITLE = 'Mailpit E2E 皮肤站';
-const SMTP_USER = 'mscts-e2e';
+const SMTP_USER = 'mcsts-e2e';
 const SMTP_PASS = 'mailpit-e2e-password';
 const SMTP_FROM = 'noreply@cattavern.local';
 const SMTP_FROM_NAME = 'CatTavernSkins E2E';
@@ -95,7 +95,7 @@ const PASSWORD = 'password123';
 const NEW_PASSWORD = 'newpassword456';
 
 // ---------------------------------------------------------------------------
-// Mailpit 客户端（只用到读/清空，投递由 MSCTS 自己完成）
+// Mailpit 客户端（只用到读/清空，投递由 MCSTS 自己完成）
 // ---------------------------------------------------------------------------
 
 interface MailpitAddress {
@@ -201,7 +201,7 @@ interface Env {
 let envRef: Env | undefined;
 
 async function buildEnv(): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-mailpit-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-mailpit-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 

@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0004_captcha_challenges · PostgreSQL
+-- MCSTS canonical schema · 0004_captcha_challenges · PostgreSQL
 --
 -- 与 schema/sqlite/0004_captcha_challenges.sql 同构，仅类型不同。
 -- 设计说明（为什么自托管数学题、为什么按客户端 session_id 建键、答案为什么存哈希）

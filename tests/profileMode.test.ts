@@ -474,7 +474,7 @@ const cases: DialectCase[] = [
     emailPrefix: 'sq-pmode',
     nameTag: 'sq',
     setup: async (t) => {
-      const dir = await mkdtemp(join(tmpdir(), 'mscts-pmode-'));
+      const dir = await mkdtemp(join(tmpdir(), 'mcsts-pmode-'));
       const db = new SqliteConnection(join(dir, 't.db'));
       await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
       t.after(async () => {

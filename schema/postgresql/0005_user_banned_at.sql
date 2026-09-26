@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0005_user_banned_at · PostgreSQL
+-- MCSTS canonical schema · 0005_user_banned_at · PostgreSQL
 --
 -- 给封禁补一个**时间戳**（与 sqlite/0005_user_banned_at.sql 结构等价）：
 --   banned_at 非空 = 该账号当前处于封禁状态，值为本次封禁生效时刻

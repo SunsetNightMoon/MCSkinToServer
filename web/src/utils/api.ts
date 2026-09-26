@@ -3,12 +3,12 @@ import { getStoredToken, handleAuthFailure } from './session'
 import { compatFetch } from './apiCompat'
 
 /**
- * 旧版数据层入口（已适配 MSCTS 后端）。
+ * 旧版数据层入口（已适配 MCSTS 后端）。
  *
  * - token 仍从 `auth-storage`（zustand persist）读取，见 utils/session.ts
  * - 登录态失效跳转改为 hash 路由 `#/login`（前端由 HashRouter 承载）
  * - 401/403 处理：**只对 401 清登录态**。
- *   MSCTS 的 403 被用于业务语义（NAME_COOLDOWN 改名冷却 / FORBIDDEN 权限不足 /
+ *   MCSTS 的 403 被用于业务语义（NAME_COOLDOWN 改名冷却 / FORBIDDEN 权限不足 /
  *   DOWNLOAD_FORBIDDEN 无下载权限 / USER_DISABLED），若按旧版一并当作登录失效处理，
  *   会导致"改名冷却"等正常操作把用户踢下线，因此这里收窄为 401。
  */
@@ -26,7 +26,7 @@ axios.interceptors.response.use(
   },
 )
 
-/** 兼容旧版 catch 块：把 MSCTS 的 {error,message} 转成 {response:{status,data:{errorMessage}}} */
+/** 兼容旧版 catch 块：把 MCSTS 的 {error,message} 转成 {response:{status,data:{errorMessage}}} */
 export interface LegacyHttpError extends Error {
   status?: number
   code?: string

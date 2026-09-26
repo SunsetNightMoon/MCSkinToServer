@@ -313,7 +313,7 @@ test('oauth: OAuthAccount 不含手机号字段（编译期约束）', () => {
 // ---------------------------------------------------------------------------
 
 test('oauth: 真实 app 装配下的端点', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-oauth-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-oauth-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
   t.after(async () => {

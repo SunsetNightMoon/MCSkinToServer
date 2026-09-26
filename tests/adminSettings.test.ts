@@ -53,7 +53,7 @@ interface Env {
 }
 
 async function buildEnv(): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-admin-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-admin-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 

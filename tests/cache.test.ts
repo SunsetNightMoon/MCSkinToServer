@@ -548,13 +548,13 @@ test('POST /refresh：第 N+1 次返回 429，且限流键是来源地址而非�
     assert.ok(Number(body['retryAfterSeconds']) >= 1);
     assert.ok(blocked.headers.get('retry-after'));
 
-    // 键形如 `mscts:rl:yggrefresh:<ip>`，且与 token 无关
+    // 键形如 `mcsts:rl:yggrefresh:<ip>`，且与 token 无关
     assert.equal(limiter.keys.length, 4);
     for (const key of limiter.keys) {
       assert.equal(key, limiter.keys[0], `限流键不得随 accessToken 变化：${key}`);
-      assert.match(key, /^mscts:rl:yggrefresh:/);
+      assert.match(key, /^mcsts:rl:yggrefresh:/);
     }
-    assert.match(limiter.keys[0]!, /^mscts:rl:yggrefresh:127\.0\.0\.1$/);
+    assert.match(limiter.keys[0]!, /^mcsts:rl:yggrefresh:127\.0\.0\.1$/);
 
     // 另一个 IP 的窗口是独立的（这里直接用同一限流器验证隔离性）
     const other = await limiter.consume(RateLimitKeys.yggdrasilRefresh('203.0.113.9'), 3, 60_000);
@@ -626,11 +626,11 @@ test('GET /api/captcha/generate：第 N+1 次返回 429，限流键按来源地�
     assert.equal(body['error'], 'TOO_MANY_REQUESTS');
     assert.match(String(body['message']), /验证码请求过于频繁/);
 
-    // 键形如 `mscts:rl:captcha:<ip>`，与 sessionId 无关
+    // 键形如 `mcsts:rl:captcha:<ip>`，与 sessionId 无关
     assert.equal(limiter.keys.length, 3);
     for (const key of limiter.keys) {
       assert.equal(key, limiter.keys[0], `限流键不得随 sessionId 变化：${key}`);
-      assert.match(key, /^mscts:rl:captcha:127\.0\.0\.1$/);
+      assert.match(key, /^mcsts:rl:captcha:127\.0\.0\.1$/);
     }
   } finally {
     await server.close();
@@ -829,12 +829,12 @@ test('装配：内存层的限流与缓存可用', async () => {
   await layer.close();
 });
 
-test('键名前缀：限流与缓存键集中在 mscts 命名空间，且 lowercase 归一', () => {
-  assert.equal(KEY_PREFIX, 'mscts');
-  assert.equal(RateLimitKeys.webLogin('A@B.C'), 'mscts:rl:login:a@b.c');
-  assert.equal(RateLimitKeys.yggdrasilAccount('SomeUser'), 'mscts:rl:yggdrasil:someuser');
-  assert.equal(RateLimitKeys.webRegister('127.0.0.1'), 'mscts:rl:register:127.0.0.1');
-  assert.equal(CacheKeys.publicSettings(), 'mscts:cache:settings:public');
+test('键名前缀：限流与缓存键集中在 mcsts 命名空间，且 lowercase 归一', () => {
+  assert.equal(KEY_PREFIX, 'mcsts');
+  assert.equal(RateLimitKeys.webLogin('A@B.C'), 'mcsts:rl:login:a@b.c');
+  assert.equal(RateLimitKeys.yggdrasilAccount('SomeUser'), 'mcsts:rl:yggdrasil:someuser');
+  assert.equal(RateLimitKeys.webRegister('127.0.0.1'), 'mcsts:rl:register:127.0.0.1');
+  assert.equal(CacheKeys.publicSettings(), 'mcsts:cache:settings:public');
 });
 
 // ---------------------------------------------------------------- Redis 实现（门控）
@@ -846,8 +846,8 @@ test(
     const client = await connectRedis(TEST_REDIS_URL!, { onError: () => undefined });
     const layer = createRedisCacheLayer(client, () => undefined);
     const suffix = `test-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    const limitKey = `mscts:rl:${suffix}`;
-    const cacheKey = `mscts:cache:${suffix}`;
+    const limitKey = `mcsts:rl:${suffix}`;
+    const cacheKey = `mcsts:cache:${suffix}`;
 
     try {
       assert.equal(layer.kind, 'redis');
@@ -904,7 +904,7 @@ test(
     });
     try {
       assert.equal(layer.kind, 'redis');
-      const key = `mscts:cache:probe-${Date.now()}`;
+      const key = `mcsts:cache:probe-${Date.now()}`;
       await layer.cache.set(key, 'ok', 5_000);
       assert.equal(await layer.cache.get<string>(key), 'ok');
       await layer.cache.del(key);

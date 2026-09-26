@@ -69,7 +69,7 @@ interface Env {
 const envs: Partial<Record<Dialect, Env>> = {};
 
 async function makeEnv(dialect: Dialect): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), `mscts-pmode-${dialect}-`));
+  const dir = await mkdtemp(join(tmpdir(), `mcsts-pmode-${dialect}-`));
   const db: DatabaseConnection =
     dialect === 'postgres'
       ? PostgresConnection.connect(TEST_DATABASE_URL!)

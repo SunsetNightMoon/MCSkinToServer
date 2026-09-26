@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect } from 'react'
 import { Table, Tag, Button, message, Modal, Form, Input, Select, DatePicker, Popconfirm, Typography, Card, Statistic, Row, Col } from 'antd'
 import { DeleteOutlined, PlusOutlined, ClearOutlined } from '@ant-design/icons'

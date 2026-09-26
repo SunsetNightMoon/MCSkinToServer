@@ -6,7 +6,7 @@
  */
 
 /** 统一前缀，避免与同库其它应用串键 */
-export const KEY_PREFIX = 'mscts';
+export const KEY_PREFIX = 'mcsts';
 
 /** 限流键 */
 export const RateLimitKeys = {

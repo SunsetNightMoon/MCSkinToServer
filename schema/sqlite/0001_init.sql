@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0001_init · SQLite
+-- MCSTS canonical schema · 0001_init · SQLite
 -- 草案 v1（2026-09-20，待评审，未在任何数据库上执行）
 --
 -- 本文件是 schema/postgresql/0001_init.sql 的类型映射变体，结构必须等价：

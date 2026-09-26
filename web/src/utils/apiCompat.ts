@@ -1,15 +1,15 @@
 /**
- * 旧版 → MSCTS 兼容数据层（compatFetch）
+ * 旧版 → MCSTS 兼容数据层（compatFetch）
  * ================================================================
- * 旧版界面（页面/组件/CSS/文案）是验证过的资产，本文件是它与 MSCTS 后端之间
+ * 旧版界面（页面/组件/CSS/文案）是验证过的资产，本文件是它与 MCSTS 后端之间
  * **唯一**的翻译层：调用方仍然写 `/api/skins`、`/api/library/skins/:id` 这类
- * 旧路径，由这里改写为 MSCTS 端点，并把响应转回旧版期望的形状（snake_case）。
+ * 旧路径，由这里改写为 MCSTS 端点，并把响应转回旧版期望的形状（snake_case）。
  *
  * 约定：
  * - 只有以 `/api/` 开头的相对路径会被改写；`/steve.png`、`/uploads/...`、
  *   `blob:` 等静态资源直通。
  * - 2xx 时返回"翻译后"的 JSON Response；非 2xx 时保留原状态码，并把
- *   MSCTS 的 `message` 补成旧版页面读取的 `errorMessage`。
+ *   MCSTS 的 `message` 补成旧版页面读取的 `errorMessage`。
  * - 后端没有的能力（站点设置/黑名单/验证码/邮箱与密码管理…）返回
  *   中性默认值或 501 + `comingSoon` 文案，页面优雅降级而不是抛错。
  * - 第三方登录开关（`/api/auth/oauth/providers`）**透传**给后端：
@@ -88,7 +88,7 @@ async function rawFetch(url: string, init: RequestInit = {}): Promise<Response> 
 /**
  * 兜底补齐 `previewUrl`。
  *
- * MSCTS 的列表端点现在**直出** `previewUrl`（服务层 `LibraryService.withPreviewUrls`
+ * MCSTS 的列表端点现在**直出** `previewUrl`（服务层 `LibraryService.withPreviewUrls`
  * 统一补，见 `/api/library`、`/api/admin/assets`、`/api/admin/reviews`、
  * `/api/me/assets`），所以正常情况下这里**一次网络请求都不会发**。
  * 保留兜底只为兼容更早的后端版本。
@@ -128,7 +128,7 @@ function permissionLevelOf(a: any): string {
   return 'private'
 }
 
-/** MSCTS Asset/LibraryItem → 旧版 Skin / Cape 形状 */
+/** MCSTS Asset/LibraryItem → 旧版 Skin / Cape 形状 */
 export function toLegacyAsset(
   a: (AssetItem & Record<string, any>) | null | undefined,
   extra: Record<string, any> = {},
@@ -160,7 +160,7 @@ export function toLegacyAsset(
 
 const ROLE_LEVEL: Record<string, number> = { user: 0, admin: 1, super_admin: 2 }
 
-/** MSCTS UserRow → 旧版 UserRecord（管理后台用户列表） */
+/** MCSTS UserRow → 旧版 UserRecord（管理后台用户列表） */
 function toLegacyUserRow(u: any): Record<string, any> {
   return {
     id: u?.id,
@@ -177,7 +177,7 @@ function toLegacyUserRow(u: any): Record<string, any> {
   }
 }
 
-/** 旧版 permission_level → MSCTS visibility / downloadPolicy */
+/** 旧版 permission_level → MCSTS visibility / downloadPolicy */
 function toPolicy(level: string | undefined): { visibility: string; downloadPolicy: string } {
   if (level === 'public_downloadable') return { visibility: 'public', downloadPolicy: 'public' }
   if (level === 'public_no_download') return { visibility: 'public', downloadPolicy: 'owner_only' }
@@ -219,7 +219,7 @@ export async function compatFetch(
 
   const json = (data: unknown) => jsonResponse(data)
 
-  // ── 站点设置：MSCTS 已实现 /api/settings/public（system_settings 表），
+  // ── 站点设置：MCSTS 已实现 /api/settings/public（system_settings 表），
   //    形状与旧站一致，走下方 fallback 原样透传，不再本地伪造默认值 ──
 
   let m: RegExpMatchArray | null
@@ -310,7 +310,7 @@ export async function compatFetch(
     if (description) target.set('description', description)
     const license = String(fd.get('license_type') ?? '')
     if (license) target.set('license', license)
-    // 上传表单的「权限设置」：旧版用 permission_level 单字段，MSCTS 拆成
+    // 上传表单的「权限设置」：旧版用 permission_level 单字段，MCSTS 拆成
     // visibility + downloadPolicy 两个字段，这里做翻译
     const permission = fd.get('permission_level')
     if (permission) {
@@ -483,7 +483,7 @@ export async function compatFetch(
       const payload: Record<string, unknown> = {}
       if (body.name !== undefined) payload.name = body.name
       if (body.description !== undefined) payload.description = body.description
-      // 旧版表单用 license_type，MSCTS 列名是 license
+      // 旧版表单用 license_type，MCSTS 列名是 license
       if (body.license_type !== undefined) payload.license = body.license_type
       if (body.permission_level !== undefined) {
         const { visibility, downloadPolicy } = toPolicy(String(body.permission_level))
@@ -562,7 +562,7 @@ export async function compatFetch(
     return json(await res.json().catch(() => ({})))
   }
 
-  // ── 管理后台：主题背景图上传 / 移除 → MSCTS /api/admin/upload-theme-image、/theme-image/:type ──
+  // ── 管理后台：主题背景图上传 / 移除 → MCSTS /api/admin/upload-theme-image、/theme-image/:type ──
   //
   // 后端（`src/site/themeImage.ts` + admin 路由）收的是 **raw 位图字节**
   // （`express.raw({ type: ['image/png','image/jpeg','image/webp','image/gif'] })`），
@@ -601,13 +601,13 @@ export async function compatFetch(
   }
 
   // ── 管理后台：黑名单 ──
-  // 旧版 `BlacklistManagement` 依赖 `/api/admin/blacklist`，MSCTS **没有**这张表也没有
+  // 旧版 `BlacklistManagement` 依赖 `/api/admin/blacklist`，MCSTS **没有**这张表也没有
   // 对应端点；这里曾经返回假数据（空数组 / 全 0 统计），于是页面上永远显示
   // 「暂无封禁记录」—— 一个看起来正常、实际上从不反映真实状态、也不会报错的死页面。
   // 假数据已删除，页签也已从管理后台侧栏摘掉（`AdminDashboard.tsx`）。
   // 若哪天真要做封禁名单，请先补后端再挂页面，别再走「前端假装有」这条路。
 
-  // ── 已有 MSCTS 后端端点的 /api/admin/* 直接透传，其余仍未支持 ──
+  // ── 已有 MCSTS 后端端点的 /api/admin/* 直接透传，其余仍未支持 ──
   // 注意：这条兜底是按前缀拦截的，新增任何 /api/admin 端点都必须同时加进白名单，
   // 否则新端点在开发环境永远返回「敬请期待」而看不出原因（后端其实是对的）。
   const ADMIN_PASSTHROUGH = [
@@ -692,7 +692,7 @@ export async function compatFetch(
   }
 
   // ── 账号安全 ──
-  // 改密码 / 注销账号 / 恢复账号 / 邮箱验证 / 密码重置 均已有 MSCTS 端点，
+  // 改密码 / 注销账号 / 恢复账号 / 邮箱验证 / 密码重置 均已有 MCSTS 端点，
   // 全部走下方 fallback 原样透传（原此处对后两者返回 notSupported 的降级已移除）。
 
   // ── 安装向导（未挂路由，兜底） ──

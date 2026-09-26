@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { settingBool } from '../utils/settingBool'
+import { useI18nStore } from './i18nStore'
 
 /**
- * 站点设置 store（适配 MSCTS 后端）。
+ * 站点设置 store（适配 MCSTS 后端）。
  *
  * 数据源 = `GET /api/settings/public`（键名 SCREAMING_SNAKE_CASE，见
  * 后端 `PUBLIC_SETTING_KEYS`）。该端点只返回「已显式设置过」的键，
@@ -13,14 +14,14 @@ import { settingBool } from '../utils/settingBool'
  * 历史上管理端表单用的是 snake_case（site_title），写入后 public 白名单读不到，
  * 表现为「保存成功但页面不变」。改动键名时三处要同步。
  *
- * 仅 `theme` 持久化，storage key 为 `mscts-site`。
+ * 仅 `theme` 持久化，storage key 为 `mcsts-site`。
  */
 
 export const SITE_DEFAULTS = {
-  title: 'MSCTS',
+  title: 'MCSTS',
   description: 'MINECRAFT SKIN SERVER',
-  copyrightText: '© 2024 MSCTS',
-  copyrightProject: 'Powered by MSCTS',
+  copyrightText: '© 2024 MCSTS',
+  copyrightProject: 'Powered by MCSkinToServer',
   /**
    * 允许注册的缺省值。
    * 必须与后端 `RUNTIME_SETTING_DEFAULTS.allowRegistration` 一致：
@@ -130,7 +131,7 @@ export const useSiteStore = create<SiteState>()(
       setCopyrightText: (text) => set({ copyrightText: text }),
       setCopyrightBeian: (beian) => set({ copyrightBeian: beian }),
       setCopyrightProject: (project) => set({ copyrightProject: project }),
-      // 从 MSCTS 的 /api/settings/public 拉取站点外观（键名沿用旧版 SCREAMING_SNAKE_CASE）。
+      // 从 MCSTS 的 /api/settings/public 拉取站点外观（键名沿用旧版 SCREAMING_SNAKE_CASE）。
       // 后端只返回「已显式设置过」的键，因此未设置的项保持本地默认；
       // THEME 也只在后端有值时覆盖，避免把用户的本地主题选择冲掉。
       loadSettings: async () => {
@@ -162,13 +163,18 @@ export const useSiteStore = create<SiteState>()(
             copyrightProject:
               data.COPYRIGHT_PROJECT || SITE_DEFAULTS.copyrightProject,
           })
+          // 站点默认显示语言（P5 第十二批）：只在用户没手动选过语言时生效。
+          // applySiteDefault 内部会判 userChosen —— 访客自己切换过的语言优先。
+          if (typeof data.DEFAULT_LANGUAGE === 'string' && data.DEFAULT_LANGUAGE) {
+            useI18nStore.getState().applySiteDefault(data.DEFAULT_LANGUAGE)
+          }
         } catch {
           // 网络异常时保持本地默认值，不打断渲染
         }
       },
     }),
     {
-      name: 'mscts-site',
+      name: 'mcsts-site',
       version: 1,
       // 只持久化主题，其余为本地默认
       partialize: (state) => ({ theme: state.theme }) as unknown as SiteState,

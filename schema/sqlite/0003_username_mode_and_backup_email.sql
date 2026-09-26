@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0003_username_mode_and_backup_email · SQLite
+-- MCSTS canonical schema · 0003_username_mode_and_backup_email · SQLite
 --
 -- 三件事：
 --

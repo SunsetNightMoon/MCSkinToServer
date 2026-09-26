@@ -50,7 +50,7 @@ const cases: DialectCase[] = [
   {
     label: 'sqlite',
     setup: async (t) => {
-      const dir = await mkdtemp(join(tmpdir(), 'mscts-identity-'));
+      const dir = await mkdtemp(join(tmpdir(), 'mcsts-identity-'));
       const db = new SqliteConnection(join(dir, 't.db'));
       await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
       t.after(async () => {
@@ -87,7 +87,7 @@ async function wipeAll(db: DatabaseConnection): Promise<void> {
   await db.run('DELETE FROM blobs');
   await db.run('DELETE FROM users');
   if (db.dialect === 'postgres') {
-    // 测试断言 user_uid 从 1 开始，复用 mscts_smoke_test 库时重置序列
+    // 测试断言 user_uid 从 1 开始，复用 mcsts_smoke_test 库时重置序列
     await db.run('ALTER SEQUENCE users_user_uid_seq RESTART WITH 1');
   }
 }
@@ -144,7 +144,7 @@ async function startHttp(
   t: TestContext,
   db: DatabaseConnection,
 ): Promise<HttpCtx> {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-identity-http-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-identity-http-'));
   const config: AppConfig = {
     dialect: db.dialect,
     sqlitePath: '',

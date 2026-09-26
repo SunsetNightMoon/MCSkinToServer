@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0002_account_lifecycle · SQLite
+-- MCSTS canonical schema · 0002_account_lifecycle · SQLite
 --
 -- 账号注销生命周期：
 --   deleted_at 非空      = 已注销，处于 15 天可恢复宽限期

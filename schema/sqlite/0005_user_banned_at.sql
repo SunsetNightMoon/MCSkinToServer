@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0005_user_banned_at · SQLite
+-- MCSTS canonical schema · 0005_user_banned_at · SQLite
 --
 -- 给封禁补一个**时间戳**。
 --

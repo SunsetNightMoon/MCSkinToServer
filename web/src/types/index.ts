@@ -22,7 +22,7 @@ export interface Skin {
   user_id: string
   profile_id?: string
   file_path: string
-  /** 详情页 3D 预览用：可选（MSCTS 详情接口不返回该字段） */
+  /** 详情页 3D 预览用：可选（MCSTS 详情接口不返回该字段） */
   cape_file_path?: string
   model_type: 'default' | 'slim'
   file_hash: string

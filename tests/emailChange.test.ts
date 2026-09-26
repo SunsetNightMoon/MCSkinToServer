@@ -652,7 +652,7 @@ const cases: DialectCase[] = [
     label: 'sqlite',
     emailPrefix: 'sq-ech',
     setup: async (t) => {
-      const dir = await mkdtemp(join(tmpdir(), 'mscts-ech-'));
+      const dir = await mkdtemp(join(tmpdir(), 'mcsts-ech-'));
       const db = new SqliteConnection(join(dir, 't.db'));
       await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
       t.after(async () => {
@@ -707,8 +707,8 @@ function buildEnv(db: DatabaseConnection): Env {
               SMTP_HOST: 'smtp.change.test',
               SMTP_PORT: 587,
               SMTP_FROM: 'noreply@test.local',
-              SMTP_FROM_NAME: 'MSCTS 变更测试站',
-              SITE_TITLE: 'MSCTS 变更测试站',
+              SMTP_FROM_NAME: 'MCSTS 变更测试站',
+              SITE_TITLE: 'MCSTS 变更测试站',
             }
           : {},
     },
@@ -775,7 +775,7 @@ for (const c of cases) {
 
 test('emailChange: HTTP 端点（sqlite）', async (t) => {
   const express = (await import('express')).default;
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-ech-http-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-ech-http-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
   t.after(async () => {
@@ -796,7 +796,7 @@ test('emailChange: HTTP 端点（sqlite）', async (t) => {
         SMTP_HOST: 'smtp.change.test',
         SMTP_PORT: 587,
         SMTP_FROM: 'noreply@test.local',
-        SITE_TITLE: 'MSCTS 端点测试站',
+        SITE_TITLE: 'MCSTS 端点测试站',
       }),
     },
     ttlMs: 0,

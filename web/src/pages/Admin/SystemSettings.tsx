@@ -1622,7 +1622,7 @@ function CopyrightSettings({ autoApply, onAutoApplyChange }: { autoApply: boolea
           }}>
             ⚠️ <strong>{t('admin.copyrightWarningTitle')}</strong>
             <br />
-            {t('admin.copyrightWarning1')}<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>Powered by CatTavernSkins</code>
+            {t('admin.copyrightWarning1')}<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>Powered by MCSkinToServer</code>
             <br />
             {t('admin.copyrightWarning2')}
             <br />

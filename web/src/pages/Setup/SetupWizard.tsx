@@ -1,13 +1,16 @@
-import { useState } from 'react';
-import { Dropdown, Form, Input, message, Radio } from 'antd';
-import { CheckOutlined, GlobalOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
+import { Alert, ConfigProvider, Dropdown, Form, Input, message, Radio, Select, theme as antdTheme } from 'antd';
+import { CheckOutlined, GlobalOutlined, LoadingOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
+import { SUPPORTED_LANGUAGES } from '../../i18n';
 // 密码长度口径：与后端（8-128 位）保持一致，见 utils/passwordPolicy.ts 的说明
 import { MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy';
 
 interface SetupData {
   siteName: string;
+  /** 站点默认显示语言（SCH/TCH/EN/JP），写入 DEFAULT_LANGUAGE 设置 */
+  defaultLanguage: string;
   dbType: 'sqlite' | 'postgresql';
   dbHost?: string;
   dbPort?: number;
@@ -29,10 +32,24 @@ interface SetupData {
   confirmPassword: string;
 }
 
+/** 按浏览器语言推断默认显示语言（兼容多语言玩家：zh→简中、zh-TW→繁中、ja→日文、其余→英） */
+function detectBrowserLanguage(): string {
+  const nav = (typeof navigator !== 'undefined' ? navigator.language : '') || '';
+  const lower = nav.toLowerCase();
+  if (lower.startsWith('zh-tw') || lower.startsWith('zh-hk') || lower.startsWith('zh-hant')) {
+    return 'TCH';
+  }
+  if (lower.startsWith('zh')) return 'SCH';
+  if (lower.startsWith('ja')) return 'JP';
+  return 'EN';
+}
+
 export default function SetupWizard() {
   const { t } = useTranslation();
   const [step, setStep] = useState(1);
-  const [completed, setCompleted] = useState(false);
+  // 完成信号发出后的生效状态机：waiting=等后端软重启生效，live=已生效（倒计时刷新），
+  // timeout=等待超限（给手动刷新兜底）。idle=还没点完成，正常走向导。
+  const [activation, setActivation] = useState<'idle' | 'waiting' | 'live' | 'timeout'>('idle');
   const [loading, setLoading] = useState(false);
   const [animKey, setAnimKey] = useState(0);
   const [testingDb, setTestingDb] = useState(false);
@@ -40,6 +57,7 @@ export default function SetupWizard() {
   const [testingRedis, setTestingRedis] = useState(false);
   const [data, setData] = useState<SetupData>({
     siteName: '',
+    defaultLanguage: detectBrowserLanguage(),
     dbType: 'sqlite',
     redisEnabled: false,
     redisHost: 'localhost',
@@ -202,6 +220,7 @@ export default function SetupWizard() {
     setLoading(true);
     const payload: any = {
       site_name: data.siteName,
+      default_language: data.defaultLanguage,
       db_type: data.dbType,
       redis_enabled: data.redisEnabled,
       mail_host: data.mailHost,
@@ -234,8 +253,9 @@ export default function SetupWizard() {
         const body = await res.json().catch(() => ({ success: false, error: t('setup.unknownError') }));
         if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
         if (!body.success) throw new Error(body.error || t('setup.setupFailed'));
-        setCompleted(true);
-        message.success(t('setup.installComplete'));
+        // 这是前端唯一一次配置完成信号：后端收到后会带着刚落盘的 setup.json
+        // 原地软重启，接下来由轮询（下面的 useEffect）确认进程真的生效。
+        setActivation('waiting');
       })
       .catch((err: Error) => {
         message.error(err.message || t('setup.installFailed'));
@@ -243,7 +263,47 @@ export default function SetupWizard() {
       .finally(() => setLoading(false));
   };
 
-  if (completed) {
+  // 整页刷新：让前端重新拉 /api/setup/status，守卫按进程真实 mode 放行
+  const reloadSite = () => {
+    window.location.href = window.location.pathname + window.location.search;
+  };
+
+  useEffect(() => {
+    if (activation !== 'waiting') return;
+    let cancelled = false;
+    const startedAt = Date.now();
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const r = await fetch('/api/setup/status', { cache: 'no-store' });
+        const d = await r.json().catch(() => null);
+        // 兼容旧后端（无 mode 字段）：只有 setup_completed 不足以说明已生效，
+        // 但旧后端没有软重启，装完即已生效，所以按字段有无分支判断。
+        if (d?.mode === 'installed' || (d?.mode === undefined && d?.setup_completed)) {
+          setActivation('live');
+          setTimeout(() => {
+            if (!cancelled) reloadSite();
+          }, 2500);
+          return;
+        }
+      } catch {
+        // 软重启瞬间旧服务已关、新服务未 listen：连接被拒是预期内的，继续轮询
+      }
+      if (Date.now() - startedAt > 90_000) {
+        setActivation('timeout');
+        return;
+      }
+      setTimeout(() => void tick(), 1000);
+    };
+    // 给软重启一点起步时间，避免第一两次轮询必然撞上换绑窗口
+    const timer = setTimeout(() => void tick(), 800);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activation]);
+
+  if (activation !== 'idle') {
     return (
       <div style={styles.page}>
         <div style={styles.topBar}>
@@ -253,16 +313,34 @@ export default function SetupWizard() {
           </div>
         </div>
         <div style={styles.content}>
-          <h1 style={styles.title}>{t('setup.installComplete')}</h1>
-          <p style={styles.subtitle}>{t('setup.installCompleteDesc')}</p>
+          {activation === 'waiting' && (
+            <>
+              <h1 style={styles.title}>
+                <LoadingOutlined style={{ marginRight: 12 }} />
+                {t('setup.activating')}
+              </h1>
+              <p style={styles.subtitle}>{t('setup.activatingDesc')}</p>
+            </>
+          )}
+          {activation === 'live' && (
+            <>
+              <h1 style={styles.title}>{t('setup.installComplete')}</h1>
+              <p style={styles.subtitle}>{t('setup.autoRedirectDesc')}</p>
+            </>
+          )}
+          {activation === 'timeout' && (
+            <>
+              <h1 style={styles.title}>{t('setup.installComplete')}</h1>
+              <p style={styles.subtitle}>{t('setup.activateTimeoutDesc')}</p>
+            </>
+          )}
           <div style={{ flex: 1 }} />
           <div style={styles.actionArea}>
-            <button
-              style={styles.primaryButton}
-              onClick={() => (window.location.hash = '#/login')}
-            >
-              {t('setup.goToLogin')}
-            </button>
+            {activation !== 'waiting' && (
+              <button style={styles.primaryButton} onClick={reloadSite}>
+                {t('setup.goToLogin')}
+              </button>
+            )}
           </div>
         </div>
         <div style={styles.bottomBar} />
@@ -271,6 +349,7 @@ export default function SetupWizard() {
   }
 
   return (
+    <ConfigProvider theme={{ algorithm: antdTheme.darkAlgorithm, token: { borderRadius: 0 } }}>
     <div style={styles.page}>
       <style>{`
         @keyframes fadeIn {
@@ -304,8 +383,22 @@ export default function SetupWizard() {
           border: 1px solid rgba(255,255,255,0.25) !important;
           color: #fff !important;
         }
+        .ant-select:hover .ant-select-selector {
+          border-color: rgba(255,255,255,0.45) !important;
+        }
         .ant-select-arrow {
           color: rgba(255,255,255,0.6) !important;
+        }
+        /* 语言下拉弹层：portal 挂 body 下，亮色组件会白底白字，整体压暗 */
+        .setup-select-popup .ant-select-item {
+          color: rgba(255,255,255,0.85) !important;
+        }
+        .setup-select-popup .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+          background: rgba(255,255,255,0.12) !important;
+        }
+        .setup-select-popup .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+          background: #0078d7 !important;
+          color: #fff !important;
         }
         .ant-radio-wrapper {
           color: #ffffff !important;
@@ -377,6 +470,22 @@ export default function SetupWizard() {
               >
                 <Input placeholder={t('setup.siteNamePlaceholder')} size="large" style={styles.input} />
               </Form.Item>
+              <Form.Item
+                label={t('setup.defaultLanguage')}
+                style={{ marginBottom: 8 }}
+              >
+                <Select
+                  size="large"
+                  style={{ width: '100%' }}
+                  popupClassName="setup-select-popup"
+                  value={data.defaultLanguage}
+                  onChange={(v) => setData((prev) => ({ ...prev, defaultLanguage: v }))}
+                  options={SUPPORTED_LANGUAGES.map((l) => ({ value: l.code, label: l.name }))}
+                />
+              </Form.Item>
+              <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: 0, lineHeight: 1.7 }}>
+                {t('setup.defaultLanguageHint')}
+              </p>
             </Form>
           </>
         )}
@@ -386,7 +495,7 @@ export default function SetupWizard() {
           <>
             <h1 style={styles.title}>{t('setup.dbConfig')}</h1>
             <Form form={form} layout="vertical" initialValues={{ dbType: data.dbType, dbPort: data.dbPort || 5432 }} style={{ width: '100%' }}>
-              <Form.Item label={t('setup.dbType')} style={{ marginBottom: 32 }}>
+              <Form.Item label={t('setup.dbType')} style={{ marginBottom: 16 }}>
                 <Radio.Group
                   value={data.dbType}
                   onChange={(e) => setData((prev) => ({ ...prev, dbType: e.target.value }))}
@@ -396,6 +505,17 @@ export default function SetupWizard() {
                   <Radio value="postgresql" style={{ color: '#fff' }}>{t('setup.postgresql')}</Radio>
                 </Radio.Group>
               </Form.Item>
+              {/*
+                P5 第十二批：数据库类型一旦完成安装即锁定，不提供任何切换入口。
+                在这里（选择时）就明示，而不是装完才发现改不了 —— 避免用户装了
+                SQLite 用一阵想迁 PG 却被拒，以为系统出 bug。
+              */}
+              <Alert
+                type="warning"
+                showIcon
+                message={t('setup.dbTypeIrreversible')}
+                style={{ marginBottom: 24, background: 'rgba(250,173,20,0.12)', border: '1px solid rgba(250,173,20,0.4)' }}
+              />
 
               {data.dbType === 'postgresql' && (
                 <>
@@ -434,7 +554,7 @@ export default function SetupWizard() {
                   <Form.Item
                     label={t('setup.dbPassword')}
                     name="dbPassword"
-                    rules={[{ required: true, message: t('setup.validation.dbPasswordRequired') }]}
+                    extra={t('setup.dbPasswordOptional')}
                     style={{ marginBottom: 20 }}
                   >
                     <Input.Password placeholder={t('setup.dbPasswordPlaceholder')} size="large" style={styles.input} />
@@ -745,6 +865,7 @@ export default function SetupWizard() {
         </Dropdown>
       </div>
     </div>
+    </ConfigProvider>
   );
 }
 
@@ -831,7 +952,7 @@ const styles: Record<string, React.CSSProperties> = {
   input: {
     background: 'rgba(255,255,255,0.12)',
     border: '1px solid rgba(255,255,255,0.25)',
-    borderRadius: 2,
+    borderRadius: 0,
     color: '#fff',
     fontSize: 16,
     height: 44,
@@ -840,7 +961,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   confirmBox: {
     background: 'rgba(255,255,255,0.06)',
-    borderRadius: 4,
+    borderRadius: 0,
     padding: '24px 28px',
     display: 'flex',
     flexDirection: 'column',
@@ -886,7 +1007,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#0078d7',
     color: '#fff',
     border: 'none',
-    borderRadius: 2,
+    borderRadius: 0,
     padding: '10px 28px',
     fontSize: 14,
     fontWeight: 500,
@@ -900,7 +1021,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     color: '#fff',
     border: '1px solid rgba(255,255,255,0.35)',
-    borderRadius: 2,
+    borderRadius: 0,
     padding: '10px 20px',
     fontSize: 14,
     fontWeight: 500,
@@ -911,7 +1032,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(0,120,215,0.15)',
     color: '#4db8ff',
     border: '1px solid rgba(0,120,215,0.4)',
-    borderRadius: 2,
+    borderRadius: 0,
     padding: '8px 18px',
     fontSize: 13,
     fontWeight: 500,

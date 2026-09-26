@@ -68,7 +68,7 @@ const PASSWORD = 'password123';
 const NEW_PASSWORD = 'newpassword456';
 /** 与后台设置项 BASE_URL 同值：邮件链接必须挂在这个站点根上 */
 const SITE_ORIGIN = 'https://skin.test';
-const SITE_TITLE = 'MSCTS 测试站';
+const SITE_TITLE = 'MCSTS 测试站';
 
 /** 记录发出的邮件，并可按需模拟故障 */
 class MemoryMailer implements MailPort {
@@ -139,7 +139,7 @@ let verifyUser!: TestUser;
 let manualUser!: { email: string; id: string };
 
 async function buildEnv(): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-mail-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-mail-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 

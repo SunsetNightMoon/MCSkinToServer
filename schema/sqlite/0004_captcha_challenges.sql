@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0004_captcha_challenges · SQLite
+-- MCSTS canonical schema · 0004_captcha_challenges · SQLite
 --
 -- 自托管「数学题」人机验证（批 2）。
 --

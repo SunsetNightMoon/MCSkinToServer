@@ -76,7 +76,7 @@ async function insertUser(
 }
 
 before(async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-http-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-http-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 
@@ -195,7 +195,7 @@ test('http: /api/yggdrasil 返回元数据', async () => {
   );
   assert.deepEqual(body['skinDomains'], ['localhost']);
   const meta = body['meta'] as { implementation: { name: string } };
-  assert.equal(meta.implementation.name, 'MSCTS');
+  assert.equal(meta.implementation.name, 'MCSTS');
 });
 
 test('http: /api/me 未认证 → 401', async () => {

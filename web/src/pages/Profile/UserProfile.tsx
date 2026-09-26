@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -664,7 +664,7 @@ export function UserProfile() {
       const code = err.response?.data?.error
       // 0003：单用户名模式的改名冷却由后端以 403 NAME_COOLDOWN 拒绝；
       // 「启用预留角色」用的是同一个 30 天窗口，错误码是 MODE_COOLDOWN。
-      // 旧代码判的是 429 + days_remaining，而 MSCTS 从不返回这两个东西 ——
+      // 旧代码判的是 429 + days_remaining，而 MCSTS 从不返回这两个东西 ——
       // 分支永远走不到，用户只能看到后端那句原始文案（能懂，但丢了剩余天数）。
       if (code === 'NAME_COOLDOWN' || code === 'MODE_COOLDOWN') {
         const days = modeState?.cooldownDaysRemaining

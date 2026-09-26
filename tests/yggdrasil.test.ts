@@ -84,7 +84,7 @@ test('yggdrasil: 协议错误映射', () => {
 // ---------------------------------------------------------------------------
 
 test('yggdrasil: 密钥生成/加载 roundtrip', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-keys-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-keys-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const keyPath = join(dir, 'yggdrasil.pem');
 
@@ -196,7 +196,7 @@ test('yggdrasil: metadata DTO', () => {
   });
   assert.equal(meta.signaturePublickey, publicKeyPemOneLine(VECTOR.publicKeyPem));
   assert.deepEqual(meta.skinDomains, ['skin.example.com']);
-  assert.equal(meta.meta.implementation.name, 'MSCTS');
+  assert.equal(meta.meta.implementation.name, 'MCSTS');
 
   const custom = buildMetadataDto({
     baseUrl: 'https://skin.example.com',
@@ -211,7 +211,7 @@ test('yggdrasil: metadata DTO', () => {
 // ---------------------------------------------------------------------------
 
 test('yggdrasil: findTextureState 排除 rejected + buildForProfile 链路', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-ygg-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-ygg-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   t.after(async () => {
     await db.close().catch(() => undefined);

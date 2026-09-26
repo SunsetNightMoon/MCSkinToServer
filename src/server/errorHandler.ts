@@ -40,6 +40,9 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     // SMTP 是上游依赖，故障归 502 而不是 500（区分「我们写错了」与「邮件服务不通」）
     case 'SMTP_ERROR':
       return 502;
+    // 未安装：状态问题（装完就好），语义同 USER_DISABLED 的 403
+    case 'SETUP_REQUIRED':
+      return 403;
     case 'EMAIL_TAKEN':
     case 'NAME_TAKEN':
     // 账号状态与请求冲突：必须先做完「选择保留 ID」才能继续操作

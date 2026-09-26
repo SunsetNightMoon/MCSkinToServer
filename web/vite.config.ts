@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import pkg from './package.json';
 
 // 后端地址：dev 与 preview 都需要代理 /api 等前缀（否则生产构建无法本地联调）
 const BACKEND = 'http://localhost:3000';
@@ -10,9 +11,14 @@ const proxy = {
   '/sessionserver': BACKEND,
 };
 
-// 开发服务器代理到后端（MSCTS 端口 3000）
+// 开发服务器代理到后端（MCSTS 端口 3000）
 export default defineConfig({
   plugins: [react()],
+  // 页脚版本号等展示统一取 web/package.json 的 version（口径见 README 顶部），
+  // 不再在组件里写死字面量。
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   server: {
     port: 5173,
     proxy,

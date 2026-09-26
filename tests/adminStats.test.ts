@@ -57,7 +57,7 @@ import { DEFAULT_STATS_TZ_OFFSET_MINUTES, type AppConfig } from '../src/config.j
  * ## 双方言
  *
  * SQLite 恒跑；PostgreSQL 由 `TEST_DATABASE_URL` 门控。PG 侧沿用共享库
- * `mscts_smoke_test`，库里可能已有别的用例留下的数据，所以概览与趋势一律用
+ * `mcsts_smoke_test`，库里可能已有别的用例留下的数据，所以概览与趋势一律用
  * **前后差值**断言，不假定绝对数字（只有空库那条用例例外，它自带一个库）。
  */
 
@@ -87,7 +87,7 @@ interface Env {
 const envs: Partial<Record<Dialect, Env>> = {};
 
 async function makeEnv(dialect: Dialect): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), `mscts-stats-${dialect}-`));
+  const dir = await mkdtemp(join(tmpdir(), `mcsts-stats-${dialect}-`));
   const db: DatabaseConnection =
     dialect === 'postgres'
       ? PostgresConnection.connect(TEST_DATABASE_URL!)
@@ -351,7 +351,7 @@ test('adminStats: buildDayKeys 升序、等长、末项为「偏移后的今天�
 // ============================================================================
 
 test('adminStats: 空库概览三个数为 0，趋势六个数组全 0 但等长', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-stats-empty-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-stats-empty-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   try {
     await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));

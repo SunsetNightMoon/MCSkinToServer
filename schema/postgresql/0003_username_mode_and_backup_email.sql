@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0003_username_mode_and_backup_email · PostgreSQL
+-- MCSTS canonical schema · 0003_username_mode_and_backup_email · PostgreSQL
 --
 -- 与 schema/sqlite/0003_username_mode_and_backup_email.sql 同构，仅类型与
 -- 放开 CHECK 的手法不同。设计说明（用户名模式 / 角色状态 / 备用邮箱 / 为什么

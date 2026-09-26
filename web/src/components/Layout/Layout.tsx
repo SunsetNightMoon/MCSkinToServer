@@ -92,7 +92,7 @@ export function Layout() {
             </span>
           </div>
           <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-subtle)', opacity: 0.5, marginTop: 4 }}>
-            v1.0 Alpha
+            {`v${__APP_VERSION__}`}
           </div>
         </Footer>
       </AntLayout>

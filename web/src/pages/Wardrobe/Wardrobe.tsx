@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Row, Col, Card, Tag, Spin, Empty, Button, message, Space, Radio, Pagination } from 'antd'
 import { CheckOutlined, DeleteOutlined } from '@ant-design/icons'

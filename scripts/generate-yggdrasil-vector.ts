@@ -21,8 +21,8 @@ const { privateKey, publicKey } = generateKeyPairSync('rsa', {
 });
 
 const NOW = '2026-09-23T00:00:00.000Z';
-const skinHash = sha256Hex('mscts-vector-skin');
-const capeHash = sha256Hex('mscts-vector-cape');
+const skinHash = sha256Hex('mcsts-vector-skin');
+const capeHash = sha256Hex('mcsts-vector-cape');
 
 const input = {
   profileId: '12345678-90ab-cdef-1234-567890abcdef',

@@ -1,5 +1,5 @@
 -- ============================================================================
--- MSCTS canonical schema · 0002_account_lifecycle · PostgreSQL
+-- MCSTS canonical schema · 0002_account_lifecycle · PostgreSQL
 --
 -- 账号注销生命周期（与 sqlite/0002_account_lifecycle.sql 结构等价）：
 --   deleted_at 非空 = 已注销，处于 15 天可恢复宽限期

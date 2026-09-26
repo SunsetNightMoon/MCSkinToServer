@@ -56,7 +56,7 @@ import type { AppConfig } from '../src/config.js';
  * ## 双方言
  *
  * SQLite 恒跑；PostgreSQL 由 `TEST_DATABASE_URL` 门控。PG 侧沿用共享库
- * `mscts_smoke_test`，里面可能已有其他用例的数据，所以不断言「全空」，
+ * `mcsts_smoke_test`，里面可能已有其他用例的数据，所以不断言「全空」，
  * 每个用例只关心自己那一个设置键、自己那一次上传的对象键。
  */
 
@@ -86,7 +86,7 @@ interface Env {
 const envs: Partial<Record<Dialect, Env>> = {};
 
 async function makeEnv(dialect: Dialect): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), `mscts-theme-${dialect}-`));
+  const dir = await mkdtemp(join(tmpdir(), `mcsts-theme-${dialect}-`));
   const db: DatabaseConnection =
     dialect === 'postgres'
       ? PostgresConnection.connect(TEST_DATABASE_URL!)

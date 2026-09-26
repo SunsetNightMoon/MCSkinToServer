@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useAuthStore } from './store/authStore'
 import { useSiteStore } from './store/siteStore'
 import { Layout } from './components/Layout/Layout'
@@ -51,15 +51,43 @@ const AdminDashboard = lazy(() =>
 )
 const MySkins = lazy(() => import('./pages/MySkins/MySkins'))
 const MyCapes = lazy(() => import('./pages/MySkins/MyCapes'))
+const SetupWizard = lazy(() => import('./pages/Setup/SetupWizard'))
 
 /**
- * 路由表保持旧版一致，仅去掉 MSCTS 没有后端支持的部分：
- *  - /setup        安装向导（MSCTS 无 setup 端点）
- *  - /oauth-success OAuth 回调（MSCTS 无 OAuth）
+ * 路由表保持旧版一致，仅去掉 MCSTS 没有后端支持的部分：
+ *  - /oauth-success OAuth 回调（MCSTS 无 OAuth）
  * 页面文件仍在（构建不受影响），只是不挂路由。
+ *
+ * /setup 安装向导（P5 第十二批）不走 hash 路由：它由 App 顶部的安装守卫
+ * 全屏接管（setupGate === 'installing' 时只渲染 <SetupWizard/>），
+ * 装完之前任何 hash 路由都不可达。
  */
 function App() {
   const { isAuthenticated, user, updateUser, setSkinUrl, clearAuth } = useAuthStore()
+
+  // ---- 安装守卫（P5 第十二批）----
+  // 挂载时拉一次 /api/setup/status：未完成则全屏接管、只渲染向导，
+  // 任何 hash 路由都进不去（装完之前网站不该可访问）。
+  // 判定以 **mode（进程真实状态）** 为准而不是 setup_completed（文件状态）：
+  // 向导刚装完、后端软重启生效前，文件已落盘但业务接口还会被 403 拦。
+  // 拉取失败按「已安装」处理 —— 纯前端 dev（后端未起 / 代理未配）不应被误锁。
+  const [setupGate, setSetupGate] = useState<'checking' | 'installed' | 'installing'>('checking')
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/setup/status')
+      .then((r) => (r.ok ? r.json() : { setup_completed: true, mode: 'installed' }))
+      .then((d) => {
+        if (!cancelled) {
+          setSetupGate(d?.mode === 'installed' || (d?.mode === undefined && d?.setup_completed) ? 'installed' : 'installing')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSetupGate('installed')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // 注册全局 401 处理回调（清登录态 + hash 跳登录页）
   useEffect(() => {
@@ -100,6 +128,18 @@ function App() {
       cancelled = true
     }
   }, [isAuthenticated, updateUser, setSkinUrl, clearAuth])
+
+  // 安装未完成：全屏只渲染向导（带布局的壳都不给 —— 装完之前没有可访问的东西）
+  if (setupGate === 'checking') {
+    return <PageLoading />
+  }
+  if (setupGate === 'installing') {
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <SetupWizard />
+      </Suspense>
+    )
+  }
 
   return (
     // 外层 Suspense 覆盖不走 Layout 的懒加载路由（/login、/register）

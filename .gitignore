@@ -13,3 +13,6 @@ temp/
 
 # Windows 保留设备名残留（旧仓库带入，无法通过 API 删除）
 nul
+
+# 本地验收截图产物（README 批次记录引用，不入库）
+.shots/

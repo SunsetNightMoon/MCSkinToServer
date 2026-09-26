@@ -1,5 +1,15 @@
+import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Dialect } from './types.js';
+import { readSetupRecord, validateSetupRecord } from './setup/setupState.js';
+
+/**
+ * 安装模式（P5 第十二批）：
+ * - `installed`  正常模式：setup.json 存在，连库、迁移、全部端点可用
+ * - `auto`       存量环境：无 setup.json 但库已有数据/已配 env，启动后自动补写记录
+ * - `installing` 安装模式：全新部署，不连库不迁移，只开 /api/setup/* 与 /health
+ */
+export type InstallMode = 'installed' | 'auto' | 'installing';
 
 /**
  * 启动时读取一次的配置对象（蓝图 §5.1：运行时不改 .env）。
@@ -7,6 +17,11 @@ import type { Dialect } from './types.js';
  */
 export interface AppConfig {
   dialect: Dialect;
+  /**
+   * 启动分流（P5 第十二批）：由 setup.json / env / 库文件现状三者决定。
+   * 可选：测试里手工构造的 AppConfig 不填 = 'installed'（存量行为不变）。
+   */
+  installMode?: InstallMode;
   /** SQLite 数据库文件路径 */
   sqlitePath: string;
   /** PostgreSQL 连接串 */
@@ -218,19 +233,81 @@ export function dialectDirName(dialect: Dialect): string {
   return dialect === 'postgres' ? 'postgresql' : 'sqlite';
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const dialect: Dialect =
-    env['DB_TYPE'] === 'postgres' ? 'postgres' : 'sqlite';
+/**
+ * Redis 连接串解析：env 显式值优先；否则从 setup.json 的安装选择派生。
+ * 向导里选了 Redis 就必须真生效 —— 装完不再靠运维手填 REDIS_URL。
+ * 两者都没有 = undefined（限流/缓存降级进程内存，正常行为）。
+ */
+function envRedisUrl(
+  env: NodeJS.ProcessEnv,
+  setup: ReturnType<typeof readSetupRecord>,
+): string | undefined {
+  const explicit = env['REDIS_URL']?.trim();
+  if (explicit !== undefined && explicit !== '') return explicit;
+  const rec = setup?.redis;
+  if (rec && rec.enabled) {
+    const auth = rec.password ? `${encodeURIComponent(rec.password)}@` : '';
+    return `redis://${auth}${rec.host}:${rec.port}`;
+  }
+  return undefined;
+}
 
-  const databaseUrl = env['DATABASE_URL'];
-  if (dialect === 'postgres' && !databaseUrl) {
-    throw new ConfigError('DB_TYPE=postgres 需要提供 DATABASE_URL');
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  // ---- 安装分流（P5 第十二批）----
+  // setup.json 存在 → 库类型以记录为准（选定后不可更改）；
+  // 不存在 → 看现状：env 显式指定了库（存量环境）→ 按 env，启动后自动补写记录；
+  // sqlite 文件已存在且有数据 → 存量环境；否则 → 安装模式（不连库，等服务端渲染向导）。
+  const setup = readSetupRecord();
+  let dialect: Dialect;
+  let sqlitePath: string;
+  let databaseUrl: string | undefined;
+  let installMode: InstallMode;
+
+  if (setup) {
+    const invalid = validateSetupRecord(setup);
+    if (invalid) throw new ConfigError(`setup.json 无效：${invalid}`);
+    if (setup.db.type === 'postgresql') {
+      dialect = 'postgres';
+      const pg = setup.db.pg!;
+      // 环境变量 DATABASE_URL 仍可覆盖连接串（运维临时换连接方式），
+      // 但**数据库类型**由 setup.json 锁死，env 改 DB_TYPE 无效。
+      const envUrl = env['DATABASE_URL']?.trim();
+      databaseUrl =
+        envUrl !== undefined && envUrl !== ''
+          ? envUrl
+          : `postgres://${encodeURIComponent(pg.user)}:${encodeURIComponent(
+              pg.password,
+            )}@${pg.host}:${pg.port}/${pg.database}`;
+    } else {
+      dialect = 'sqlite';
+    }
+    installMode = 'installed';
+  } else if (env['DB_TYPE'] === 'postgres') {
+    // 存量环境：安装前就配了 DB_TYPE=postgres 的部署，不打回重装
+    dialect = 'postgres';
+    databaseUrl = env['DATABASE_URL'];
+    if (!databaseUrl) {
+      throw new ConfigError('DB_TYPE=postgres 需要提供 DATABASE_URL');
+    }
+    installMode = 'auto';
+  } else {
+    dialect = 'sqlite';
+    installMode = 'installing';
+  }
+
+  sqlitePath = env['SQLITE_PATH'] ?? './data/mcsts.db';
+  if (installMode === 'installing' && dialect === 'sqlite') {
+    // 文件已存在且有内容 = 存量环境（auto）：连接后照常迁移（幂等），启动后补写 setup.json
+    const file = resolve(sqlitePath);
+    const stat = existsSync(file) ? statSync(file) : null;
+    if (stat && stat.size > 0) installMode = 'auto';
   }
 
   return {
     dialect,
-    sqlitePath: env['SQLITE_PATH'] ?? './data/mscts.db',
+    sqlitePath,
     databaseUrl,
+    installMode,
     migrationsRoot: resolve(env['MIGRATIONS_DIR'] ?? './schema'),
     uploadDir: resolve(env['UPLOAD_DIR'] ?? './data/uploads'),
     publicBaseUrl: env['PUBLIC_BASE_URL'] ?? 'http://localhost:3000/uploads',
@@ -241,7 +318,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
-    redisUrl: env['REDIS_URL']?.trim() || undefined,
+    redisUrl: envRedisUrl(env, setup),
     rateLimit: {
       enabled: env['RATE_LIMIT_DISABLED'] !== 'true',
       max: positiveInt(env['AUTH_RATE_LIMIT_MAX'], DEFAULT_RATE_LIMIT.max),

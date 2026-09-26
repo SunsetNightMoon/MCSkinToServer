@@ -66,7 +66,7 @@ const cases: DialectCase[] = [
   {
     label: 'sqlite',
     setup: async (t) => {
-      const dir = await mkdtemp(join(tmpdir(), 'mscts-auth-'));
+      const dir = await mkdtemp(join(tmpdir(), 'mcsts-auth-'));
       const db = new SqliteConnection(join(dir, 't.db'));
       await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
       t.after(async () => {
@@ -197,7 +197,7 @@ for (const c of cases) {
 // ---------------------------------------------------------------------------
 
 test('storage: local put/exists/delete + publicUrl', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'mscts-store-'));
+  const root = await mkdtemp(join(tmpdir(), 'mcsts-store-'));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const storage = new LocalDiskStorage(root, 'http://localhost:3000/uploads');
@@ -221,7 +221,7 @@ test('storage: local put/exists/delete + publicUrl', async (t) => {
 });
 
 test('storage: 拒绝目录穿越 objectKey', async (t) => {
-  const root = await mkdtemp(join(tmpdir(), 'mscts-store-'));
+  const root = await mkdtemp(join(tmpdir(), 'mcsts-store-'));
   t.after(() => rm(root, { recursive: true, force: true }));
 
   const storage = new LocalDiskStorage(root, 'http://x/uploads');

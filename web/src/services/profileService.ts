@@ -3,9 +3,9 @@ import { useAuthStore } from '../store/authStore'
 import i18n from '../i18n'
 
 /**
- * 角色 / 衣柜服务（适配 MSCTS 端点）。
+ * 角色 / 衣柜服务（适配 MCSTS 端点）。
  *
- * MSCTS：
+ * MCSTS：
  *   GET    /api/me/profiles            → {profiles:[{id,userId,name,nameChangedAt,createdAt,updatedAt,
  *                                                     skinId,capeId,skinUrl,capeUrl,model}]}
  *   GET    /api/me/skin                → {profileId,profileName,skinUrl,model}
@@ -20,7 +20,7 @@ import i18n from '../i18n'
  * `data.profiles[0].name`、`primaryProfile.name_changed_at`。
  */
 
-interface MsctsProfileRow {
+interface McstsProfileRow {
   id: string
   userId: string
   name: string
@@ -43,7 +43,7 @@ interface MsctsProfileRow {
   statusChangedAt?: string | null
 }
 
-function toLegacyProfile(p: MsctsProfileRow): Record<string, any> {
+function toLegacyProfile(p: McstsProfileRow): Record<string, any> {
   return {
     id: p.id,
     user_id: p.userId,
@@ -68,7 +68,7 @@ function toLegacyProfile(p: MsctsProfileRow): Record<string, any> {
 
 export const profileService = {
   /**
-   * 检查角色名是否可用（走 MSCTS 的批量角色名查询端点）
+   * 检查角色名是否可用（走 MCSTS 的批量角色名查询端点）
    */
   async checkNameAvailability(name: string): Promise<{ available: boolean; message: string }> {
     const found = await apiRequest<any[]>('/api/profiles/minecraft', {
@@ -109,7 +109,7 @@ export const profileService = {
    */
   async getMe(): Promise<any> {
     const [profilesRes, skin] = await Promise.all([
-      apiRequest<{ profiles: MsctsProfileRow[] }>('/api/me/profiles'),
+      apiRequest<{ profiles: McstsProfileRow[] }>('/api/me/profiles'),
       apiRequest<{ profileId: string; profileName: string; skinUrl: string | null }>(
         '/api/me/skin',
       ).catch(() => null),
@@ -141,7 +141,7 @@ export const profileService = {
 
   /**
    * 移除角色皮肤。
-   * MSCTS 的 remove 端点是 `POST /api/assets/:id/remove`，但服务层按 `slot` 解绑，
+   * MCSTS 的 remove 端点是 `POST /api/assets/:id/remove`，但服务层按 `slot` 解绑，
    * 路径上的 id 不参与判断（见 src/textures/ingest.ts#removeFromProfile），
    * 因此这里用占位 id `current`。
    */

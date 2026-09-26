@@ -1,5 +1,5 @@
 /**
- * MSCTS 后端 DTO 类型（与 src/ 响应结构对应）。
+ * MCSTS 后端 DTO 类型（与 src/ 响应结构对应）。
  *
  * 兼容层 `src/utils/apiCompat.ts` 以 AssetItem 为输入契约，
  * 再翻译成旧版页面消费的 snake_case 形状。

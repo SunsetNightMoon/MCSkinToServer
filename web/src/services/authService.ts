@@ -3,9 +3,9 @@ import { roleToLevel } from '../store/authStore'
 import type { User, RegisterDTO, LoginDTO } from '../types'
 
 /**
- * 认证服务（适配 MSCTS 端点）。
+ * 认证服务（适配 MCSTS 端点）。
  *
- * MSCTS：
+ * MCSTS：
  *   POST /api/auth/login    {email,password}                  → {user,profile,token,expiresAt}
  *   POST /api/auth/register {email,password,profileName}      → 同上（注册即登录）
  *   POST /api/auth/logout   （无 body，吊销当前 token）
@@ -15,7 +15,7 @@ import type { User, RegisterDTO, LoginDTO } from '../types'
  *   { accessToken, user(含 level), skinUrl, profileName, profiles:[{id,name}] }
  */
 
-interface MsctsUser {
+interface McstsUser {
   id: string
   userUid: number
   email: string
@@ -23,8 +23,8 @@ interface MsctsUser {
   emailVerified: boolean
 }
 
-interface MsctsAuthResponse {
-  user: MsctsUser
+interface McstsAuthResponse {
+  user: McstsUser
   profile: { id: string; name: string } | null
   /**
    * 会话令牌。**可为 null**：站点开启「要求邮箱验证」时，注册成功但不签发会话，
@@ -38,7 +38,7 @@ interface MsctsAuthResponse {
   verificationEmailSent?: boolean
 }
 
-function toLegacyUser(u: MsctsUser): User {
+function toLegacyUser(u: McstsUser): User {
   return {
     id: u.id,
     user_uid: u.userUid,
@@ -53,7 +53,7 @@ function toLegacyUser(u: MsctsUser): User {
 
 export const authService = {
   async register(data: RegisterDTO): Promise<any> {
-    const res = await apiRequest<MsctsAuthResponse>('/api/auth/register', {
+    const res = await apiRequest<McstsAuthResponse>('/api/auth/register', {
       method: 'POST',
       json: {
         email: data.email,
@@ -70,14 +70,14 @@ export const authService = {
     })
     return {
       ...res,
-      // MSCTS 没有"首个用户即超管"的语义（角色由 super_admin 手工授予）
+      // MCSTS 没有"首个用户即超管"的语义（角色由 super_admin 手工授予）
       isFirstUser: false,
       user: toLegacyUser(res.user),
     }
   },
 
   async login(data: LoginDTO): Promise<any> {
-    const res = await apiRequest<MsctsAuthResponse>('/api/auth/login', {
+    const res = await apiRequest<McstsAuthResponse>('/api/auth/login', {
       method: 'POST',
       json: {
         email: data.email,

@@ -50,7 +50,7 @@ const cases: DialectCase[] = [
   {
     label: 'sqlite',
     setup: async (t) => {
-      const dir = await mkdtemp(join(tmpdir(), 'mscts-lib-'));
+      const dir = await mkdtemp(join(tmpdir(), 'mcsts-lib-'));
       const db = new SqliteConnection(join(dir, 't.db'));
       await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
       t.after(async () => {
@@ -92,7 +92,7 @@ interface HttpCtx {
   db: DatabaseConnection;
 }
 
-/** PG 复用 mscts_smoke_test 库，每个测试前清场（users 级联清 profiles/tokens/assets） */
+/** PG 复用 mcsts_smoke_test 库，每个测试前清场（users 级联清 profiles/tokens/assets） */
 async function wipeAll(db: DatabaseConnection): Promise<void> {
   await db.run('DELETE FROM profile_assets');
   await db.run('DELETE FROM favorites');
@@ -103,7 +103,7 @@ async function wipeAll(db: DatabaseConnection): Promise<void> {
 }
 
 async function startHttp(t: TestContext, db: DatabaseConnection): Promise<HttpCtx> {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-lib-http-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-lib-http-'));
   const config: AppConfig = {
     dialect: db.dialect,
     sqlitePath: '',

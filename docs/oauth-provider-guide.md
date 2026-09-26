@@ -1,7 +1,7 @@
 # 第三方登录接入指南（预留端口）
 
 > 本文档面向**自部署者 / 二次开发者**。
-> MSCTS 本身**不内置**任何第三方登录，只提供接线口。
+> MCSTS 本身**不内置**任何第三方登录，只提供接线口。
 
 ---
 
@@ -55,7 +55,7 @@ GET /api/auth/oauth/providers
 {(oauthProviders.github || oauthProviders.microsoft) && ( /* 整块小格子 */ )}
 ```
 
-两个都是 `false` → **整块第三方登录 UI 不渲染**。这是纯 MSCTS 部署的常态，
+两个都是 `false` → **整块第三方登录 UI 不渲染**。这是纯 MCSTS 部署的常态，
 也是生产环境的推荐状态（少一个攻击面）。
 
 > 前端读的是**布尔开关**而不是数组，这是沿用旧版界面的历史形状。
@@ -231,8 +231,8 @@ const { providers } = await res.json();   // [{ id: 'github', displayName: 'GitH
 
 - **没有被任何路由引用**（`App.tsx` 里只有一句注释提到 `/oauth-success`），
   属于死代码，不影响构建与运行。
-- 它请求的是 `/api/auth/me`，**MSCTS 没有这个端点**（正确的是 `/api/me`）；
-  它还读 `?token=` / `?new_user=` 查询参数，这两者在 MSCTS 的登录流程里都不存在。
+- 它请求的是 `/api/auth/me`，**MCSTS 没有这个端点**（正确的是 `/api/me`）；
+  它还读 `?token=` / `?new_user=` 查询参数，这两者在 MCSTS 的登录流程里都不存在。
 - `docs/route-inventory.md` 里能查到旧项目的 `oauth_accounts` 表与
   `/api/auth/oauth/:provider` 路由 —— 这就是它的来历。
 

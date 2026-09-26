@@ -58,7 +58,7 @@ interface Env {
 let env: Env;
 
 before(async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-lifecycle-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-lifecycle-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
 

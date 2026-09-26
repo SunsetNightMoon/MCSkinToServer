@@ -84,7 +84,7 @@ const EXPECTED_USER_COLUMNS = [
 ];
 
 test('sqlite: 空库执行全部迁移成功', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-smoke-'));
   const db = new SqliteConnection(join(dir, 'test.db'));
   cleanupSqlite(t, db, dir);
 
@@ -121,7 +121,7 @@ test('sqlite: 空库执行全部迁移成功', async (t) => {
 });
 
 test('sqlite: 重复执行迁移无副作用', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-smoke-'));
   const db = new SqliteConnection(join(dir, 'test.db'));
   cleanupSqlite(t, db, dir);
 
@@ -144,7 +144,7 @@ test('sqlite: 重复执行迁移无副作用', async (t) => {
 });
 
 test('sqlite: 已应用的迁移被修改后拒绝执行（checksum 漂移）', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-smoke-'));
   const db = new SqliteConnection(join(dir, 'test.db'));
   cleanupSqlite(t, db, dir);
 
@@ -158,7 +158,7 @@ test('sqlite: 已应用的迁移被修改后拒绝执行（checksum 漂移）', 
 });
 
 test('sqlite: 迁移失败时整体回滚且不记录版本', async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-smoke-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-smoke-'));
   const migrationsDir = join(dir, 'migrations');
   await mkdir(migrationsDir);
   const db = new SqliteConnection(join(dir, 'test.db'));
@@ -276,7 +276,7 @@ test(
     // 于是「0001 的表应保留」变成空转断言，真实回滚行为根本没被验证到。
     // 因此只取版本号最小的真实迁移，失败用例用 9999 这样不可能撞号的版本。
     await db.exec(PG_DROP_ALL);
-    const tmpMigrations = await mkdtemp(join(tmpdir(), 'mscts-pg-'));
+    const tmpMigrations = await mkdtemp(join(tmpdir(), 'mcsts-pg-'));
     t.after(() => rm(tmpMigrations, { recursive: true, force: true }));
 
     const realFiles = (await readdir(join(SCHEMA_DIR, 'postgresql'))).sort();

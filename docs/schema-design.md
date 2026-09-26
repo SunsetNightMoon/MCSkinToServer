@@ -1,4 +1,4 @@
-# MSCTS Canonical Schema 草案（0001_init）
+# MCSTS Canonical Schema 草案（0001_init）
 
 - 状态：**v1 已评审通过**（2026-09-20 草案，2026-09-23 用户批准全部默认决策，见 §7）
 - 产物：
@@ -223,9 +223,9 @@ users ─┬─ 1:N ─ profiles ── 1:1/slot ─ profile_assets ─ N:1 ─ 
 - `JWT_SECRET` 与 jsonwebtoken 依赖：plan3 无实际 JWT 流程，新 schema 的 tokens 表即完整凭据模型。
 - 运行时写 `.env`：schema 层面没有对应物；配置在启动时读取（blueprint §5.1）。
 
-## 6. plan3 → MSCTS 数据迁移映射预览（供任务 6 盘点脚本参考）
+## 6. plan3 → MCSTS 数据迁移映射预览（供任务 6 盘点脚本参考）
 
-| plan3 | MSCTS | 变换 |
+| plan3 | MCSTS | 变换 |
 |---|---|---|
 | `users.id`（字符串 UUID） | `users.id` | 原样保留 |
 | `users.user_uid` | `users.user_uid` | 原样保留；导入后 PG 需 `setval` 校准 identity 序列 |

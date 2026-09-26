@@ -498,7 +498,7 @@ async function exercise(db: DatabaseConnection, prefix: string): Promise<void> {
 }
 
 test('profileModeRepository: SQLite 方言下 0003 新列与新表读写', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mscts-repo-'));
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-repo-'));
   const db = new SqliteConnection(join(dir, 't.db'));
   try {
     await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));

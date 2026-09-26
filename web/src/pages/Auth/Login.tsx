@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Form, Input, Button, message, AutoComplete, Divider, Dropdown, Modal } from 'antd'
@@ -52,7 +52,7 @@ export function Login() {
   // 出题失败（限流/服务不可用）时的提示与加载态：没有这两项，失败就表现为空白题干
   const [captchaError, setCaptchaError] = useState<string>('')
   const [captchaLoading, setCaptchaLoading] = useState(false)
-  // MSCTS 未启用验证码：后端返回 type='none'，此时整块验证码 UI 不渲染
+  // MCSTS 未启用验证码：后端返回 type='none'，此时整块验证码 UI 不渲染
   const [captchaType, setCaptchaType] = useState<'turnstile' | 'math' | 'none'>('none')
   const [turnstileToken, setTurnstileToken] = useState<string>('')
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string>('')

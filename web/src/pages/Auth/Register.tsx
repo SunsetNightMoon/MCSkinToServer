@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Form, Input, Button, message, Alert, AutoComplete, Divider, Dropdown } from 'antd'
@@ -46,7 +46,7 @@ export function Register() {
   const [captchaError, setCaptchaError] = useState<string>('')
   const [captchaLoading, setCaptchaLoading] = useState(false)
   const [emailOptions, setEmailOptions] = useState<SelectProps<string>['options']>([])
-  // MSCTS 未启用验证码：后端返回 type='none'，此时整块验证码 UI 不渲染
+  // MCSTS 未启用验证码：后端返回 type='none'，此时整块验证码 UI 不渲染
   const [captchaType, setCaptchaType] = useState<'turnstile' | 'math' | 'none'>('none')
   const [turnstileToken, setTurnstileToken] = useState<string>('')
   const [turnstileSiteKey, setTurnstileSiteKey] = useState<string>('')

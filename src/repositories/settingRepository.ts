@@ -30,6 +30,7 @@ export const PUBLIC_SETTING_KEYS: readonly string[] = [
   'SITE_DESCRIPTION',
   'SITE_FAVICON',
   'SITE_LOGO',
+  'DEFAULT_LANGUAGE',
   'THEME',
   'LIGHT_BG_IMAGE',
   'DARK_BG_IMAGE',

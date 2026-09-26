@@ -53,7 +53,7 @@ import type { AppConfig } from '../src/config.js';
  * ## 双方言
  *
  * SQLite 恒跑；PostgreSQL 由 `TEST_DATABASE_URL` 门控。PG 侧沿用共享库
- * `mscts_smoke_test`，因此每个用例自己造的数据都带方言前缀，必要时自行清理。
+ * `mcsts_smoke_test`，因此每个用例自己造的数据都带方言前缀，必要时自行清理。
  */
 
 const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema');
@@ -84,7 +84,7 @@ interface Env {
 const envs: Partial<Record<Dialect, Env>> = {};
 
 async function makeEnv(dialect: Dialect): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), `mscts-cap-${dialect}-`));
+  const dir = await mkdtemp(join(tmpdir(), `mcsts-cap-${dialect}-`));
   const db: DatabaseConnection =
     dialect === 'postgres'
       ? PostgresConnection.connect(TEST_DATABASE_URL!)

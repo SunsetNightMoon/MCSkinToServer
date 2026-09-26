@@ -35,6 +35,7 @@ import { createAdminRouter } from './routes/admin.js';
 import { createSettingRouter } from './routes/settings.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
+import { isSetupCompleted } from '../setup/setupState.js';
 import type { CaptchaService } from '../account/captcha.js';
 import type { StatsRepository } from '../repositories/statsRepository.js';
 import type { ThemeImageService } from '../site/themeImage.js';
@@ -121,7 +122,7 @@ export interface AppDependencies {
    * 默认无 provider → 前端第三方登录小格子不渲染。
    */
   oauthProviders?: () => OAuthProvider[];
-  /** 敏感设置加解密（SMTP_PASS）；缺省从 MSCTS_SECRET 环境变量取 */
+  /** 敏感设置加解密（SMTP_PASS）；缺省从 MCSTS_SECRET 环境变量取 */
   secretBox?: SecretBox | null;
 }
 
@@ -162,6 +163,14 @@ export function createApp(deps: AppDependencies): Express {
   // ---- 健康检查（蓝图 §5.3）----
   app.get('/health/live', (_req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  // 安装状态（只读 setup.json）：前端路由守卫在任何模式都要拉它决定
+  // 渲染正常应用还是跳 /setup。匿名可访问，与安装模式下的 status 同形。
+  // 能走到这里的进程必然是正常模式（installing 分支根本不会构建 createApp），
+  // 所以 mode 直接报 installed —— 前端凭它确认「安装已生效」。
+  app.get('/api/setup/status', (_req, res) => {
+    res.json({ setup_completed: isSetupCompleted(), mode: 'installed' });
   });
 
   app.get('/health/ready', async (_req, res) => {

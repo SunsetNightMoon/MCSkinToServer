@@ -3,19 +3,19 @@ import { persist } from 'zustand/middleware'
 import type { User } from '../types'
 
 /**
- * 认证 store（适配 MSCTS 后端）。
+ * 认证 store（适配 MCSTS 后端）。
  *
  * 保留旧版对外的全部接口（isAuthenticated / user / skinUrl / profileName /
  * profileId / setAuth / updateUser / setSkinUrl / setProfileName / clearAuth），
  * 只把角色模型的差异抹平：
- *   MSCTS 用 user.role ('user' | 'admin' | 'super_admin')，
+ *   MCSTS 用 user.role ('user' | 'admin' | 'super_admin')，
  *   旧界面用 user.level (0 | 1 | 2) 做 `user.level >= 1` 判断，
  *   因此统一用 roleToLevel() 把 role 映射成 level 后落库。
  */
 
 export type UserRole = 'user' | 'admin' | 'super_admin'
 
-/** MSCTS 角色 → 旧版 level（供各页面 `user.level >= 1` 复用） */
+/** MCSTS 角色 → 旧版 level（供各页面 `user.level >= 1` 复用） */
 export function roleToLevel(role: string | undefined | null): number {
   if (role === 'super_admin') return 2
   if (role === 'admin') return 1

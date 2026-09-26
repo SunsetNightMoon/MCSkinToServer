@@ -34,7 +34,7 @@ import type { AppConfig } from '../src/config.js';
  *
  * ## 这个文件存在的直接原因
  *
- * MSCTS 的列表端点原先只返回裸 `AssetRow`（没有图片地址），而旧版页面必须有缩略图。
+ * MCSTS 的列表端点原先只返回裸 `AssetRow`（没有图片地址），而旧版页面必须有缩略图。
  * 于是前端兼容层对**每一项**再调一次 `GET /api/assets/:id` 去补 —— 而那个端点会
  * `incrementViewCount`。后果是「翻一页列表 = 每项浏览数 +1」：
  * 管理员打开素材管理、用户打开自己的衣柜，预览图还没看，浏览量就涨了。
@@ -51,7 +51,7 @@ import type { AppConfig } from '../src/config.js';
  *
  * ## 双方言
  *
- * SQLite 恒跑；PostgreSQL 由 `TEST_DATABASE_URL` 门控（沿用共享库 `mscts_smoke_test`）。
+ * SQLite 恒跑；PostgreSQL 由 `TEST_DATABASE_URL` 门控（沿用共享库 `mcsts_smoke_test`）。
  * `view_count` 一律用「前后差值」断言，不假定初始为 0。
  */
 
@@ -72,7 +72,7 @@ interface Env {
 const envs: Partial<Record<Dialect, Env>> = {};
 
 async function makeEnv(dialect: Dialect): Promise<Env> {
-  const dir = await mkdtemp(join(tmpdir(), `mscts-preview-${dialect}-`));
+  const dir = await mkdtemp(join(tmpdir(), `mcsts-preview-${dialect}-`));
   const db: DatabaseConnection =
     dialect === 'postgres'
       ? PostgresConnection.connect(TEST_DATABASE_URL!)

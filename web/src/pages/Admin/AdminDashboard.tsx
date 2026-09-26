@@ -1,4 +1,4 @@
-import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MSCTS 端点
+import { compatFetch as fetch } from "../../utils/apiCompat" // 数据层适配：/api/* 自动翻译为 MCSTS 端点
 import { useState, useEffect } from 'react'
 import { Layout, Menu, Spin, Statistic, Row, Col, Card, message } from 'antd'
 import {
@@ -108,7 +108,7 @@ export function AdminDashboard(_props: AdminDashboardProps) {
       icon: <UserSwitchOutlined />,
       label: t('admin.profileModePageTitle'),
     }] : []),
-    // 「黑名单」页签已摘除：MSCTS 既没有封禁名单表也没有 `/api/admin/blacklist` 端点，
+    // 「黑名单」页签已摘除：MCSTS 既没有封禁名单表也没有 `/api/admin/blacklist` 端点，
     // 旧版页面靠兼容层返回假数据（永远「暂无记录」）撑着 —— 那是死页面。
     // 封禁能力本身在（用户管理里的封禁按钮走 PATCH /api/admin/users/:id），
     // 只是没有独立的名单页。`BlacklistManagement.tsx` 暂时保留不挂载，等后端补表再启用。

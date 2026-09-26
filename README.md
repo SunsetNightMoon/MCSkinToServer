@@ -1,6 +1,8 @@
-# MSCTS
+# MCSTS
 
 Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-skin-server-plan3` 的代码分析、重制架构和后续实施记录。
+
+**当前版本：`2.3.1`**。版本号口径（用户定义）：主版本 = 重制标头（1 = 重制前 plan3 Alpha 测试，2 = 重制版承接正式编号），次版本 = 季度（3 = 第三季度），修订号 = 季度内迭代序号（1 = 第一个迭代）。
 
 ## 参考基线
 
@@ -48,7 +50,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - 真实服务器冒烟通过（注册→authenticate→批量查询）。
   - 跨方言占位符规约沉淀：**占位符下标不可重复**（SQLite 每个 ? 都要绑定值，PG 的 $n 重复只算一个），重复值也要用不同下标各绑一次。
 - 2026-09-23 P1 收尾 + P2：HMCL 真机联调通过 + 上传链路完成。
-  - HMCL「外置登录」对接 MSCTS 成功（认证服务器 `http://localhost:3000`，注册/登录/角色全链路真机验证）。
+  - HMCL「外置登录」对接 MCSTS 成功（认证服务器 `http://localhost:3000`，注册/登录/角色全链路真机验证）。
   - P2 依赖：sharp（PNG 解析/尺寸校验，≤2MB 皮肤 64x64|64x32、披风 64x32）。
   - `src/repositories/blobRepository.ts`（sha256 去重查询/引用计数）、`assetRepository.ts`（assets CRUD + profile_assets 绑定，ON CONFLICT 覆盖同槽）。
   - `src/textures/ingest.ts` TextureService：ingest（校验→去重→存储写入→落库，相同 sha256 复用 blob 不重复写文件）、applyToProfile/removeFromProfile（所有权+槽位类型校验）、deleteAsset（解绑→无引用时连带删 blob+文件，验收"不留不可追踪对象"）。
@@ -62,7 +64,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - `middleware.ts` 新增 optionalAuth：公开接口匿名可读，坏 token 降级匿名不报错。
   - 测试 48/48 全绿（新增 library 6 项：审核前矩阵/公开+收藏+计数/rejected 消失+流水+标记，双方言）；admin.ts 曾漏挂 requireAuth 导致全 401（requireRole 只查角色不写 context，两个中间件必须都挂）。
 - 2026-09-23 P4 第一批：Web 前端迁移（Vite + React 18 + AntD 5 + Zustand）。
-  - `web/`：vite 6（端口 5173，代理 /api、/uploads、/authserver、/sessionserver → localhost:3000）+ antd 5.29 + zustand 5（persist key `mscts-auth`）+ react-router-dom 6（HashRouter）+ dayjs。
+  - `web/`：vite 6（端口 5173，代理 /api、/uploads、/authserver、/sessionserver → localhost:3000）+ antd 5.29 + zustand 5（persist key `mcsts-auth`）+ react-router-dom 6（HashRouter）+ dayjs。
   - 主题：`colorPrimary: #0078d7` + `borderRadius: 0` 全组件直角。
   - `src/api/client.ts`：统一 fetch 客户端（自动 Bearer、401 清登录态跳登录、非 2xx 抛 ApiError、apiUpload raw PNG）。
   - 页面：Login / Register（角色名 `^[A-Za-z0-9_]{3,16}$`、密码 8 位起）/ Profiles（新建+改名冷却+删除保底 1）/ Wardrobe（皮肤/披风切换、上传、应用到角色、删除）/ Library（卡片网格+分页+排序+详情 Modal 收藏/下载）。
@@ -74,7 +76,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - 教训：Express 路由相对路径 × 多前缀挂载时，`'/api/profiles'` + `'/profiles/minecraft'` 会拼出 `/api/profiles/profiles/minecraft`（测试抓到，48/48 双方言全绿后修复完成）。
   - HMCL 填法：`http://localhost:3000/api/yggdrasil` 或裸 `http://localhost:3000` 均可。
 - 2026-09-23 P4 第二批：前端沿用 plan3 设计语言重做。
-  - 主题系统：暗色默认（深蓝星空背景 starfield + 玻璃拟态卡片 + #4a9eff 强调）↔ 亮色（#2563eb），AntD darkAlgorithm/defaultAlgorithm + CSS 变量 + body[data-theme]，zustand persist key `mscts-site`。
+  - 主题系统：暗色默认（深蓝星空背景 starfield + 玻璃拟态卡片 + #4a9eff 强调）↔ 亮色（#2563eb），AntD darkAlgorithm/defaultAlgorithm + CSS 变量 + body[data-theme]，zustand persist key `mcsts-site`。
   - 布局：顶栏 TopNav（brand + 导航链接 + 主题切换/头像/登出）替代侧栏；Footer；路由加 Landing 起始页（星空 hero 右对齐 CTA）。
   - 组件：SkinAvatar（canvas 双层头部渲染，默认 Steve 脸兜底）、Skin3DViewer（skinview3d：旋转/待机/行走/奔跑/复位，详情 Modal 与应用弹窗内嵌）。
   - 页面重构：Login/Register（AuthShell 星空居中卡片）、Library（asset-card 网格 + 3D 详情）、Wardrobe（表格玻璃卡 + 应用弹窗预览）、Profiles。
@@ -96,12 +98,12 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - 组件补齐：ErrorMessage、LoadingSpinner、SkinThumbnail3D、Skin3DViewer 补地面软阴影/披风鞘翅切换/背面视角。
   - 后端没有的功能（OAuth/Turnstile/改密码/邮箱验证/站点设置）不做假接口，占位「即将上线」；未改后端代码。
   - 验收：tsc + vite build 零错误；vite dev :5173 + 后端 :3000 均存活。
-- 2026-09-23 P4 第六批：整包搬入旧版界面套件，用适配层桥接 MSCTS 后端。
+- 2026-09-23 P4 第六批：整包搬入旧版界面套件，用适配层桥接 MCSTS 后端。
   - 用户判定自研界面套件「漏洞非常多」，明确要求直接复用旧版界面。做法改为：把 plan3 的 22 个页面 + 组件 + i18n + store 整体拷入，**页面 JSX 一字未改**，只换数据层。
-  - 新增 `web/src/utils/apiCompat.ts` 作为唯一翻译层：页面首行 `import { compatFetch as fetch } from "../../utils/apiCompat"`，由它完成旧版路径 → MSCTS 端点映射、请求/响应 snake_case ⇄ camelCase 翻译、以及无对应端点时的降级返回。
+  - 新增 `web/src/utils/apiCompat.ts` 作为唯一翻译层：页面首行 `import { compatFetch as fetch } from "../../utils/apiCompat"`，由它完成旧版路径 → MCSTS 端点映射、请求/响应 snake_case ⇄ camelCase 翻译、以及无对应端点时的降级返回。
   - `store/authStore.ts` 用 `roleToLevel()` 把后端的 `user.role` 映射成旧页面直接用的 `user.level`，使 `/admin` 的 `user.level >= 1` 判断原样可用；`api.ts` 修正为 403 不再误判为登录失效。
-  - `store/siteStore.ts` 去掉 `/api/settings/public` 依赖改用本地默认值，persist key `mscts-site`。
-  - 路由改 HashRouter（部署免重写规则），移除 MSCTS 无后端支持的 /setup 与 /oauth-success 路由（页面文件保留不挂载）。
+  - `store/siteStore.ts` 去掉 `/api/settings/public` 依赖改用本地默认值，persist key `mcsts-site`。
+  - 路由改 HashRouter（部署免重写规则），移除 MCSTS 无后端支持的 /setup 与 /oauth-success 路由（页面文件保留不挂载）。
   - 依赖新增 axios / recharts / @monaco-editor/react，three 锁 ^0.156.1 以匹配 skinview3d 3.4.2。
   - 验收：`tsc --noEmit && vite build` 零错误（3742 modules）；dev server 下逐个请求全部 47 个 TSX/TS 模块均 200，零转换失败；`/api/library`、`/api/yggdrasil` 经 vite 代理均 200。
   - 遗留：`web/src/i18n/locales/nul`（旧仓库带入的 Windows 保留设备名文件，23717B 旧版繁中副本，不参与构建）。已尝试 rm / del \\?\ / MoveFileExW(.NET) / Python DeleteFileW 全部返回 ACCESS_DENIED，属宿主策略拦截，需用户手动删除。
@@ -146,9 +148,9 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
     - `tests/migrations.smoke.test.ts` 原先硬编码 `applied === ['0001']`，新增迁移后失败；改为共用 `EXPECTED_MIGRATIONS` 常量，以后加迁移只改一处。
     - **修正一处此前的测试错误**：公开库真实端点是 `/api/library`，此前冒烟脚本用的 `/api/library/assets` 是 404，那条断言实际空转（`items` 取不到恒为空数组）；已改正并断言私有/待审素材不出现在公开库。
     - `npm test` **63 tests / 55 pass / 0 fail / 8 skipped**（skip 为未启用 PG 用例）；后端 `tsc --noEmit` 零错误；前端 `tsc --noEmit && vite build` 零错误。
-    - 无头浏览器对**生产构建**（`vite preview` :4173）截图复核：首页、登录、素材库、衣柜（3D 模型 + 绿色「已应用」标签）、管理后台（recharts 图例渲染，趋势图空白为 MSCTS 空序列的已知降级）均正常。
+    - 无头浏览器对**生产构建**（`vite preview` :4173）截图复核：首页、登录、素材库、衣柜（3D 模型 + 绿色「已应用」标签）、管理后台（recharts 图例渲染，趋势图空白为 MCSTS 空序列的已知降级）均正常。
   - **顺带修复：错误提示全部退化成通用文案**
-    - 旧版（plan3）Web 接口错误体是 `{ error, errorMessage }`，移植过来的前端有 20+ 处按 `data.errorMessage` 取文案；MSCTS 只返回 `{ error, message }` → 全部落到 `|| t('...操作失败')` 兜底，用户看不到「密码不正确」等真实原因。
+    - 旧版（plan3）Web 接口错误体是 `{ error, errorMessage }`，移植过来的前端有 20+ 处按 `data.errorMessage` 取文案；MCSTS 只返回 `{ error, message }` → 全部落到 `|| t('...操作失败')` 兜底，用户看不到「密码不正确」等真实原因。
     - 修法选在**服务端**：`errorHandler` 的 `AppError` 与 500 分支冗余输出 `errorMessage: err.message`。纯增量（不影响既有 `error`/`message` 消费方），一次修好全部 20+ 处，且**不动任何页面 JSX**（符合「旧版界面一字未改」的约束）。
     - 实测：`POST /api/auth/login` 错密码返回 `{"error":"INVALID_CREDENTIALS","message":"邮箱或密码不正确","errorMessage":"邮箱或密码不正确"}`。
 - 2026-09-24 P5 第一批：Redis 分布式限流 + 站点设置缓存（可选依赖，关闭时核心功能不受影响）。
@@ -174,7 +176,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
     - **修正一处此前的空转断言（重要）**：`tests/migrations.smoke.test.ts` 的 PG 分支把整个 `schema/postgresql` 目录 `cp` 到临时目录再塞一个 `0002_broken.sql`；上一批新增 `0002_account_lifecycle.sql` 后出现**版本号重复**，`runMigrations` 在应用任何迁移之前就抛错——错误信息里恰好含 "0002" 让 `assert.rejects(/0002/)` 通过，而下方的「0001 的表应保留」变成**空转断言**（表根本不存在）。因 PG 用例一直被 skip（未设 `TEST_DATABASE_URL`）所以从未暴露。修复：只复制版本号最小的真实迁移 + 用 `9999_broken.sql`，并断言 `schema_migrations` 只记录该基础版本。
     - 顺带发现并修正：`tests/assets.test.ts` 与 `tests/library.test.ts` **从未被 `npm test` 引用**（等于没在跑）；已纳入脚本，确认双方言可跑通。
     - `npm test`（SQLite）**94 tests / 79 pass / 0 fail / 15 skipped**（skip = 未设 `TEST_DATABASE_URL` / `TEST_REDIS_URL` 的门控用例）；`TEST_DATABASE_URL=… TEST_REDIS_URL=… npm run test:pg`（PG + Redis 全开）**94 pass / 0 fail / 0 skipped**。后端 `tsc --noEmit` 零错误。
-    - 端到端实测（后端连真实 Redis 63799）：启动日志 `[cache] 已连接 Redis`；`AUTH_RATE_LIMIT_MAX=3` 下连续错误登录前 3 次 401、第 4 次起 429 + `Retry-After: 54` + `retryAfterSeconds`；`redis-cli keys 'mscts:*'` 可见 `mscts:rl:login:…` 与 `mscts:cache:settings:public`（PTTL≈30s，与 `SETTINGS_CACHE_TTL_MS` 一致），客户端信息显示 `lib-name=node-redis`、`cmd=eval`（确认走 Lua 脚本）；管理端 PUT 设置后缓存键被删除（`exists` 1→0）且公开端点立即返回新值。
+    - 端到端实测（后端连真实 Redis 63799）：启动日志 `[cache] 已连接 Redis`；`AUTH_RATE_LIMIT_MAX=3` 下连续错误登录前 3 次 401、第 4 次起 429 + `Retry-After: 54` + `retryAfterSeconds`；`redis-cli keys 'mcsts:*'` 可见 `mcsts:rl:login:…` 与 `mcsts:cache:settings:public`（PTTL≈30s，与 `SETTINGS_CACHE_TTL_MS` 一致），客户端信息显示 `lib-name=node-redis`、`cmd=eval`（确认走 Lua 脚本）；管理端 PUT 设置后缓存键被删除（`exists` 1→0）且公开端点立即返回新值。
     - 降级实测：不设 `REDIS_URL` → 内存实现 + 限流照常生效（401/401/429）；`REDIS_URL` 指向关闭端口 → 1 秒内启动完成（修复前会永久挂住），仅 1 条错误日志 + 1 条降级 warning，功能正常。
 - 2026-09-24 P5 第一批装配收尾（与上条同批）。
   - `src/server/main.ts`：`createCacheLayer({ redisUrl: config.redisUrl })` → `new SettingRepository(db, cacheLayer.cache, config.settingsCacheTtlMs)` → `createApp` 传 `rateLimiter` / `rateLimitSettings: resolveRateLimit(config)` / `cache` / `settingsCacheTtlMs` → `shutdown` 里 `cacheLayer.close()`（Redis 持有 socket，不显式 quit 会让进程多撑到 3s 超时兜底）。
@@ -248,7 +250,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
     - **开启邮箱验证但 SMTP 没配时会先预检并 502 拒绝注册**：宁可现在拒绝，也不要把用户建成「登不进去、也收不到验证信」的账号（那种账号既占邮箱又只能人工放行，是最糟的失败形态）。
     - 要求邮箱验证时注册**不签发会话**（`issueSession: false`，`RegisterResult.token` 因此改为可空）。
   - **邮件子系统（全新）**：
-    - `src/util/secretBox.ts`：AES-256-GCM，密文格式 `enc:v1:<iv:b64>:<tag:b64>:<ct:b64>`，密钥来自 `MSCTS_SECRET`（sha256 拉伸）。带版本前缀是为了将来换算法能识别并迁移；**容错读取**：不带前缀的历史明文原样返回（否则升级一次 SMTP 就废了），只有格式正确但认证失败才抛错。
+    - `src/util/secretBox.ts`：AES-256-GCM，密文格式 `enc:v1:<iv:b64>:<tag:b64>:<ct:b64>`，密钥来自 `MCSTS_SECRET`（sha256 拉伸）。带版本前缀是为了将来换算法能识别并迁移；**容错读取**：不带前缀的历史明文原样返回（否则升级一次 SMTP 就废了），只有格式正确但认证失败才抛错。
     - `src/mail/`：`MailPort` 窄端口（测试注入内存实现即可断言「注册后确实发了一封带验证链接的邮件」）→ `MailService`（渲染）→ `SmtpMailer`（nodemailer）。**transport 按配置指纹缓存**（口令只参与 sha256 指纹），避免管理员改一次 SMTP 就重建连接池。
     - 敏感值只在 **HTTP 边界**处理：`PUT /api/admin/settings` 明文 → 密文（`encryptIfNeeded`，重复提交同一密文不会二次套娃）；`GET` 把密文换成**空串 + `SMTP_PASS_SET` 布尔**（把密文回传给浏览器毫无用处，只会让密文跟着日志、截图、前端状态到处跑）。空串回传**不覆盖**库里的真值 —— 否则管理员改个别的字段保存一次，SMTP 密码就被静默清空。
     - `src/mail/templates.ts`：**内置模板以「占位符原文」形式保存**（管理端编辑器要拿带占位符的原文，拿渲染成品等于拿一封填好某个邮箱的样例邮件）。占位符 `{{EMAIL}}` / `{{VERIFY_URL}}` / `{{RESET_URL}}` / `{{SITE_TITLE}}` / `{{YEAR}}`；宽容规则：重置邮件里出现 `{{VERIFY_URL}}` 也填入重置链接（宁可给一个能用的链接，也不要寄出含字面占位符的死信）。
@@ -284,9 +286,9 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   - **遗留 / 待决策（本批未做）**：
     1. **验证码（批 2）未开始**：`ENABLE_CAPTCHA` 目前只有读取器、**无校验调用点**；`/api/captcha/*` 的 `apiCompat` 降级（`{type:'none'}` / `{question:''}`）**保留中**，待批 2 摘除。批 2 需新迁移 `0003_captcha_challenges.sql` + 仓储 + 服务 + 路由 + 前端数学题组件。
     2. **前后端密码长度口径不一致（既有缺陷，未改）**：后端要求 **8-128** 位，而前端 `Register.tsx:317`、`SetupWizard.tsx:636` 的校验规则是 `min: 6`，文案也写「至少6位」（`auth.passwordMin` / `profile.enterNewPassword` / `profile.enterNewPasswordMin6` / `profile.passwordMinLength` / `setup.validation.passwordMin`，四语言共 20 处）。后果：用户填 6-7 位密码前端放行、后端拒绝（`VALIDATION_ERROR`）。修它涉及 4 语言 × 5 键 + 2 处规则，需单独确认后再动。
-    3. **`web/src/i18n/locales/nul`**（Git Bash 重定向造出的垃圾文件，内容是一份 TCH 语系重复 JSON）：普通路径、`\\?\` 扩展路径的删除与改名**全部被拒（WinError 5）**，疑似被某个进程持有句柄，需在真实终端执行 `del \\?\G:\Skin2.catnight.top\MSCTS\web\src\i18n\locales\nul`。`.gitignore` 已含 `nul`，因此不影响提交与构建，仅为整洁。
+    3. **`web/src/i18n/locales/nul`**（Git Bash 重定向造出的垃圾文件，内容是一份 TCH 语系重复 JSON）：普通路径、`\\?\` 扩展路径的删除与改名**全部被拒（WinError 5）**，疑似被某个进程持有句柄，需在真实终端执行 `del \\?\G:\Skin2.catnight.top\MSCTS\web\src\i18n\locales\nul`（此处 `MSCTS` 是磁盘目录名，不随项目缩写改名）。`.gitignore` 已含 `nul`，因此不影响提交与构建，仅为整洁。
     4. **Yggdrasil `POST /refresh` 仍未接限流**：按用户名计数会误伤 HMCL 的定期刷新，要接必须按 IP 计。
-    5. **`tests/identity.test.ts` 的 PG 偶发失败未定位（既有问题，本批未动该文件）**：全量运行时 `identity: …（postgres）` 极低频失败（观测到 2 次，约 1/7 次全量），**隔离单跑 25/25 + 3/3 全过**，连续 5 次全量复跑也全过。已用实验排除两项：① **限流** —— 该测试构造的 `AppConfig` 不接 `TEST_REDIS_URL`，限流器是进程内独立的；② **设置经共享 PG 库泄漏** —— 该测试的依赖里**没有** `settings`/`runtimeSettings`，实测往共享 `mscts_smoke_test` 注入 `ALLOW_REGISTRATION=false` 后它仍 8/8 通过。剩余两个可疑点：① 该文件的 `join → hasJoined → profile/:uuid` 用例只断言 `join.status === 204`，**没有断言 `authenticate` 成功**就直接取 `session.selectedProfile!.id`，任何上游异常都会退化成 `TypeError` 而非可读的失败原因（诊断性缺口）；② `findActiveByServerId` 是 `ORDER BY created_at DESC LIMIT 1`，而 `hasJoined` 在「取到的会话名 ≠ 请求 username」时按协议返回 **204**，因此同一 `serverId` 若存在重复活跃会话，会**静默变成 204** 而不是报错。建议修法（改前请确认）：补 `authenticate` 断言 + 该用例的 `serverId` 按方言唯一化。与 `tests/mailpitSmtp.test.ts` 无关。
+    5. **`tests/identity.test.ts` 的 PG 偶发失败未定位（既有问题，本批未动该文件）**：全量运行时 `identity: …（postgres）` 极低频失败（观测到 2 次，约 1/7 次全量），**隔离单跑 25/25 + 3/3 全过**，连续 5 次全量复跑也全过。已用实验排除两项：① **限流** —— 该测试构造的 `AppConfig` 不接 `TEST_REDIS_URL`，限流器是进程内独立的；② **设置经共享 PG 库泄漏** —— 该测试的依赖里**没有** `settings`/`runtimeSettings`，实测往共享 `mcsts_smoke_test` 注入 `ALLOW_REGISTRATION=false` 后它仍 8/8 通过。剩余两个可疑点：① 该文件的 `join → hasJoined → profile/:uuid` 用例只断言 `join.status === 204`，**没有断言 `authenticate` 成功**就直接取 `session.selectedProfile!.id`，任何上游异常都会退化成 `TypeError` 而非可读的失败原因（诊断性缺口）；② `findActiveByServerId` 是 `ORDER BY created_at DESC LIMIT 1`，而 `hasJoined` 在「取到的会话名 ≠ 请求 username」时按协议返回 **204**，因此同一 `serverId` 若存在重复活跃会话，会**静默变成 204** 而不是报错。建议修法（改前请确认）：补 `authenticate` 断言 + 该用例的 `serverId` 按方言唯一化。与 `tests/mailpitSmtp.test.ts` 无关。
 
 - 2026-09-24 P5 第三批补充：**接入便携 Mailpit，把邮件链路从「替身」升级为「真实 SMTP 端到端」**。（起因：第三批的邮件流程只用 `MemoryMailer` 替身跑过 —— `nodemailer` 的 transport 建连、AUTH、From 头拼装从未经过一次真实 SMTP 事务。）
   - `INDEV/mailpit/`（便携 Mailpit v1.31.2，Go 单文件，不入 git）：SMTP `127.0.0.1:10259` + Web UI/API `127.0.0.1:18025`，配 `start-mailpit.cmd` / `stop-mailpit.cmd` / `ping-mailpit.cmd`；详见 `INDEV/README.md`。
@@ -355,7 +357,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
   | `DELETE /api/me/email-change` | 需登录 | 取消进行中的变更 |
 
   **前端（沿用旧版界面设计，JSX 尽量少改）**
-  - 新增 `web/src/services/accountSecurityService.ts`（类型 + 11 个方法）；`profileService` 的 `MsctsProfileRow` 加 `status` / `statusChangedAt`
+  - 新增 `web/src/services/accountSecurityService.ts`（类型 + 11 个方法）；`profileService` 的 `McstsProfileRow` 加 `status` / `statusChangedAt`
   - `UserProfile.tsx`：**用户名模式卡片**（模式 Tag、可用 / 预留计数、冷却 Tag；**预留口区块只在「单模式 && 有预留角色」时渲染**，按钮在冷却期内灰置）、**邮箱行扩展**（主邮箱 + 备用邮箱 + 改邮箱入口 + 补兜底提示 + 进行中面板）、**三个新弹窗**（用户名模式：含「首次选择」强制分支与「保留哪一个 ID」单选；添加备用邮箱；改邮箱两步式向导）；新增 8 秒轮询 `finalizeEmailChange` 的 effect（遵守 `document.visibilityState`，切到后台不轮询）
   - **修掉两个由 0003 才暴露出来的前端缺陷**：① 新注册用户被显示成「改名冷却中：30 天后可再次改名」且改名输入框锁死 —— 前端 `getCooldownInfo()` 只做 `name_changed_at + 30 天` 的本地估算，区分不了「从未改名」与「刚改过名」（`name_changed_at` 在 INSERT 时就写了 `created_at`），0003 让单模式真正启用 30 天规则后这个幻觉变成实际锁死；改为**以后端 `GET /api/me/profile-mode` 为准**，旧估算仅在未接后端时兜底。② `primaryProfile` 原先取 `profiles[0]`，在存在预留角色时会取到预留角色 → 改为优先取 active
   - i18n 四语言 `profile` 段新增 **54 个键**（键集四语言完全一致），`common` 段补上原缺失的 `close`
@@ -463,7 +465,7 @@ Minecraft Skin Texture Server 的重制工作区。这里保存对 `minecraft-sk
 
 原先 `authenticate` / `signout` 有 5 次/5 分钟（按用户名），`refresh` **完全没接**限流。
 
-新增 `DEFAULT_REFRESH_RATE_LIMIT`（**30 次 / 5 分钟**）+ `REFRESH_RATE_LIMIT_MAX` / `REFRESH_RATE_LIMIT_WINDOW_MS`，限流键 `mscts:rl:yggrefresh:<ip>`。
+新增 `DEFAULT_REFRESH_RATE_LIMIT`（**30 次 / 5 分钟**）+ `REFRESH_RATE_LIMIT_MAX` / `REFRESH_RATE_LIMIT_WINDOW_MS`，限流键 `mcsts:rl:yggrefresh:<ip>`。
 
 **为什么按 IP 不按用户名**：启动器（HMCL 等）会在 accessToken 临近过期时**自动定期刷新**，按账号计数等于把正常后台行为判成攻击，症状是「挂机一阵后突然掉线，重新登录又好」，而日志里只有一串 429 —— 事后极难归因。按 IP 只压「同一出口地址的高频刷新」。
 
@@ -823,6 +825,66 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第十二批：安装向导（沿用旧版 OOBE 界面 + 安装分流 + 库类型锁定 + 默认语言）
+
+**起因**：用户复述硬要求 ——「沿用旧版的安装向导；数据库选择一旦完成不可更改；确保实际可通过向导指定数据库（SQLite / PostgreSQL，MySQL 不支持）；添加语言选择作为站点默认显示语言（兼容多语言玩家）」。本批曾做到一半因故中断（后查明为 Node 双运行时导致 better-sqlite3 ABI 不匹配 + 探针页缺 React Refresh preamble），代码收进 stash 备份后于同日恢复并完成。
+
+### 规则矩阵
+
+| 场景 | 判定 | 行为 |
+|---|---|---|
+| 无 `data/setup.json` + 无存量库文件 | `installing` | 不连库不迁移，只起最小应用（`/api/setup/*` + `/health`），业务 API 一律 403 `SETUP_REQUIRED` |
+| 无 `setup.json` 但 SQLite 文件已有内容 / env 配了 `DB_TYPE=postgres` | `auto` | 照常迁移，启动后按现状**补写** `setup.json`（`source:"auto"`），存量环境不打回重装 |
+| 有 `setup.json` | `installed` | 正常模式；**库类型以记录为准**，env 改 `DB_TYPE` 无效（`DATABASE_URL` 仍可临时覆盖连接串） |
+| 装完再调 `POST /api/setup/complete` | — | 403（不可更改）；正常模式下 complete 路由整体摘除（404） |
+
+### 落地（后端）
+
+- `src/setup/setupState.ts`（新）：`setup.json` 读写 + 结构校验（`version/db.type/sqlitePath|pg/defaultLanguage/redis/source`）。
+- `src/setup/setupService.ts`（新）：`testDbConnection`（PG 真连一遍；MySQL 明确拒绝）、`testRedis`、`testEmail`、`completeSetup`（校验管理员输入 → 现场连目标库 → 跑全量迁移 → 单事务建超管+默认角色 → 写站点设置（`SITE_TITLE`/`DEFAULT_LANGUAGE`）与 `setup.json`）；`recordExistingEnvironment`（auto 补写）。**建超管不走 `IdentityService.register`**（安装期无 token/限流/全局模式，直接按 register 的字段语义落库）。
+- `src/server/setupApp.ts` + `src/server/routes/setup.ts`（新）：安装模式最小应用（JSON body 解析 + 限宽 + 错误映射）；端点 `GET /api/setup/status`、`POST /api/setup/{test-db,test-redis,test-email,complete}`（全部匿名 + 限流）。
+- `src/config.ts`：`installMode` 三分流 + `envRedisUrl`（向导里选了 Redis 则从 `setup.json` 派生连接串，env 显式值优先）；`src/errors.ts`：`SETUP_REQUIRED`→403（403 而非 503：「服务器是好的，只是还没装」对前端可行动）。
+- `src/server/app.ts`：正常模式下也提供 `GET /api/setup/status`（只读记录，前端守卫在任何形态同形可拉）。
+- `src/repositories/settingRepository.ts`：`DEFAULT_LANGUAGE` 进公开设置白名单。
+
+### 落地（前端，沿用旧版 OOBE 向导界面）
+
+- `web/src/App.tsx`：安装守卫 —— 挂载时拉 `/api/setup/status`，未完成则**全屏只渲染 `<SetupWizard/>`**（任何 hash 路由不可达）；拉取失败按已安装处理（纯前端 dev 不误锁）。
+- `web/src/pages/Setup/SetupWizard.tsx`：步骤 2 新增「默认显示语言」（四语言下拉）；步骤 3 数据库类型仅 **SQLite（推荐）/ PostgreSQL** 两选项 + 不可更改警告 Alert；`complete` 载荷带 `default_language`。
+- `web/src/store/i18nStore.ts`：persist 升 v2，新增 `userChosen` —— **站点默认语言只在用户没主动选过时生效**（`applySiteDefault`）；`siteStore` 消费 `DEFAULT_LANGUAGE`。
+
+### 恢复时修掉的两个中断根因
+
+1. **探针页 React Refresh preamble**：`public/` 下的 HTML 不被 `transformIndexHtml` 处理，JSX 模块求值抛 `@vitejs/plugin-react can't detect preamble` → 手工内联与插件注入逐字一致的 preamble 后恢复（探针为 `[TEMP-VERIFY]` 脚手架，验收后已删，SetupWizard 的 `initialStep/forcedDbType` 探针 props 一并摘除）。
+2. **`verify-install-live.mjs` 缺 PG 临时库生命周期**：头注释承诺「会 DROP 临时库」但从未实现，且不会建库 → 补 `ensurePgDb`（跑前 CREATE，幂等）/ `dropPgDb`（finally `DROP ... WITH (FORCE)`）。另：本机 shell 默认 Node 24 与 better-sqlite3 的 ABI 127 不匹配（`ERR_DLOPEN_FAILED`），测试与服务一律用项目运行时的 Node 22.22.2。
+
+### 验收（数字均为实际输出）
+
+- 后端 + 前端 `tsc --noEmit` 零错误；`web` `npm run build` 通过（13.85s）
+- 全开门控（PG + Redis + Mailpit）`INDEV/run-tests.cmd`：**319 tests / 319 pass / 0 fail / 0 skipped**（含新 `tests/setupService.test.ts` + `tests/setupHttp.test.ts`）
+- **真实安装 E2E**（`node scripts/verify-install-live.mjs`，起真实 main.ts 驱动真实 HTTP）：
+  - SQLite 路径：全新目录 → installing → complete → 重启 installed → 超管登录 200 → `/health/ready` database=ok；装完再 complete → 403
+  - PostgreSQL 路径（便携 PG :54329，trust 空密码）：同上全绿，`setup.json` 锁 `postgresql`；`test-db` 空密码走无认证（`buildPgUrl` 刻意不写 `:password` 段）
+  - MySQL：`test-db` 明确返回不支持；向导 UI 无此选项
+  - 默认语言：向导选 JP → `setup.json.defaultLanguage=JP` + 公开设置 `DEFAULT_LANGUAGE=JP` 双落地
+- 存量开发环境（`:3000`）重启后走 `auto`：自动补写 `data/setup.json`（`source:"auto"`、锁 sqlite），`/api/setup/status` → `setup_completed:true`，正常站点不受影响
+- UI 截图 2 张（`.shots/`）：`35-batch12-wizard-step2-language.png`（站点名称 + 默认显示语言下拉）、`35-batch12-wizard-step3-postgresql.png`（仅 SQLite/PostgreSQL 两 radio + 不可更改警告 + PG 连接字段），均带文本级 DOM 断言复核
+- **本批未触碰 GitHub**（`git remote -v` 为空）
+
+### 补充：进程内软重启（用户实测后补的生效闭环）
+
+**起因**：用户真实走完向导后管理面板满屏加载失败。根因是「装完 ≠ 生效」：`complete` 只落盘 `setup.json`，当前进程仍是安装模式（业务 API 继续 403），而前端守卫只看 `setup_completed`（文件状态）就放行进面板。用户拍板的目标流程：**前端点完成只发一次信号 → 后端带着刚落盘的 setup.json 原地重启 → status 报告进程真实模式 → 前端「正在配置中」轮询到已生效后几秒自动刷新进入站点**。
+
+- `src/server/bootstrap.ts`（新）：从 `main.ts` 抽出正常模式完整装配 `buildInstalledApp(config)`（连库→迁移→auto 补写→依赖装配→createApp，只构建不 listen）。启动路径与软重启路径共用一份装配，防漂移。
+- `src/server/main.ts`：installing 分支挂 `onInstalled` 回调做**软重启**——先 `buildInstalledApp` **构建成功**才关旧 setupApp、同端口换绑新 app（装配失败时旧服务仍在、status 仍报 installing，前端停在「正在配置中」而不是白屏死站）；换绑后 SIGINT/SIGTERM 改挂新服务。
+- `src/server/routes/setup.ts`：status 增加 **`mode:'installing'`（进程真实状态）**，与 `setup_completed`（文件状态）区分；complete 成功响应 `finish` 后才触发软重启（保证信号有回执）。`src/server/app.ts`：正常模式 status 报 `mode:'installed'`。
+- `web/src/App.tsx`：守卫改按 `mode` 判定（无 mode 的旧后端回落 `setup_completed`，兼容纯前端 dev 拉取失败按已装）。
+- `web/src/pages/Setup/SetupWizard.tsx`：完成页改为生效状态机 `waiting`（转圈「正在配置中」，每秒轮询 status，换绑瞬间连接被拒属预期继续等）→ `live`（已生效，2.5s 后自动整页刷新进站）→ `timeout`（90s 兜底给手动按钮）。四语言包补 `activating/activatingDesc/autoRedirectDesc/activateTimeoutDesc`。
+- 同批修掉向导两处体验问题：① 边角统一 —— 向导整体包 `ConfigProvider`（`darkAlgorithm` + `borderRadius:0` token），自有样式残留的 2/4px 圆角全部归零，输入框/下拉/弹层/Alert 与全站直角语言一致；② PG 数据库密码不再强制必填（后端 `buildPgUrl` 本就支持空密码走 trust 认证，前端校验与后端能力对齐，补「可留空」提示）。
+- 验收：后端+前端 `tsc` 零错误；`tests/setup*` 25/25；全门控 `INDEV/run-tests.cmd` **319/319 pass / 0 fail / 0 skipped**；`verify-install-live.mjs` 新增软重启断言后 SQLite 与 PostgreSQL 两条路径全绿（**同一进程未手动重启**，complete 后 status.mode 翻为 `installed`、`/api/settings/public` 直接 200、再 complete 被拒 404；阶段 2 硬重启回归不受影响）
+
+---
+
 
 ## 生产部署（域名类型）
 
@@ -840,7 +902,7 @@ Nginx / OpenResty 参考写法（**未在本仓库实测**，按你实际的反�
 
 ```nginx
 # 前端：托管 web/dist；HashRouter 的文档入口是 /，SPA 需回落到 index.html
-root /path/to/MSCTS/web/dist;
+root /path/to/MCSTS/web/dist;
 location / {
     try_files $uri $uri/ /index.html;
 }
@@ -858,7 +920,7 @@ location ~ ^/(api|uploads)/ {
 ### 与服务端环境变量相关的注意点
 
 1. **`TRUST_PROXY`**：上面的配置带了 `X-Forwarded-For`，后端要设 `TRUST_PROXY=1`（或反代层数）才会采信，否则 `req.ip` 拿到的是**反代自身地址** → 按 IP 限流的注册端点会把所有用户算进同一个桶。反过来，**没有可信反代却开了 `TRUST_PROXY`**，客户端就能伪造 XFF 绕过限流。两者都要避免。
-2. **`MSCTS_SECRET`（P5 第三批新增，生产必配）**：站点设置里 `SMTP_PASS` 的主密钥（AES-256-GCM）。**未设置时口令按明文落库**并打印一条 warn —— 功能可用但等于裸奔。至少 16 个字符，建议与 `.env` 同权限保管；**轮换主密钥后旧密文无法解密**（`decrypt` 会抛「密文解密失败」而不是静默返回空口令，这是刻意的：静默降级只会让人以为 SMTP 坏了）。
+2. **`MCSTS_SECRET`（P5 第三批新增，生产必配）**：站点设置里 `SMTP_PASS` 的主密钥（AES-256-GCM）。**未设置时口令按明文落库**并打印一条 warn —— 功能可用但等于裸奔。至少 16 个字符，建议与 `.env` 同权限保管；**轮换主密钥后旧密文无法解密**（`decrypt` 会抛「密文解密失败」而不是静默返回空口令，这是刻意的：静默降级只会让人以为 SMTP 坏了）。
 3. **`PUBLIC_BASE_URL` 与 `YGGDRASIL_SKIN_DOMAINS`**：`PUBLIC_BASE_URL` 是**素材前缀**（纹理对外 URL，如 `https://<域名>/uploads`），不是站点根；`YGGDRASIL_SKIN_DOMAINS` 留空时由**站点根**的 hostname 派生（站点根来自后台设置 `BASE_URL`，不再是本变量）。这两个都是环境变量，不是后台设置项。
 4. **`SMTP_ALLOW_SELF_SIGNED=true`**（可选）：允许 SMTP 服务端使用自签证书（内网邮件网关常见）。缺省关闭，因为放行自签证书会让中间人攻击变简单。
 5. **`BASE_URL`（后台设置，不是环境变量）**：站点根，是**邮件里验证/重置链接的权威来源**，也用于派生 `skinDomains`。必须填成用户实际访问的地址（`https://<域名>`，不要带路径）。漏填的后果是邮件链接指向 `http://localhost:3000`，用户点了必然打不开 —— 管理端该字段的默认值已改为「管理员当前访问的地址」，就是为了避开这个坑。
