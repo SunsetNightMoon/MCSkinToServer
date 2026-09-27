@@ -17,7 +17,7 @@ import {
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
 import { buildForProfile } from '../src/yggdrasil/buildForProfile.js';
 import { buildMetadataDto } from '../src/yggdrasil/metadata.js';
-import { buildAuthlibInjectorMeta } from '../src/yggdrasil/authlibInjectorMeta.js';
+import { buildAuthlibInjectorMeta, buildInjectorLinks } from '../src/yggdrasil/authlibInjectorMeta.js';
 import { loadOrCreateKeyPair, publicKeyDerBase64, publicKeyPemOneLine } from '../src/yggdrasil/keys.js';
 import {
   toCanonicalUuid,
@@ -205,6 +205,32 @@ test('yggdrasil: metadata DTO', () => {
     skinDomains: ['a.example.com', 'b.example.com'],
   });
   assert.deepEqual(custom.skinDomains, ['a.example.com', 'b.example.com']);
+});
+
+test('yggdrasil: meta.serverName/links 决定启动器显示名，空值不下发', () => {
+  const named = buildMetadataDto({
+    baseUrl: 'https://skin.example.com',
+    publicKeyPem: VECTOR.publicKeyPem,
+    serverName: '  猫旅之夜  ',
+    links: buildInjectorLinks('https://skin.example.com/'),
+  });
+  assert.equal(named.meta.serverName, '猫旅之夜');
+  // HMCL 的「主页/注册」按钮读的是 meta.links，不是顶层 links
+  assert.deepEqual(named.meta.links, {
+    homepage: 'https://skin.example.com/',
+    register: 'https://skin.example.com/#/register',
+    profile: 'https://skin.example.com/#/profile',
+    password: 'https://skin.example.com/#/forgot-password',
+    user_page: 'https://skin.example.com/#/profile',
+  });
+
+  const bare = buildMetadataDto({
+    baseUrl: 'https://skin.example.com',
+    publicKeyPem: VECTOR.publicKeyPem,
+    serverName: '   ',
+  });
+  assert.equal('serverName' in bare.meta, false);
+  assert.equal('links' in bare.meta, false);
 });
 
 // ---------------------------------------------------------------------------

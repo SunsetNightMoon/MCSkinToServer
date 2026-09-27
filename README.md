@@ -61,7 +61,9 @@ node --import tsx src/server/main.ts
 ```nginx
 root /path/to/MCSTS/web/dist;
 location / { try_files $uri $uri/ /index.html; }   # HashRouter 文档入口是 /
-location ~ ^/(api|uploads|\.well-known)/ {          # 业务接口 + Yggdrasil + 纹理 + HMCL 命名探测
+# 启动器填裸域名时靠 ALI 头发现 API 地址：根路径由 SPA 接管，后端的响应头到不了这里
+location = / { add_header X-Authlib-Injector-API-Location /api/yggdrasil always; try_files /index.html =404; }
+location ~ ^/(api|uploads|\.well-known)/ {          # 业务接口 + Yggdrasil + 纹理 + ALI 风格元数据
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -72,7 +74,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 业务接口 + Yggdrasil +
 
 - 反代后必须设 `TRUST_PROXY=1`（或反代层数），否则按 IP 限流把全部用户算进同一个桶
 - 生产必配 `MCSTS_SECRET`（≥16 字符）：SMTP 口令加密主密钥，未设置则明文落库；轮换后旧密文无法解密（刻意设计）
-- **裸域名不能当认证服务器地址**（根路径被 SPA 占用）：启动器里填 `https://<域名>/api/yggdrasil`
+- **认证服务器地址填 `https://<域名>/api/yggdrasil` 最稳**；加了上面的 ALI 头后裸域名也能被启动器解析。站点显示名来自元数据的 `meta.serverName`（即站点标题），改标题后需在启动器账户页点刷新重取元数据
 - 多实例部署必须配 `REDIS_URL`，否则限流退化为每实例各限一份
 - 环境变量完整清单见 `.env.example`，前端变量见 `web/.env.example`
 
@@ -82,7 +84,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 业务接口 + Yggdrasil +
 npm test          # SQLite 基线（无需外部服务，门控用例自动 skip）
 ```
 
-全量套件需要本地依赖时可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 开门控。当前基线：**346/346 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全开）。
+全量套件需要本地依赖时可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 开门控。当前基线：**347/347 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全开）。
 
 ## 文档
 

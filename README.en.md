@@ -61,7 +61,9 @@ Reverse proxy essentials (Nginx/OpenResty example):
 ```nginx
 root /path/to/MCSTS/web/dist;
 location / { try_files $uri $uri/ /index.html; }   # HashRouter document entry is /
-location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil + textures + HMCL server-name probe
+# Launchers discover the API address from the ALI header when a bare domain is typed: the SPA owns /, so backend headers never reach it
+location = / { add_header X-Authlib-Injector-API-Location /api/yggdrasil always; try_files /index.html =404; }
+location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil + textures + ALI-style metadata
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -72,7 +74,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil +
 
 - After a reverse proxy, set `TRUST_PROXY=1` (or the proxy hop count), otherwise IP-based rate limiting lumps every user into one bucket
 - `MCSTS_SECRET` (≥16 chars) is required in production: master key for SMTP password encryption; unset means plaintext storage; rotating it makes old ciphertexts undecryptable (by design)
-- **A bare domain is NOT a valid authentication server URL** (root path belongs to the SPA): enter `https://<domain>/api/yggdrasil` in launchers
+- **Enter `https://<domain>/api/yggdrasil` in launchers** (most reliable); with the ALI header above a bare domain resolves too. The server display name comes from `meta.serverName` in the metadata (= site title) — hit refresh on the launcher accounts page after renaming
 - Multi-instance deployments must configure `REDIS_URL`, otherwise rate limits apply per instance
 - Full environment variable list: `.env.example` (backend) and `web/.env.example` (frontend)
 
@@ -82,7 +84,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil +
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **346/346 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **347/347 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

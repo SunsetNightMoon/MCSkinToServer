@@ -185,17 +185,34 @@ test('http: /health/ready 检查数据库与存储', async () => {
   });
 });
 
-test('http: /api/yggdrasil 返回元数据', async () => {
-  const res = await fetch(`${ctx.baseUrl}/api/yggdrasil`);
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as Record<string, unknown>;
-  assert.equal(
-    body['signaturePublickey'],
-    publicKeyPemOneLine(ctx.deps.rsaKeyPair.publicKeyPem),
-  );
-  assert.deepEqual(body['skinDomains'], ['localhost']);
-  const meta = body['meta'] as { implementation: { name: string } };
-  assert.equal(meta.implementation.name, 'MCSTS');
+test('http: /api/yggdrasil 返回元数据（含 HMCL 命名用的 meta.serverName / meta.links 与 ALI 头）', async () => {
+  for (const path of ['/api/yggdrasil', '/api/yggdrasil/', '/']) {
+    const res = await fetch(`${ctx.baseUrl}${path}`);
+    assert.equal(res.status, 200, path);
+    // 服务发现头：启动器把用户填的缩略地址解析成真正的 API 地址
+    assert.equal(
+      res.headers.get('x-authlib-injector-api-location'),
+      '/api/yggdrasil',
+      path,
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(
+      body['signaturePublickey'],
+      publicKeyPemOneLine(ctx.deps.rsaKeyPair.publicKeyPem),
+      path,
+    );
+    assert.deepEqual(body['skinDomains'], ['localhost'], path);
+    const meta = body['meta'] as {
+      implementation: { name: string };
+      serverName?: string;
+      links?: Record<string, string>;
+    };
+    assert.equal(meta.implementation.name, 'MCSTS', path);
+    // 夹具未注入 runtimeSettings → 站点标题走缺省值
+    assert.equal(meta.serverName, 'Minecraft Skin Server', path);
+    assert.equal(meta.links?.register, 'http://localhost:3000/#/register', path);
+    assert.equal(meta.links?.homepage, 'http://localhost:3000/', path);
+  }
 });
 
 test('http: /.well-known/authlib-injector 三个前缀都返回 AI 元数据（HMCL 命名）', async () => {

@@ -61,7 +61,9 @@ node --import tsx src/server/main.ts
 ```nginx
 root /path/to/MCSTS/web/dist;
 location / { try_files $uri $uri/ /index.html; }   # HashRouter のドキュメント入口は /
-location ~ ^/(api|uploads|\.well-known)/ {          # 業務 API + Yggdrasil + テクスチャ + HMCL 名称検出
+# ランチャーがドメイン名のみを入力した際は ALI ヘッダーで API アドレスを発見する：ルートパスは SPA が占有するためバックエンドのレスポンスヘッダーは届かない
+location = / { add_header X-Authlib-Injector-API-Location /api/yggdrasil always; try_files /index.html =404; }
+location ~ ^/(api|uploads|\.well-known)/ {          # 業務 API + Yggdrasil + テクスチャ + ALI 形式のメタデータ
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -72,7 +74,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 業務 API + Yggdrasil + �
 
 - リバースプロキシ配下では必ず `TRUST_PROXY=1`（またはプロキシ段数）を設定。未設定だと IP ベースのレート制限が全ユーザーを同一バケットに計上します
 - 本番では `MCSTS_SECRET`（16 文字以上）必須：SMTP パスワード暗号化のマスターキー。未設定なら平文保存、ローテーション後は旧暗号文は復号不可（意図的な設計）
-- **トップレベルのドメイン名は認証サーバー URL として使用不可**（ルートパスは SPA が占有）：ランチャーには `https://<ドメイン>/api/yggdrasil` を入力
+- **ランチャーには `https://<ドメイン>/api/yggdrasil` を入力するのが最も確実**；上記 ALI ヘッダーを設定すればドメイン名だけでも解決できます。サーバー表示名はメタデータの `meta.serverName`（サイトタイトル）由来です。タイトル変更後はランチャーのアカウント画面でメタデータの再取得を行ってください
 - マルチインスタンス構成では `REDIS_URL` が必須。未設定だとレート制限はインスタンスごとに別カウントになります
 - 環境変数の完全な一覧は `.env.example`（バックエンド）と `web/.env.example`（フロントエンド）を参照
 
@@ -82,7 +84,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 業務 API + Yggdrasil + �
 npm test          # SQLite ベースライン（外部サービス不要、ゲート付きケースは自動 skip）
 ```
 
-フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**346/346 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**347/347 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## ドキュメント
 

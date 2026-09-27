@@ -19,7 +19,7 @@ import type { OAuthProvider } from '../account/oauth/types.js';
 import type { MailService } from '../mail/mailService.js';
 import type { RuntimeSettings } from '../site/runtimeSettings.js';
 import { RUNTIME_SETTING_DEFAULTS } from '../site/runtimeSettings.js';
-import { buildAuthlibInjectorMeta } from '../yggdrasil/authlibInjectorMeta.js';
+import { buildAuthlibInjectorMeta, buildInjectorLinks } from '../yggdrasil/authlibInjectorMeta.js';
 import type { SiteUrlResolver } from '../site/siteUrl.js';
 import type { SecretBox } from '../util/secretBox.js';
 import type { RateLimiterPort, CachePort } from '../cache/types.js';
@@ -201,13 +201,19 @@ export function createApp(deps: AppDependencies): Express {
 
   // ---- Yggdrasil 元数据（协议入口，P1 扩展端点本体）----
   // 同时挂 /api/yggdrasil（规范路径）与根路径：HMCL 填裸 http://host:port 时会在根上找元数据。
+  // 启动器的服务发现只认两样东西：响应头 X-Authlib-Injector-API-Location（ALI，指向真正的 API 地址）
+  // 与 API 根元数据里的 meta.serverName / meta.links —— 缺 serverName 时启动器只能显示裸 URL。
   const siteUrl = deps.siteUrlResolver;
+  const siteOrigin = () =>
+    siteUrl ? siteUrl.originSync() : new URL(config.publicBaseUrl).origin;
   const metadataHandler = async (
     _req: express.Request,
     res: express.Response,
   ): Promise<void> => {
     // TTL 内直接用缓存值；到点才查一次库，故这里的 await 不会给每个请求都带来查询
     await siteUrl?.ensureFresh();
+    // 相对 ALI 头：裸站点根的 GET 会被静态托管/SPA 接管，指向规范前缀才能让两种填法都命中
+    res.set('X-Authlib-Injector-API-Location', '/api/yggdrasil');
     res.json(
       buildMetadataDto({
         // 元数据里的地址是给启动器下载纹理用的，因此用**素材前缀**而不是站点根
@@ -215,27 +221,27 @@ export function createApp(deps: AppDependencies): Express {
         publicKeyPem: rsaKeyPair.publicKeyPem,
         // skinDomains 未显式配置时由站点根 hostname 派生（未注入解析器时沿用环境变量）
         skinDomains: siteUrl ? siteUrl.skinDomains() : config.skinDomains,
+        serverName: deps.runtimeSettings
+          ? await deps.runtimeSettings.siteTitle()
+          : RUNTIME_SETTING_DEFAULTS.siteTitle,
+        links: buildInjectorLinks(siteOrigin()),
       }),
     );
   };
   app.get('/', metadataHandler);
   app.get('/api/yggdrasil', metadataHandler);
 
-  // ---- authlib-injector 元数据（HMCL 用它给认证服务器命名）----
-  // 探测链：HMCL 在「添加认证服务器」时对 `<所填地址>/.well-known/authlib-injector`
-  // 发 GET，读到 serverName 才把名称填成站点标题，否则原样填 URL。
-  // 用户填 /api/yggdrasil 与裸站点根两种写法，因此两个前缀都挂。
+  // ---- authlib-injector 风格的 /.well-known/authlib-injector 文档 ----
+  // 该路径不在启动器技术规范内（HMCL 命名走上面的 meta.serverName），
+  // 保留是为了兼容按此约定探测的工具与站点，端点本身仍挂在三种前缀下。
   const aiMetaHandler = async (
     _req: express.Request,
     res: express.Response,
   ): Promise<void> => {
     await siteUrl?.ensureFresh();
-    const origin = siteUrl
-      ? siteUrl.originSync()
-      : new URL(config.publicBaseUrl).origin;
     res.json(
       buildAuthlibInjectorMeta({
-        origin,
+        origin: siteOrigin(),
         serverName: deps.runtimeSettings
           ? await deps.runtimeSettings.siteTitle()
           : RUNTIME_SETTING_DEFAULTS.siteTitle,
