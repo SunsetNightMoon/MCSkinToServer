@@ -76,6 +76,8 @@ location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil +
 - `MCSTS_SECRET` (≥16 chars) is required in production: master key for the credential settings (`SMTP_PASS`, `EXTERNAL_CAPTCHA_SECRET`); unset means plaintext storage; rotating it makes old ciphertexts undecryptable (by design)
 - **Enter `https://<domain>/api/yggdrasil` in launchers** (most reliable); with the ALI header above a bare domain resolves too. The server display name comes from `meta.serverName` in the metadata (= site title) — hit refresh on the launcher accounts page after renaming
 - Multi-instance deployments must configure `REDIS_URL`, otherwise rate limits apply per instance
+- Password strength comes from `BCRYPT_COST` (default 10, clamped to 10-14; out-of-range values are clamped with a warning rather than refusing to boot). Raising it **upgrades existing accounts on their next successful login** — the cost is embedded in the hash and the plaintext is in hand at that moment — so nobody has to reset a password; lowering it never downgrades stored hashes. The price: bcryptjs is pure JS, so every +1 roughly doubles the work. Measured here, one login goes from ~80ms (cost 10) to ~340ms (cost 12), and worse on a small VPS, which is why the default stays put and the call is left to the operator
+- The anonymous protocol endpoint `POST /api/profiles/minecraft` (name → UUID) is rate limited per source IP, 60 requests/minute by default. Without it the whole roster of names and UUIDs can be crawled at unlimited speed; a tighter bound would hit clients legitimately joining a server and shared NAT egress, hence the loose value. Every IP-based limit depends on `TRUST_PROXY` being configured correctly
 - Full environment variable list: `.env.example` (backend) and `web/.env.example` (frontend)
 
 ## Human verification
@@ -127,7 +129,7 @@ Three boundaries to respect: Referer is just a header, so any non-browser client
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **382/382 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **392/392 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

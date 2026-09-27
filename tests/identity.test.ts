@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, type TestContext } from 'node:test';
+import bcrypt from 'bcryptjs';
+import {
+  DEFAULT_BCRYPT_COST,
+  bcryptCostOf,
+} from '../src/auth/password.js';
 import { PostgresConnection } from '../src/db/postgres.js';
 import { SqliteConnection } from '../src/db/sqlite.js';
 import type { DatabaseConnection } from '../src/types.js';
@@ -606,5 +611,67 @@ for (const c of cases) {
       headers: authHeaders,
     });
     assert.equal(del.status, 404);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 密码哈希强度平滑升级（Issue #5）
+// ---------------------------------------------------------------------------
+
+for (const c of cases) {
+  test(`identity: 登录成功后把旧 cost 的哈希平滑升级（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    await wipeAll(db);
+    const ctx = await startHttp(t, db);
+    const ph = (i: number) => (db.dialect === 'postgres' ? `$${i + 1}` : '?');
+
+    const reg = await post(ctx, '/api/auth/register', {
+      email: EMAIL,
+      password: PASSWORD,
+      profileName: PROFILE_NAME,
+    });
+    assert.equal(reg.status, 201);
+
+    const readHash = async (): Promise<string> => {
+      const rows = await db.query<{ password_hash: string }>(
+        `SELECT password_hash FROM users WHERE email = ${ph(0)}`,
+        [EMAIL],
+      );
+      return rows[0]!.password_hash;
+    };
+
+    // 模拟「管理员调高强度之前注册的账号」：把哈希换成 cost 4 的合法 bcrypt 串
+    const legacy = await bcrypt.hash(PASSWORD, 4);
+    await db.run(
+      `UPDATE users SET password_hash = ${ph(0)} WHERE email = ${ph(1)}`,
+      [legacy, EMAIL],
+    );
+    assert.equal(bcryptCostOf(await readHash()), 4);
+
+    // 密码错误**不得**改哈希：升级只发生在确实通过校验之后
+    const bad = await post(ctx, '/api/auth/login', {
+      email: EMAIL,
+      password: 'wrong-password-9',
+    });
+    assert.equal(bad.status, 401);
+    assert.equal(bcryptCostOf(await readHash()), 4, '校验未通过时不该动哈希');
+
+    // 正确登录：仍然 200，且哈希被重算到当前 cost
+    const ok = await post(ctx, '/api/auth/login', {
+      email: EMAIL,
+      password: PASSWORD,
+    });
+    assert.equal(ok.status, 200);
+    const upgraded = await readHash();
+    assert.equal(bcryptCostOf(upgraded), DEFAULT_BCRYPT_COST);
+    assert.notEqual(upgraded, legacy, '重算后必须真的换了串（bcrypt 自带新盐）');
+
+    // 明文没变：再登录仍通过，且同强度不会每次白算一遍
+    const again = await post(ctx, '/api/auth/login', {
+      email: EMAIL,
+      password: PASSWORD,
+    });
+    assert.equal(again.status, 200);
+    assert.equal(await readHash(), upgraded, '同强度不该重复重写');
   });
 }

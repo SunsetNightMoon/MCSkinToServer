@@ -78,6 +78,14 @@ export interface AppDependencies {
   /** `POST /refresh` 专用限流参数（按 IP）；缺省用 DEFAULT_REFRESH_RATE_LIMIT */
   refreshRateLimitSettings?: RateLimitSettings;
   /**
+   * `POST /api/profiles/minecraft`（批量角色名查询）专用限流参数（按 IP）；
+   * 缺省用 DEFAULT_PROFILE_LOOKUP_RATE_LIMIT。
+   *
+   * 这个端点匿名可用，不限流就等于允许无限速遍历全站角色名与 UUID；
+   * 阈值刻意宽松（60 次/分钟），因为真客户端进服时也会打它。
+   */
+  profileLookupRateLimitSettings?: RateLimitSettings;
+  /**
    * 验证码出题端点专用限流参数（按 IP）；缺省用 DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT。
    *
    * 与 `rateLimitSettings` 分开：认证端点是 5 次/5 分钟，出题端点复用它会被
@@ -277,6 +285,7 @@ export function createApp(deps: AppDependencies): Express {
     rateLimiter: deps.rateLimiter,
     rateLimit: deps.rateLimitSettings,
     refreshRateLimit: deps.refreshRateLimitSettings,
+    profileLookupRateLimit: deps.profileLookupRateLimitSettings,
   });
   app.use('/authserver', yggRouter);
   app.use('/api/yggdrasil', yggRouter);

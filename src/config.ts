@@ -1,6 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Dialect } from './types.js';
+import { resolveBcryptCost } from './auth/password.js';
 import { readSetupRecord, validateSetupRecord } from './setup/setupState.js';
 
 /**
@@ -49,6 +50,14 @@ export interface AppConfig {
    */
   skinDomains: string[];
   /**
+   * 密码哈希强度（bcrypt cost），来自环境变量 `BCRYPT_COST`。
+   *
+   * 缺省 10（OWASP 下限），钳制到 10-14；注册 / 改密 / 安装向导三条写入路径共用这一个值。
+   * 调高后存量哈希会在用户下次登录成功时自动重算（rehash-on-login），不必强制改密码。
+   * 见 `src/auth/password.ts` 的权衡说明（纯 JS 实现，cost +1 ≈ 耗时翻倍）。
+   */
+  bcryptCost?: number;
+  /**
    * Redis 连接串（如 redis://127.0.0.1:63799）。
    * 缺省或连接失败时限流/缓存降级为进程内存实现（P5 可选依赖语义）。
    */
@@ -63,6 +72,15 @@ export interface AppConfig {
    * 后突然掉线」），所以它按 IP 计、且上限更宽松。
    */
   refreshRateLimit?: Partial<RateLimitSettings>;
+  /**
+   * Yggdrasil `POST /api/profiles/minecraft`（批量角色名 → UUID）专用限流参数；
+   * 缺省见 DEFAULT_PROFILE_LOOKUP_RATE_LIMIT。
+   *
+   * 单独一套的原因：它是**匿名可用**的协议端点，不限流就等于允许无限速遍历全站
+   * 角色名与 UUID。但阈值必须宽松 —— 真客户端进服时也会打它，按 IP 计还要考虑
+   * 宿舍/机房共用出口地址。所以按 IP、60 次/分钟，只压爬虫不挡玩家。
+   */
+  profileLookupRateLimit?: Partial<RateLimitSettings>;
   /**
    * 验证码出题端点（`GET /api/captcha/generate`）专用限流参数；
    * 缺省见 DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT。
@@ -112,6 +130,21 @@ export const DEFAULT_REFRESH_RATE_LIMIT: RateLimitSettings = {
   enabled: true,
   max: 30,
   windowMs: 5 * 60 * 1000,
+};
+
+/**
+ * `POST /api/profiles/minecraft` 的缺省限流：**按来源地址**，60 次/分钟。
+ *
+ * 取值理由：这个端点匿名可用（角色名 → UUID，单次最多 10 名），不限流就等于允许
+ * 无限速遍历全站角色名与 UUID。但阈值不能照抄认证端点 —— 真客户端进服时也会打它，
+ * 而且宿舍/机房共用出口地址下多人同时进服会落在同一个键上。60 次/分钟 ≈ 每小时
+ * 3600 次 × 10 名 = 每小时 3.6 万个名字的解析量，正常玩家与服务器都碰不到顶，
+ * 而脚本爬库会被压到可用带宽的一个零头。
+ */
+export const DEFAULT_PROFILE_LOOKUP_RATE_LIMIT: RateLimitSettings = {
+  enabled: true,
+  max: 60,
+  windowMs: 60 * 1000,
 };
 
 /**
@@ -186,6 +219,24 @@ export function resolveRefreshRateLimit(config: AppConfig): RateLimitSettings {
     enabled: master.enabled && (partial.enabled ?? DEFAULT_REFRESH_RATE_LIMIT.enabled),
     max: partial.max ?? DEFAULT_REFRESH_RATE_LIMIT.max,
     windowMs: partial.windowMs ?? DEFAULT_REFRESH_RATE_LIMIT.windowMs,
+  };
+}
+
+/**
+ * 批量角色名查询端点的最终限流值。
+ *
+ * 与 refresh 同样的规矩：**总开关是 `RATE_LIMIT_DISABLED`**（即 `rateLimit.enabled`），
+ * 排障时关一处就该全关。
+ */
+export function resolveProfileLookupRateLimit(config: AppConfig): RateLimitSettings {
+  const master = resolveRateLimit(config);
+  const partial = config.profileLookupRateLimit ?? {};
+  return {
+    enabled:
+      master.enabled &&
+      (partial.enabled ?? DEFAULT_PROFILE_LOOKUP_RATE_LIMIT.enabled),
+    max: partial.max ?? DEFAULT_PROFILE_LOOKUP_RATE_LIMIT.max,
+    windowMs: partial.windowMs ?? DEFAULT_PROFILE_LOOKUP_RATE_LIMIT.windowMs,
   };
 }
 
@@ -349,6 +400,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT.windowMs,
       ),
     },
+    profileLookupRateLimit: {
+      // enabled 由总开关决定（见 resolveProfileLookupRateLimit），这里不单独读
+      max: positiveInt(
+        env['PROFILE_LOOKUP_RATE_LIMIT_MAX'],
+        DEFAULT_PROFILE_LOOKUP_RATE_LIMIT.max,
+      ),
+      windowMs: positiveInt(
+        env['PROFILE_LOOKUP_RATE_LIMIT_WINDOW_MS'],
+        DEFAULT_PROFILE_LOOKUP_RATE_LIMIT.windowMs,
+      ),
+    },
+    // 越界与脏值由 resolveBcryptCost 钳制/回落并打警告，不在这里抛错
+    bcryptCost: resolveBcryptCost(env['BCRYPT_COST']),
     settingsCacheTtlMs: positiveInt(
       env['SETTINGS_CACHE_TTL_MS'],
       DEFAULT_SETTINGS_CACHE_TTL_MS,

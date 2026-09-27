@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import {
   dialectDirName,
   resolveCaptchaGenerateRateLimit,
+  resolveProfileLookupRateLimit,
   resolveRateLimit,
   resolveRefreshRateLimit,
   type AppConfig,
@@ -115,6 +116,8 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     assetUrlResolver,
     // 全局用户名模式（P5 第十一批）：注册初值 + 管理面板全局切换
     settings: settingRepository,
+    // 密码强度单一来源：环境变量 BCRYPT_COST（config 已钳制），安装向导读同一个值
+    bcryptCost: config.bcryptCost,
   });
   const textureBuilder = new TextureProfileBuilder(rsaKeyPair.privateKeyPem);
   const textureService = new TextureService({
@@ -235,6 +238,7 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     rateLimiter: cacheLayer.rateLimiter,
     rateLimitSettings: resolveRateLimit(config),
     refreshRateLimitSettings: resolveRefreshRateLimit(config),
+    profileLookupRateLimitSettings: resolveProfileLookupRateLimit(config),
     captchaGenerateRateLimitSettings: resolveCaptchaGenerateRateLimit(config),
     cache: cacheLayer.cache,
     settingsCacheTtlMs: config.settingsCacheTtlMs,

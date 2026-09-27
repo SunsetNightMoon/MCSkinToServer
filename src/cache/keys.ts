@@ -21,6 +21,14 @@ export const RateLimitKeys = {
    * 按 IP 计只压「同一出口地址的高频刷新」，且上限比登录宽松。
    */
   yggdrasilRefresh: (ip: string): string => `${KEY_PREFIX}:rl:yggrefresh:${ip}`,
+  /**
+   * Yggdrasil `POST /api/profiles/minecraft`（批量角色名 → UUID）：**按来源地址**。
+   *
+   * 与 refresh 同一口径按 IP 而不是按名字/账号：这是匿名协议端点，没有可依据的身份，
+   * 而真客户端进服时也会打它。键只取客户端地址，所以换挂载前缀绕不过去。
+   */
+  yggdrasilProfileLookup: (ip: string): string =>
+    `${KEY_PREFIX}:rl:yggprofile:${ip}`,
   /** Web 登录：按邮箱 */
   webLogin: (email: string): string =>
     `${KEY_PREFIX}:rl:login:${email.toLowerCase()}`,

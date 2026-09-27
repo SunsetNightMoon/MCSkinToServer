@@ -76,6 +76,8 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 業務介面 + Yggdrasil +
 - 正式環境必配 `MCSTS_SECRET`（≥16 字元）：憑證類設定鍵（`SMTP_PASS`、`EXTERNAL_CAPTCHA_SECRET`）的加密主金鑰，未設定則明文入庫；輪換後舊密文無法解密（刻意設計）
 - **認證伺服器位址填 `https://<網域>/api/yggdrasil` 最穩**；加了上面的 ALI 頭後裸網域也能被啟動器解析。站點顯示名來自元資料的 `meta.serverName`（即站點標題），改標題後需在啟動器帳戶頁點重新整理重取元資料
 - 多實例部署必須配 `REDIS_URL`，否則限流退化為每實例各限一份
+- 密碼強度由 `BCRYPT_COST` 決定（預設 10，鉗制 10-14；越界會鉗制/回落並打一條警告，不會讓服務起不來）。調高後**存量帳號在下次登入成功時自動重算**（cost 就寫在雜湊字串裡，而那一刻明文正在手上），不必強制改密碼；調低不會把已有雜湊降級。代價是純 JS 實作下 cost 每 +1 耗時約翻倍：本機實測登入一次從約 80ms（cost 10）變約 340ms（cost 12），低配 VPS 更慢，所以預設值不動、由管理員按自己的機器決定
+- 匿名協議端點 `POST /api/profiles/minecraft`（角色名 → UUID）按來源 IP 限流，預設 60 次/分鐘：不限流等於允許無限速遍歷全站角色名與 UUID，而閾值收緊就會誤傷進服時的正常客戶端與共用出口地址，所以取寬鬆值。所有按 IP 計的限流都依賴 `TRUST_PROXY` 配對
 - 環境變數完整清單見 `.env.example`，前端變數見 `web/.env.example`
 
 ## 人機驗證
@@ -127,7 +129,7 @@ location ~ ^/uploads/ {
 npm test          # SQLite 基線（無需外部服務，門控用例自動 skip）
 ```
 
-完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**382/382 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**392/392 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## 文件
 

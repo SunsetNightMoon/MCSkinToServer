@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createTransport } from 'nodemailer';
 import { createClient } from 'redis';
-import bcrypt from 'bcryptjs';
+import {
+  DEFAULT_BCRYPT_COST,
+  hashPasswordWithCost,
+} from '../auth/password.js';
 import { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { ConfigError } from '../config.js';
@@ -22,9 +25,6 @@ import { SettingRepository } from '../repositories/settingRepository.js';
 import { UserRepository } from '../repositories/userRepository.js';
 import { ProfileRepository } from '../repositories/profileRepository.js';
 import type { SecretBox } from '../util/secretBox.js';
-
-/** bcrypt cost —— 与 src/auth/identity.ts 的 BCRYPT_COST 保持一致（10） */
-const BCRYPT_COST = 10;
 
 const SUPPORTED_LANGUAGES = new Set(['SCH', 'TCH', 'EN', 'JP']);
 
@@ -297,7 +297,12 @@ export async function completeSetup(
     const now = new Date();
 
     // ---- 3. 建超管 + 默认角色（同一事务：要么都有要么都没有）----
-    const passwordHash = await bcrypt.hash(adminPassword, BCRYPT_COST);
+    // 与注册/改密同一个 cost（AppConfig.bcryptCost ← 环境变量 BCRYPT_COST）：
+    // 此前这里是第二份写死的 10，只靠注释与 identity 对齐
+    const passwordHash = await hashPasswordWithCost(
+      adminPassword,
+      deps.config.bcryptCost ?? DEFAULT_BCRYPT_COST,
+    );
     const profileName = adminUsername.slice(0, 16);
     const profileId = randomUUID();
 

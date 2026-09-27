@@ -965,6 +965,32 @@ Issue #4 报的是「`/uploads` 写死 `Access-Control-Allow-Origin: *`」。核
   - 浏览器（把 :8081 加入白名单后）：`canvas.toDataURL()` 读出 398 字节 dataURL、`getImageData` 也拿到像素，说明白名单命中时跨源读纹理完全可用（自家 3D 预览同理不受影响）。
 - 收尾：临时实例、探针页与 `.tmp-*` 全部删除。
 
+## P5 第十五批：密码强度可配 + 匿名端点限流（Issue #5）
+
+Issue #5 是安全测试留下的两条「信息级备忘」，都不是缺陷而是权衡。用户对两条的拍板是：**bcrypt cost 做成可配、默认值不动、并补上存量哈希的平滑升级**；**批量角色名查询按 IP 60 次/分钟限流**。
+
+### 落地（bcrypt）
+
+- `src/auth/password.ts`（新）：强度的唯一来源。`resolveBcryptCost()` 把 `BCRYPT_COST` 钳制到 10-14，脏值/空值回落 10，**越界只钳制并打一条警告，绝不抛错** —— 装到一半服务起不来，比登录慢 200ms 严重得多。另导出 `bcryptCostOf()`（从 `$2a$10$…` 读 cost）与 `needsRehash()`。
+- 改动前 `src/auth/identity.ts` 与 `src/setup/setupService.ts` 各写死一份 `const BCRYPT_COST = 10`，后者只靠一句注释与前者的值对齐。现在 `AppConfig.bcryptCost` ← 环境变量，`IdentityService` 通过依赖注入拿它，安装向导读 `deps.config.bcryptCost`，注册 / 改密 / 向导三条写入路径不可能再各自漂移。
+- **rehash-on-login**：`IdentityService.upgradePasswordHash()` 在登录校验通过、且账号确实可登录之后，若存量哈希 cost 低于目标就用此刻手上的明文重算并写库。三条边界：只在登录路径调用（改密路径随后本来就要写新哈希，那里重算是白算）；写库失败只留警告、不阻断登录；**只升不降**（管理员把配置调回去时不重写，否则每次登录都白算一遍）。
+- 为什么不直接把默认抬到 12：bcryptjs 是纯 JS 实现，cost 每 +1 耗时约翻倍。本机（16 核）实测 cost 10 → 校验 78ms / 生成 118ms，cost 12 → 342ms / 313ms，即登录一次从约 80ms 变约 340ms，低配 VPS 更糟。强度是「机器 + 威胁模型」的部署决策，所以给旋钮、默认值保持 10（OWASP 下限）不变。
+
+### 落地（限流）
+
+- `POST /api/profiles/minecraft` 此前**完全无限流**，而它是匿名可用的协议端点（角色名 → UUID，单次 ≤10 名），等于允许无限速遍历全站角色名与 UUID。
+- 沿用同路由已有的三件套：`config.ts` 加 `DEFAULT_PROFILE_LOOKUP_RATE_LIMIT`（60 次/60 秒）与 `resolveProfileLookupRateLimit()`、`cache/keys.ts` 加 `RateLimitKeys.yggdrasilProfileLookup(ip)`、路由挂 `profileLookupLimit`。
+- **按 IP 而不是按名字/账号**，与 `/refresh` 同一口径：真客户端进服时也会打这个端点，共用出口地址（宿舍/机房 NAT）下多人同时进服会落在同一个键上，收紧就会误伤玩家。阈值取宽松值。
+- 键只取客户端地址，而真实 app 把同一个 router 挂了 4 个前缀（`/authserver`、`/api/yggdrasil`、`/`、`/api/yggdrasil/authserver`）—— 换前缀拿不到第二份配额，这一点专门写了用例钉住。
+- 与其余限流同样受 `RATE_LIMIT_DISABLED` 总开关管；未注入 limiter 时恒放行（可选依赖语义，也是既有大量测试不受影响的原因）。
+
+### 验收（数字均为实际输出）
+
+- 后端 `tsc` 零错误。
+- 新增 `tests/password.test.ts` 5 项（缺省与脏值回落、越界钳制、cost 解析含 2b/2y 前缀、needsRehash 只升不降、hashPassword 用注入值且内置强度校验）；`tests/identity.test.ts` 双方言各 1 项 rehash-on-login（cost 4 旧哈希 → 密码错误时不动哈希 → 正确登录后升到 10 且换了串 → 再登录不重复重写）；`tests/cache.test.ts` 3 项（未注入 limiter 全放行、按 IP 超限 429 `TOO_MANY_REQUESTS`、双挂载前缀共用同一份配额）。
+- SQLite 基线 **392 用例 / 301 pass / 0 fail / 91 skipped**；全门控（PG + Redis + Mailpit）**392/392 pass / 0 fail / 0 skipped**。
+- 文档：`.env.example` 补 `BCRYPT_COST`（含实测毫秒数与「调低不降级」）与 `PROFILE_LOOKUP_RATE_LIMIT_*`；四语言 README 部署要点各加两条（强度权衡、匿名端点限流与 `TRUST_PROXY` 依赖），基线数字同步到 392。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

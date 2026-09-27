@@ -1,4 +1,9 @@
 import bcrypt from 'bcryptjs';
+import {
+  DEFAULT_BCRYPT_COST,
+  hashPasswordWithCost,
+  needsRehash,
+} from './password.js';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseConnection } from '../types.js';
 import { AppError } from '../errors.js';
@@ -35,7 +40,10 @@ import { requireCanonicalUuid } from '../util/uuid.js';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 const NAME_COOLDOWN_MS = 30 * 24 * 3600 * 1000;
-const BCRYPT_COST = 10;
+/**
+ * bcrypt cost 不在这里写死：由 `IdentityDependencies.bcryptCost` 从配置注入，
+ * 与安装向导共用同一个来源（见 src/auth/password.ts 的权衡说明）。
+ */
 /**
  * 单账号角色总数上限（活跃 + 预留）。**仅多用户名模式受此约束** ——
  * 单用户名模式更严：只能有 1 个 active，新建接口直接拒绝。
@@ -132,6 +140,11 @@ export interface IdentityDependencies {
   settings?: Pick<SettingRepository, 'get' | 'setMany'>;
   /** 时钟可注入 */
   now?: () => Date;
+  /**
+   * bcrypt cost（Issue #5）。缺省 `DEFAULT_BCRYPT_COST`（10，与改动前一致）；
+   * 正常部署由 `AppConfig.bcryptCost` 注入，安装向导走同一个值。
+   */
+  bcryptCost?: number;
 }
 
 function toPublicUser(user: UserRow): PublicUser {
@@ -178,6 +191,7 @@ export class IdentityService {
   private readonly assetUrlResolver?: AssetUrlResolver;
   private readonly settings?: Pick<SettingRepository, 'get' | 'setMany'>;
   private readonly now: () => Date;
+  private readonly bcryptCost: number;
 
   constructor(deps: IdentityDependencies) {
     this.db = deps.db;
@@ -188,6 +202,7 @@ export class IdentityService {
     this.assetUrlResolver = deps.assetUrlResolver;
     this.settings = deps.settings;
     this.now = deps.now ?? (() => new Date());
+    this.bcryptCost = deps.bcryptCost ?? DEFAULT_BCRYPT_COST;
   }
 
   /**
@@ -229,7 +244,7 @@ export class IdentityService {
    */
   async hashPassword(password: string): Promise<string> {
     this.assertValidPassword(password);
-    return bcrypt.hash(password, BCRYPT_COST);
+    return hashPasswordWithCost(password, this.bcryptCost);
   }
 
   // ---- 封禁与凭据 ----
@@ -260,6 +275,31 @@ export class IdentityService {
     }
   }
 
+  /**
+   * 登录成功后的哈希平滑升级（Issue #5）。
+   *
+   * cost 写在哈希串里（`$2a$10$…`），所以「这条还是旧强度」是可判定的；而此刻
+   * 明文就在手上、校验也已经通过，正是唯一不需要额外凭据就能重算的时机。
+   * 管理员把 `BCRYPT_COST` 调高后，全站随用户自然登录收敛，不必强制改密码。
+   *
+   * 三条边界：
+   * - **只在登录路径调用**。改密/注销等路径随后本来就会写新哈希，在这里重算是白算一遍。
+   * - **失败绝不阻断登录**：升级是纯增益，写库出错只留一条警告，用户照常登录成功。
+   * - **不降级**：管理员把配置调回低值时不重写（见 `needsRehash`）。
+   */
+  private async upgradePasswordHash(user: UserRow, password: string): Promise<void> {
+    if (!needsRehash(user.passwordHash, this.bcryptCost)) return;
+    try {
+      const hash = await hashPasswordWithCost(password, this.bcryptCost);
+      await this.users.updatePassword(user.id, hash, this.now());
+    } catch (err) {
+      console.warn(
+        '[auth] 密码哈希升级失败（不影响本次登录）：',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   private async loadUserForAuth(email: string): Promise<UserRow> {
     const user = await this.users.findByEmail(email);
     // 用户不存在与密码错误统一报错，不泄露账号是否存在
@@ -286,6 +326,8 @@ export class IdentityService {
     if (user.deletedAt) {
       throw forbiddenOperation('Account deleted');
     }
+    // 启动器登录同样承担哈希升级：很多账号从不在网页登录，只走这条路径
+    await this.upgradePasswordHash(user, password);
     return user;
   }
 
@@ -317,7 +359,7 @@ export class IdentityService {
       throw new AppError('NAME_TAKEN', '该角色名已被占用');
     }
 
-    const passwordHash = await bcrypt.hash(input.password, BCRYPT_COST);
+    const passwordHash = await hashPasswordWithCost(input.password, this.bcryptCost);
 
     // 单事务：用户 + 默认角色必须同时成功
     const created = await this.db.transaction(async () => {
@@ -405,6 +447,8 @@ export class IdentityService {
     }
 
     await this.users.updateLastLogin(user.id, this.now());
+    // 走到这里说明密码确实正确、账号也确实可登录 —— 才是要升级哈希的时机
+    await this.upgradePasswordHash(user, input.password);
     const token = await this.tokens.issue({ tokenType: 'web', userId: user.id });
     const profile = await this.profiles.findFirstActiveByUserId(user.id);
     return {
@@ -1042,7 +1086,7 @@ export class IdentityService {
     await this.assertPassword(user, input.oldPassword);
     this.assertValidPassword(input.newPassword);
 
-    const hash = await bcrypt.hash(input.newPassword, BCRYPT_COST);
+    const hash = await hashPasswordWithCost(input.newPassword, this.bcryptCost);
     const now = this.now();
     await this.users.updatePassword(user.id, hash, now);
     // 改密即失效全部令牌：Web 与 Yggdrasil 会话一并作废

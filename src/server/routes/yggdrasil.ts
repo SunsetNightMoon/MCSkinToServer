@@ -6,7 +6,10 @@ import type { TextureProfileBuilder } from '../../yggdrasil/textures.js';
 import type { AssetUrlResolver } from '../../storage/assetUrl.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
-import { DEFAULT_REFRESH_RATE_LIMIT } from '../../config.js';
+import {
+  DEFAULT_PROFILE_LOOKUP_RATE_LIMIT,
+  DEFAULT_REFRESH_RATE_LIMIT,
+} from '../../config.js';
 import { illegalArgument } from '../../yggdrasil/errors.js';
 import { normalizeUuid, toShortUuid } from '../../yggdrasil/uuid.js';
 import { buildForProfile } from '../../yggdrasil/buildForProfile.js';
@@ -43,6 +46,14 @@ export interface YggdrasilRouteDependencies {
    * 且上限更宽松 —— 它是启动器的后台定期行为，不是登录尝试。
    */
   refreshRateLimit?: RateLimitSettings;
+  /**
+   * `POST /api/profiles/minecraft` 专用限流参数；缺省用 DEFAULT_PROFILE_LOOKUP_RATE_LIMIT。
+   *
+   * 同样是**按 IP**、且比认证端点宽松得多：这个端点匿名可用（角色名 → UUID，
+   * 单次最多 10 名），真客户端进服时也会打它，共用出口地址下多人同时进服
+   * 会落在同一个键上。
+   */
+  profileLookupRateLimit?: RateLimitSettings;
 }
 
 const MAX_BATCH_NAMES = 10;
@@ -100,6 +111,27 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
             limiter: deps.rateLimiter,
             settings: refreshSettings,
             keyOf: (req) => RateLimitKeys.yggdrasilRefresh(clientIp(req)),
+            message: (seconds) => `请求过于频繁，请在 ${seconds} 秒后重试`,
+          }),
+        ]
+      : [];
+
+  /**
+   * 批量角色名查询限流：**按来源地址**，60 次/分钟。
+   *
+   * 这是本路由里唯一完全匿名的写读端点，不限流就等于允许无限速遍历全站角色名与
+   * UUID（预留名也报占用，见下）。阈值刻意宽松：正常玩家与服务器都到不了顶，
+   * 而脚本爬库会被压到很小一个速率。键只取客户端地址，换挂载前缀绕不过去。
+   */
+  const profileLookupSettings =
+    deps.profileLookupRateLimit ?? DEFAULT_PROFILE_LOOKUP_RATE_LIMIT;
+  const profileLookupLimit: ReturnType<typeof rateLimit>[] =
+    deps.rateLimiter && profileLookupSettings.enabled
+      ? [
+          rateLimit({
+            limiter: deps.rateLimiter,
+            settings: profileLookupSettings,
+            keyOf: (req) => RateLimitKeys.yggdrasilProfileLookup(clientIp(req)),
             message: (seconds) => `请求过于频繁，请在 ${seconds} 秒后重试`,
           }),
         ]
@@ -228,7 +260,7 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
   // ---- POST /api/profiles/minecraft（批量角色名查询，协议端点）----
   // 注意：保持绝对路径（根挂载命中）；其余挂载前缀会生成无害的死路径。
 
-  router.post('/api/profiles/minecraft', async (req: Request, res: Response) => {
+  router.post('/api/profiles/minecraft', ...profileLookupLimit, async (req: Request, res: Response) => {
     const body = req.body;
     if (!Array.isArray(body)) {
       throw illegalArgument('请求体必须为角色名数组');

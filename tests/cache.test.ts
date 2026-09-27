@@ -913,3 +913,103 @@ test(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// 批量角色名查询限流（Issue #5）
+// ---------------------------------------------------------------------------
+
+/**
+ * `POST /api/profiles/minecraft` 是**匿名可用**的协议端点（角色名 → UUID，单次 ≤10 名）。
+ *
+ * 这里断言的重点不是「会不会 429」，而是**键取的是什么**：它必须按来源地址计，
+ * 且真实 app 把同一个 router 挂了 4 个前缀（/authserver、/api/yggdrasil、/、
+ * /api/yggdrasil/authserver），换前缀绝不能绕过配额 —— 所以额外用一次双挂载来验证。
+ */
+function profilesApp(
+  rateLimiter?: RateLimiterPort,
+  profileLookupRateLimit?: RateLimitSettings,
+  mountTwice = false,
+): Express {
+  const router = createYggdrasilRouter({
+    identity: {} as never,
+    sessions: {} as never,
+    // 查不到名字是正常返回空数组，不影响限流计数
+    profiles: { findByName: async () => null } as never,
+    textureBuilder: {} as never,
+    assetUrlResolver: {} as never,
+    rateLimiter,
+    profileLookupRateLimit,
+  });
+  const app = express();
+  app.use(express.json());
+  app.use(router);
+  if (mountTwice) app.use('/authserver', router);
+  app.use((_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
+  app.use(errorHandler);
+  return app;
+}
+
+function lookupCall(baseUrl: string, path = '/api/profiles/minecraft'): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(['Steve']),
+  });
+}
+
+test('profiles/minecraft：未注入限流器时一律放行（可选依赖语义）', async () => {
+  const server = await listen(profilesApp(undefined));
+  try {
+    for (let i = 0; i < 5; i++) {
+      const res = await lookupCall(server.baseUrl);
+      assert.equal(res.status, 200, `第 ${i + 1} 次不该被挡：${await res.text()}`);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test('profiles/minecraft：按来源地址计数，超过上限返回 429', async () => {
+  const limiter = new MemoryRateLimiter();
+  const server = await listen(
+    profilesApp(limiter, { enabled: true, max: 3, windowMs: 60_000 }),
+  );
+  try {
+    for (let i = 0; i < 3; i++) {
+      assert.equal((await lookupCall(server.baseUrl)).status, 200);
+    }
+    const blocked = await lookupCall(server.baseUrl);
+    assert.equal(blocked.status, 429);
+    const body = (await blocked.json()) as { error?: string };
+    assert.equal(body.error, 'TOO_MANY_REQUESTS');
+  } finally {
+    await server.close();
+  }
+});
+
+test('profiles/minecraft：键只取客户端地址，换挂载前缀绕不过配额', async () => {
+  const recorder = new RecordingRateLimiter();
+  const server = await listen(
+    profilesApp(recorder, { enabled: true, max: 2, windowMs: 60_000 }, true),
+  );
+  try {
+    assert.equal((await lookupCall(server.baseUrl)).status, 200);
+    // 同一个 router 实例挂在第二个前缀下：必须继续消耗同一份配额
+    assert.equal(
+      (await lookupCall(server.baseUrl, '/authserver/api/profiles/minecraft')).status,
+      200,
+    );
+    const third = await lookupCall(server.baseUrl);
+    assert.equal(third.status, 429, '换前缀不能拿到第二份配额');
+
+    const lookupKeys = recorder.keys.filter((k) => k.includes('yggprofile:'));
+    assert.ok(lookupKeys.length >= 3, `应看到按 IP 的限流键，实得 ${JSON.stringify(recorder.keys)}`);
+    assert.equal(
+      new Set(lookupKeys).size,
+      1,
+      `同一来源必须落在同一个键上，实得 ${JSON.stringify(lookupKeys)}`,
+    );
+  } finally {
+    await server.close();
+  }
+});
