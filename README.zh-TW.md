@@ -4,7 +4,7 @@
 
 Minecraft 外置登入 + 皮膚／披風素材伺服器（Yggdrasil 協相容），`CatTavernSkins`(plan3) 的重製版。
 
-- **目前版本：`2.3.5`**
+- **目前版本：`2.3.6`**
 - 版本口徑：主版本 = 重製標頭（1 = 重製前舊版，2 = 重製版）；次版本 = 季度；修訂號 = 季度內迭代序號。
 - 舊版原始碼：https://github.com/SunsetNightMoon/CatTavernSkins （重製分析基準 `b01f29a`，重製未修改舊版原始碼）
 
