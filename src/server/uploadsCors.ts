@@ -12,7 +12,7 @@ import type { RuntimeSettings } from '../site/runtimeSettings.js';
  * （`toDataURL` / `getImageData`），也就是「把本站素材当素材库抠走、二次合成」这条路。
  * 它**不防热链**：`<img src="https://本站/uploads/…">` 是普通子资源请求，浏览器对图片
  * 显示不做 CORS 检查，有没有这个头都能正常显示、带宽照样消耗。真要省带宽得在
- * 网关/CDN 层按 Referer 处理（README 有配方），那是单台主机的策略，不进本仓库。
+ * 网关/CDN 层按 Referer 处理（`docs/uploads-cors.md` 有配方），那是单台主机的策略，不进本仓库。
  *
  * 改动前这里写死 `*`，等于对全世界放开读像素。现在默认只放行：
  *

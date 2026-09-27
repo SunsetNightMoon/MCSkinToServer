@@ -12,10 +12,10 @@ A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A 
 
 - **Yggdrasil external login**: full `/authserver/*` + `/sessionserver/*` endpoint set, verified on real launchers (HMCL etc.); RSA-signed textures, metadata mounted under multiple prefixes
 - **Asset system**: skin/cape upload (PNG validation, sha256 dedup, reference counting), 3D preview, public library, review queue, favorites, view/download counters, permission matrix (visibility × download policy)
-- **Accounts**: register/login, email verification, password reset (cross-delivered to the other mailbox), password change, account deletion with 15-day recovery (UIDs never reused), backup email that also signs you in to the website and launchers once verified, cross-verified email changes, human verification (none / self-hosted math / self-hosted image / external service), bans (permanent / temporary with self-healing expiry)
+- **Accounts**: register/login, email verification, primary + backup email with cross-verified recovery, account deletion with 15-day recovery (UIDs never reused), human verification, bans (permanent / temporary with self-healing expiry)
 - **Username modes**: site-wide single/multi username mode (switchable by super admin on one page), reserved profiles + 30-day rename cooldown, name pool
-- **Site management**: install wizard (SQLite or PostgreSQL — locked after install, default language, in-process soft restart to apply instantly), site settings (branding / theme backgrounds / custom homepage HTML/CSS / email templates), admin dashboard stats (dual-dialect aggregation + timezone bucketing)
-- **Infrastructure**: one canonical schema for SQLite/PostgreSQL, versioned migration runner, optional Redis rate limiting & caching (auto-degrades to in-process memory, core features unaffected), SMTP password encrypted with AES-256-GCM, i18n in 4 languages (Simplified/Traditional Chinese, English, Japanese)
+- **Site management**: install wizard (SQLite or PostgreSQL — locked after install, in-process soft restart to apply instantly), site settings (branding / theme backgrounds / custom homepage HTML/CSS / email templates), admin dashboard stats
+- **Infrastructure**: one canonical schema for SQLite/PostgreSQL, versioned migration runner, optional Redis rate limiting & caching (auto-degrades, core features unaffected), credential settings encrypted at rest, i18n in 4 languages
 
 ## Tech Stack
 
@@ -29,123 +29,42 @@ A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A 
 Requirement: Node.js ≥ 22 (`better-sqlite3` is a native module; run `npm rebuild better-sqlite3` after switching major Node versions).
 
 ```bash
-# 1. Install dependencies
-npm install
-cd web && npm install && cd ..
-
-# 2. Start the backend (first run without data/setup.json enters install mode, exposing only /api/setup/*)
-npm start
-
-# 3. In another terminal, start the frontend (:5173, proxies /api, /uploads, /authserver, /sessionserver → :3000)
-cd web && npm run dev
+npm install && (cd web && npm install)
+npm start                    # backend :3000; first run without data/setup.json enters install mode
+(cd web && npm run dev)      # frontend :5173, proxies /api /uploads /authserver /sessionserver
 ```
 
-Open `http://localhost:5173` — the **install wizard** starts automatically: language → database (SQLite needs no config; or fill in PostgreSQL) → optional Redis → optional email (SMTP) → create the super admin. On completion the backend rebuilds itself **in the same process** and rebinds the port (a few seconds), then the frontend reloads into the site.
-
-The database type is locked after installation; to switch, delete `data/setup.json` and re-initialize.
+Open `http://localhost:5173` — the **install wizard** starts: language → database → optional Redis → optional SMTP → create the super admin. On completion the backend rebinds the port **in the same process** and the frontend reloads into the site. The database type is locked after installation; to switch, delete `data/setup.json` and re-initialize.
 
 ## Build & Production Deployment
 
 ```bash
-# Frontend (output in web/dist, serve statically via reverse proxy)
-cd web && npm ci && npm run build
-
-# Backend
-npm ci
-npm run migrate                          # refuses to boot if migration fails
+(cd web && npm ci && npm run build)   # output in web/dist, served statically via reverse proxy
+npm ci && npm run migrate             # refuses to boot if migration fails
 node --import tsx src/server/main.ts
 ```
 
-Reverse proxy essentials (Nginx/OpenResty example):
+Reverse-proxy configuration, `TRUST_PROXY`, the master secret, multi-instance Redis, password hashing and launcher addresses are covered in **[docs/deployment.md](docs/deployment.md)**. Environment variables: `.env.example` (backend) and `web/.env.example` (frontend).
 
-```nginx
-root /path/to/MCSTS/web/dist;
-location / { try_files $uri $uri/ /index.html; }   # HashRouter document entry is /
-# Launchers discover the API address from the ALI header when a bare domain is typed: the SPA owns /, so backend headers never reach it
-location = / { add_header X-Authlib-Injector-API-Location /api/yggdrasil always; try_files /index.html =404; }
-location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil + textures + ALI-style metadata
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
-
-- After a reverse proxy, set `TRUST_PROXY=1` (or the proxy hop count), otherwise IP-based rate limiting lumps every user into one bucket
-- `MCSTS_SECRET` (≥16 chars) is required in production: master key for the credential settings (`SMTP_PASS`, `EXTERNAL_CAPTCHA_SECRET`); unset means plaintext storage; rotating it makes old ciphertexts undecryptable (by design)
-- **Enter `https://<domain>/api/yggdrasil` in launchers** (most reliable); with the ALI header above a bare domain resolves too. The server display name comes from `meta.serverName` in the metadata (= site title) — hit refresh on the launcher accounts page after renaming
-- Multi-instance deployments must configure `REDIS_URL`, otherwise rate limits apply per instance
-- Password strength comes from `BCRYPT_COST` (default 10, clamped to 10-14; out-of-range values are clamped with a warning rather than refusing to boot). Raising it **upgrades existing accounts on their next successful login** — the cost is embedded in the hash and the plaintext is in hand at that moment — so nobody has to reset a password; lowering it never downgrades stored hashes. The price: bcryptjs is pure JS, so every +1 roughly doubles the work. Measured here, one login goes from ~80ms (cost 10) to ~340ms (cost 12), and worse on a small VPS, which is why the default stays put and the call is left to the operator
-- The anonymous protocol endpoint `POST /api/profiles/minecraft` (name → UUID) is rate limited per source IP, 60 requests/minute by default. Without it the whole roster of names and UUIDs can be crawled at unlimited speed; a tighter bound would hit clients legitimately joining a server and shared NAT egress, hence the loose value. Every IP-based limit depends on `TRUST_PROXY` being configured correctly
-- Full environment variable list: `.env.example` (backend) and `web/.env.example` (frontend)
-
-## Email addresses and account recovery
-
-Every account has a primary email and one optional backup email. A few rules are worth spelling out.
-
-**One address binds exactly one account.** The database puts unique indexes on `lower(email)` and on `lower(backup_email)`, so duplicates within a column are rejected by the DB. Cross-column collisions (A's primary being B's backup) are beyond an index, so the application checks both slots of every other account on registration, backup binding and email change. If legacy data already contains such a collision, login **does not pick one of the accounts** — both are rejected as invalid credentials, because otherwise that address becomes a "guess it and you are in" entry point.
-
-**A verified backup email is a credential.** Web login and the launcher's `authenticate` / `signout` accept it, case-insensitively. Signing in with it satisfies the "require email verification" gate — the whole point of a backup address is that the primary mailbox stopped working, so re-imposing the primary gate would defeat the fallback. **An unverified backup email never authenticates**: "bound but unverified" is exactly the state abuse scripts crowd into, and granting it credential status would open an unlimited entry point.
-
-**Password resets are cross-delivered.** Either address can start a reset; when the account has another verified address, the email goes **there**, so a single compromised mailbox (leaked, abandoned, hijacked) is no longer enough to take over an account. When there is no other verified address the mail falls back to the same slot, otherwise those accounts could only be recovered manually by an admin. For the same reason, a cross-delivered reset does **not** mark the primary email as verified — that message proves control of the backup mailbox.
-
-**Known gap, deliberately left open.** Login rate limiting buckets by the *submitted* address, so one account has two independent buckets (primary and backup), which doubles the guessing budget against a single account. The fix is to bucket by the resolved account id, which requires counting inside the authentication path; not done in this batch.
-
-## Human verification
-
-Which check registration and login use is picked in "Admin panel → System settings → Registration settings" and stored as the site setting `CAPTCHA_TYPE`: `none` / `math` / `image` / `external`. Sites that only ever wrote the legacy boolean `ENABLE_CAPTCHA` keep behaving as before (`true → math`, `false → none`).
-
-| Type | Leaves the server | Visitor IP goes to | Purpose |
-|---|---|---|---|
-| `math` | no | this server | question is sent in plaintext; deters naive scripts |
-| `image` | no | this server | question only appears inside the PNG; deters scripts that parse JSON |
-| `external` | yes | the verify endpoint you configure | whatever the chosen service defends against |
-
-- The two self-hosted types only **deter scripts**; they do nothing against captcha-solving services or manual sign-ups. Their merit is zero external dependency and zero compliance burden. Images are drawn locally by sharp from vector strokes — no network, no system fonts — so a slim container without fonts cannot render a blank captcha.
-- `external` is deliberately "preset + fully editable" rather than vendor-bound: choosing Cloudflare Turnstile / hCaptcha / Google reCAPTCHA only prefills `EXTERNAL_CAPTCHA_VERIFY_URL` / `EXTERNAL_CAPTCHA_SCRIPT_URL` / `EXTERNAL_CAPTCHA_GLOBAL_NAME`, and each of the three can be pointed at a self-hosted relay or any other reachable address; the `custom` preset means you supply all three.
-- Services that require vendor request signing (Tencent Tianyu, Aliyun captcha, NetEase Yidun, GeeTest v4) do not match the shared "form POST + boolean `success`" shape used here and are not built in; the extension point is `src/account/externalCaptcha.ts`.
-- If the site CSP restricts the widget script, add its host to `script-src`.
-- `EXTERNAL_CAPTCHA_SECRET` is treated like the SMTP password: AES-256-GCM at rest, only a `<KEY>_SET` flag back to the admin UI, never exposed by the public endpoint, and saving an empty field keeps the stored secret.
-- When the verify endpoint is unreachable, registration and login return **502 `CAPTCHA_UNAVAILABLE`** instead of silently passing; a wrong answer or expired token is 400 `CAPTCHA_INVALID` and the visitor just gets a new challenge.
-- Challenge issuance is rate limited by `CAPTCHA_GENERATE_RATE_LIMIT_*` (default 10 per 5 minutes per source address), shared by math and image so switching types buys no extra quota.
-
-## Cross-origin asset reads
-
-Textures under `/uploads` are now readable cross-origin **only from the same origin or this site's own origin**. This used to be a hardcoded `Access-Control-Allow-Origin: *`, which let any site's script pull our textures into a canvas and copy them verbatim.
-
-- Site setting `UPLOAD_CORS_ORIGINS`: comma- or newline-separated origins (a bare host is treated as `https://`). Empty = strictest; `*` restores allow-all. Unrecognisable entries are dropped one by one instead of invalidating the whole list.
-- The same-origin check uses the request's own `Host`, not `BASE_URL` — a site whose root was never configured must not break its own avatars and 3D previews.
-- **If assets live on a separate image host / CDN domain, add the page origin to the allowlist**, otherwise textures loaded with `crossOrigin="anonymous"` fail outright (not merely a tainted canvas).
-- Every `/uploads` response carries `Vary: Origin`. A CDN or reverse proxy that does **not** key its cache by Origin will serve origin A's cached response to origin B — the classic "works for me, broken for them". If you cannot make it vary, pick one: serve assets from the page origin, disable CDN caching for `/uploads`, or go back to `*`.
-- This is **not hotlink protection**: `<img>` references bypass CORS, so embedded images still display and still consume bandwidth.
-
-### If you do want hotlink protection (Referer)
-
-That has to happen at the gateway/CDN by checking Referer, and this repository deliberately does not implement it (the policy differs per host). nginx example:
-
-```nginx
-location ~ ^/uploads/ {
-  # Requests without a Referer must pass: direct visits, private mode and Referrer-Policy downgrades send none
-  valid_referers none blocked server_names ~\.example\.com$;
-  if ($invalid_referer) { return 403; }
-  proxy_pass http://mcsts_backend;   # or alias to the local directory
-}
-```
-
-Three boundaries to respect: Referer is just a header, so any non-browser client can forge it — it deters honest users, not attackers; Yggdrasil clients may also fetch textures without a Referer, so scope the rule tightly by `location` and do not block launchers; for anything stronger use signed URLs / expiring tokens, which means changing the whole asset pipeline, not this static directory.
+Windows users can download the **portable package** (bundled without a Node runtime; requires Node 22.x/23.x): see [Releases](https://github.com/SunsetNightMoon/MCSkinToServer/releases) — unzip, double-click `start.cmd`, open `http://localhost:8080`.
 
 ## Testing
 
 ```bash
-npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
+npm test          # SQLite baseline, no external services needed; gated cases auto-skip
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **408/408 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+Enable gates with `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` for the full suite. Current baseline: **408/408 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 
+- [Production deployment essentials](docs/deployment.md) — reverse proxy, master secret, multi-instance, password hashing and rate limit thresholds
+- [Human verification](docs/human-verification.md) — the four modes and their trade-offs, vendor-free external verification, failure semantics
+- [Email addresses and account recovery](docs/account-emails.md) — email uniqueness, backup email as a credential, cross-delivered resets
+- [Cross-origin asset reads](docs/uploads-cors.md) — the `/uploads` allowlist, `Vary: Origin` under a CDN, Referer recipe
 - [Third-party login provider guide](docs/oauth-provider-guide.md)
+
+The guides above are currently written in Simplified Chinese.
 
 ## Contributors
 
@@ -154,10 +73,7 @@ For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `T
 
 ## License
 
-[MIT License with Attribution Addendum](LICENSE) (MIT + attribution clause):
-
-- Same freedoms as MIT: use, copy, modify, merge, publish, distribute, sublicense, and sell are all free of charge
-- **Additional condition**: when running this software (modified or not) as a public website or online service, the frontend MUST keep a clearly visible "**Powered by MCSkinToServer**" attribution — it may not be removed, obscured, or altered without prior written permission. Source-code-only distribution remains subject to standard MIT terms.
+[MIT License with Attribution Addendum](LICENSE) (MIT + attribution clause): same freedoms as MIT, but when running this software (modified or not) as a public website or online service, the frontend MUST keep a clearly visible "**Powered by MCSkinToServer**" attribution — it may not be removed, obscured, or altered without prior written permission. Source-code-only distribution remains subject to standard MIT terms.
 
 ## Acknowledgments
 
@@ -165,14 +81,12 @@ For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `T
 
 ## AI Assistance Disclosure
 
-This project used AI assistance during development. Models and their roles:
+This project used AI assistance during development:
 
 | Model | Role |
 |---|---|
 | GPT-6 Astra | general direction guidance for the rebuild |
-| DeepSeek-v4.1-Flash | code construction assistance |
-| GLM-5.3-Flash | code construction assistance |
-| Qwen3.8-Flash | code construction assistance |
+| DeepSeek-v4.1-Flash / GLM-5.3-Flash / Qwen3.8-Flash | code construction assistance |
 | Hy3 | legacy UI design (carried over to this day) |
 
 ## Working Conventions

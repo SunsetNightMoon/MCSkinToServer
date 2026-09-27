@@ -114,7 +114,7 @@ export function createSettingRouter(deps: SettingRouteDependencies): Router {
       if (box) {
         entries[key] = box.encryptIfNeeded(String(value));
       }
-      // 没有主密钥时按明文落库：退化行为，但至少功能可用（README 有说明）
+      // 没有主密钥时按明文落库：退化行为，但至少功能可用（docs/deployment.md 有说明）
     }
 
     await deps.settings.setMany(entries, now());

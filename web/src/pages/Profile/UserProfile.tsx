@@ -256,7 +256,7 @@ export function UserProfile() {
    *  `/` 必须留给 SPA（HashRouter 的文档入口就是 `/`），`GET /` 返回的是 index.html，
    *  启动器会判定「这不是认证服务器」。`/api/yggdrasil` 既能返回元数据，又落在反代
    *  必然转发给后端的 `/api` 前缀内，因此两种部署形态下都成立。
-   *  （实测对照见 README「生产部署」：裸域名在本地可用、在生产不可用；带路径两者都可用。）
+   *  （实测对照见 docs/deployment.md「启动器（HMCL 等）怎么填」：裸域名在本地可用、在生产不可用；带路径两者都可用。）
    *
    * ⚠️ 不要用开发服务器端口（5173）冒充认证服务器：vite 只代理了 `/authserver` 等固定
    * 前缀，`POST /authenticate` 与 `GET /` 都不通（实测 404 / HTML）；且启动器按此地址

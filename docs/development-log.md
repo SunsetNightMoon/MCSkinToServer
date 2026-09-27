@@ -1044,6 +1044,35 @@ Issue #5 是安全测试留下的两条「信息级备忘」，都不是缺陷�
 - 真实实例 + Mailpit 实测：注册 `beuser@csp.local` → 绑 `besec@csp.local` → 点掉真实验证邮件里的链接（`/api/me/backup-email/verify` 200）→ 打开「要求邮箱验证」后：主邮箱登录 **403 `EMAIL_NOT_VERIFIED`**、备用邮箱登录 **200**；启动器 `/authserver/authenticate` 用备用邮箱 **200**、用未验证地址 **403 Invalid credentials**；用备用邮箱注册 **409 `EMAIL_TAKEN`**（文案「该邮箱已被其他账号用作备用邮箱」）；用主邮箱发起找回密码后 Mailpit 里只有一封「重置密码」且收件人是备用邮箱（交叉投递实证）。浏览器侧：登录页用备用邮箱提交 → `登录成功！` 并落到首页；找回密码页提示与成功文案均为新口径。
 - 已知缺口按用户口径**只记录不实现**：登录限流按提交地址分桶，同一账号有主/备两份配额；收紧方向是归一到解析出的账号 ID（要在认证路径内计数）。四语言 README 的「邮箱与账号找回」小节末尾明确写了这一条。
 
+## P5 第十七批：README 瘦身为介绍型，文档内容拆入 docs/
+
+### 动机
+
+README 一路加到 182 行，绝大部分是**文档型**内容（反代配置、验证码四种模式、邮箱规则、CORS 语义），而它的定位是**介绍型**：一眼看清这是什么、怎么装、怎么跑。用户口径：「无需解释一堆更改的东西，缩减内容变成可跳转阅读文档」。
+
+### 落地
+
+- 新增四份专题文档（简体中文，从 README 原文迁移并补全，未删减信息）：
+  - `docs/deployment.md` —— 反代配置与 `TRUST_PROXY`、`MCSTS_SECRET`、启动器地址与 `meta.serverName`、多实例 Redis、`BCRYPT_COST`（含实测耗时）、匿名端点限流阈值、跨源与 CDN、人机验证配置入口
+  - `docs/human-verification.md` —— 四种模式取舍、图片题为何用矢量笔画而非系统字体、三条硬规则、外部验证的预设与可改项、失败语义、SSRF 边界
+  - `docs/account-emails.md` —— 一个邮箱只绑一个号（含跨列冲突不任选）、已验证备用邮箱参与登录、找回密码交叉投递、已知缺口（按提交地址分桶）
+  - `docs/uploads-cors.md` —— CORS 管什么不管什么、放行规则、`UPLOAD_CORS_ORIGINS` 语义、CDN 必须按 Origin 分键、`## Referer 配方`（不进仓库，只给 nginx 做法与三条边界）
+- 四语言 README 统一为 **96 行左右**、同一小节骨架（功能一览 / 技术栈 / 快速开始 / 构建与生产部署 / 测试 / 文档 / 贡献者 / 许可 / 致谢 / AI 协助声明 / 工作约定）：部署细节压成一行跳转链接，「文档」小节只列五份对外指南（`deployment` / `human-verification` / `account-emails` / `uploads-cors` / `oauth-provider-guide`）。`docs/development-log.md` 与其他内部文档留在仓库但 README 不链接展示（沿用既有对外口径）。
+- 便携包下载与版本口径留在 README（属于「这是什么、怎么拿到」），细节不再展开。
+- 英文与日文 README 在「文档」小节注明这些指南当前仅有简体中文。
+
+### 验收（数字均为实际输出）
+
+- 四份 README 小节骨架一致（各 95–97 行，差异只在语言备注行）；`2.3.6` 与基线 `408/408 pass / 0 fail / 0 skipped` 在四语言全部保留，无历史版本号残留。
+- 全部相对链接与锚点逐一校验通过（含 `docs/uploads-cors.md#referer-配方`、`docs/deployment.md` 等交叉引用），无断链；文档里的每个设置键、索引名、环境变量名都回到 `schema/`、`src/site/runtimeSettings.ts`、`.env.example` 核对过。
+- 语言串味扫描：`README.zh-TW.md` / `README.en.md` / `README.ja.md` 均无简体字残留；行尾统一 CRLF（与仓库既有 README/文档一致）。
+- 迁移时逐条回到代码核对文档事实，纠正三处：
+  - `docs/human-verification.md` 的图片题耗时原写「单张 2–7KB、p50 约 7ms、p95 约 14ms」是估算值，重新实测（Node 22.22.2，`renderCaptchaPng` 60 张）后改为 **190×64、5.3–6.8KB、p50 4.3ms / p95 7.6ms / max 8.7ms**。
+  - `docs/uploads-cors.md` 的放行表原写「无 `Origin` + 白名单 `*` → `ACAO: *`」，与 `src/server/uploadsCors.ts` 实际顺序不符（无 Origin 在判白名单之前就 `next()`），改为三列都是「不发 ACAO」并补一句原因。
+  - 外部验证小标题原写「四项全可改」，实际只有 `verifyUrl` / `scriptUrl` / `globalName` 三项由预设填入（`siteKey` / `secret` 永远由管理员给），改为「预设只填三项，其余全部可改」。
+- 三处代码注释里指向 README 已消失小节的指针改指 `docs/deployment.md`（`src/server/routes/settings.ts`、`web/src/pages/Profile/UserProfile.tsx`、`web/src/vite-env.d.ts`），`src/server/uploadsCors.ts` 的 Referer 配方指针改指 `docs/uploads-cors.md`。
+- 本批为文档改动：后端与前端 `tsc` 零错误，SQLite 基线 **408 用例 / 309 pass / 0 fail / 99 skipped** 与改动前一致（无既有用例断言 README 内容）。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

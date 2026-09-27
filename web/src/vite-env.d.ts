@@ -15,7 +15,7 @@ interface ImportMetaEnv {
    * 用户与启动器真正能访问到的后端地址：
    * - 本地开发：由 `.env.development` 设为 `http://localhost:3000`（后端端口）
    * - 生产：留空 → 回落到 `window.location.origin`（站点自身域名），
-   *   前提是反向代理已转发 /authserver、/sessionserver 等前缀（见 README「生产部署」）
+   *   前提是反向代理已转发 /authserver、/sessionserver 等前缀（见 docs/deployment.md）
    */
   readonly VITE_API_URL?: string
 }
