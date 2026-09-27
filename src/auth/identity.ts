@@ -19,6 +19,7 @@ import type { MinecraftSessionRepository } from '../repositories/minecraftSessio
 import type { SettingRepository } from '../repositories/settingRepository.js';
 import { RuntimeSettingKeys } from '../site/runtimeSettings.js';
 import type { AssetUrlResolver } from '../storage/assetUrl.js';
+import { requireCanonicalUuid } from '../util/uuid.js';
 
 /**
  * 身份应用服务（蓝图 §7.1）：注册 / 登录 / Yggdrasil 五端点 / 角色管理。
@@ -816,6 +817,7 @@ export class IdentityService {
     userId: string,
     profileId: string,
   ): Promise<ProfileModeState> {
+    requireCanonicalUuid(profileId, '角色不存在');
     const user = await this.users.findById(userId);
     if (!user) throw new AppError('NOT_FOUND', '用户不存在');
     this.assertModeDecided(user);
@@ -945,6 +947,8 @@ export class IdentityService {
 
   async renameProfile(userId: string, profileId: string, newName: string): Promise<ProfileRow> {
     this.assertValidProfileName(newName);
+    // 格式闸门：非规范 UUID 与「角色不存在」同响应（PG uuid 列会为此抛 22P02 → 兜底 500）
+    requireCanonicalUuid(profileId, '角色不存在');
     const user = await this.users.findById(userId);
     if (!user) throw new AppError('NOT_FOUND', '用户不存在');
     this.assertModeDecided(user);
@@ -984,6 +988,7 @@ export class IdentityService {
   }
 
   async deleteProfile(userId: string, profileId: string): Promise<void> {
+    requireCanonicalUuid(profileId, '角色不存在');
     const user = await this.users.findById(userId);
     if (!user) throw new AppError('NOT_FOUND', '用户不存在');
     this.assertModeDecided(user);
@@ -1154,6 +1159,7 @@ export class IdentityService {
       ban?: { permanent?: boolean; until?: string | null; reason?: string | null } | null;
     },
   ): Promise<Omit<UserRow, 'passwordHash'>> {
+    requireCanonicalUuid(targetUserId, '用户不存在');
     const target = await this.users.findById(targetUserId);
     if (!target) {
       throw new AppError('NOT_FOUND', '用户不存在');

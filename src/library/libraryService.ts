@@ -9,6 +9,7 @@ import type { UserRepository } from '../repositories/userRepository.js';
 import type { AssetUrlResolver } from '../storage/assetUrl.js';
 import type { RequestContext } from '../auth/tokens.js';
 import { AppError } from '../errors.js';
+import { requireCanonicalUuid } from '../util/uuid.js';
 
 /**
  * 公开库 / 收藏 / 审核 领域服务（蓝图 P3）。
@@ -186,6 +187,8 @@ export class LibraryService {
     assetId: string,
     viewer: RequestContext | null,
   ): Promise<Record<string, unknown>> {
+    // 格式闸门：非规范 UUID 与「素材不存在」同响应（PG 的 uuid 列会为此抛 22P02 → 兜底 500）
+    requireCanonicalUuid(assetId, '素材不存在');
     const existing = await this.assets.findById(assetId);
     if (!existing || !this.canView(existing, viewer)) {
       throw new AppError('NOT_FOUND', '素材不存在');
@@ -220,6 +223,7 @@ export class LibraryService {
     assetId: string,
     viewer: RequestContext | null,
   ): Promise<string> {
+    requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
     if (!asset) throw new AppError('NOT_FOUND', '素材不存在');
     if (!(await this.canDownload(asset, viewer))) {
@@ -233,6 +237,7 @@ export class LibraryService {
 
   /** 收藏（不能收藏自己的素材；幂等） */
   async favorite(viewer: RequestContext, assetId: string): Promise<void> {
+    requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
     if (!asset || !this.isPubliclyVisible(asset)) {
       throw new AppError('NOT_FOUND', '素材不存在');
@@ -244,16 +249,19 @@ export class LibraryService {
     await this.favorites.insert(viewer.userId, assetId, this.now());
   }
 
-  /** 取消收藏（幂等） */
+  /** 取消收藏（幂等；目标不存在时同样幂等地成功） */
   async unfavorite(viewer: RequestContext, assetId: string): Promise<void> {
+    requireCanonicalUuid(assetId, '素材不存在');
     await this.favorites.delete(viewer.userId, assetId);
   }
 
   async getFavoriteCount(assetId: string): Promise<number> {
+    requireCanonicalUuid(assetId, '素材不存在');
     return this.favorites.countByAsset(assetId);
   }
 
   async isFavorited(viewer: RequestContext, assetId: string): Promise<boolean> {
+    requireCanonicalUuid(assetId, '素材不存在');
     return this.favorites.exists(viewer.userId, assetId);
   }
 
@@ -266,6 +274,7 @@ export class LibraryService {
     status: 'approved' | 'rejected',
     reason: string | null,
   ): Promise<void> {
+    requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
     if (!asset) {
       throw new AppError('NOT_FOUND', '素材不存在');
@@ -294,6 +303,7 @@ export class LibraryService {
     },
   ): Promise<void> {
     void moderator;
+    requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
     if (!asset) {
       throw new AppError('NOT_FOUND', '素材不存在');

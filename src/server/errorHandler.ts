@@ -96,6 +96,31 @@ export function errorHandler(
     });
     return;
   }
+  // ---- body-parser 错误（非 AppError，自带数字 status 与 type）----
+  // express.json/raw 解析失败抛 SyntaxError(type=entity.parse.failed, status=400)、
+  // 超限抛 type=entity.too.large(status=413)。之前两类都落到兜底 500：
+  // 对客户端是误导（明明是请求侧的问题），对日志是噪音（每个畸形请求
+  // 都记一条 unhandled error）。这里只认这两个 type，其余带 status 的
+  // http-errors 仍走兜底 —— 宁可 500 也不误吞真正的服务器错误。
+  const parserType = (err as { type?: unknown }).type;
+  if (parserType === 'entity.parse.failed') {
+    const message = '请求体格式错误（应为合法 JSON）';
+    res.status(400).json({
+      error: 'BAD_REQUEST',
+      message,
+      errorMessage: message,
+    });
+    return;
+  }
+  if (parserType === 'entity.too.large') {
+    const message = '请求体超过大小限制';
+    res.status(413).json({
+      error: 'PAYLOAD_TOO_LARGE',
+      message,
+      errorMessage: message,
+    });
+    return;
+  }
   console.error('[http] unhandled error:', err);
   res.status(500).json({
     error: 'INTERNAL_ERROR',

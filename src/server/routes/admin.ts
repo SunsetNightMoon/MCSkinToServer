@@ -22,6 +22,7 @@ import type {
 import { requireAdmin, requireAuth, requireSuperAdmin } from '../middleware.js';
 import { requestOrigin } from '../requestOrigin.js';
 import { AppError } from '../../errors.js';
+import { requireCanonicalUuid } from '../../util/uuid.js';
 
 /**
  * 管理员 HTTP 适配层（蓝图 P3/P4/P5）：
@@ -198,7 +199,7 @@ export function createAdminRouter(deps: AdminRouteDependencies): Router {
   });
 
   router.get('/api/admin/assets/:id/reviews', auth, admin, async (req, res) => {
-    const assetId = String(req.params['id'] ?? '');
+    const assetId = requireCanonicalUuid(String(req.params['id'] ?? ''), '素材不存在');
     const asset = await deps.assets.findById(assetId);
     if (!asset) {
       throw new AppError('NOT_FOUND', '素材不存在');
