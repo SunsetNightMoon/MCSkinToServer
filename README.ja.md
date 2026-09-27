@@ -1,6 +1,6 @@
 # MCSTS · MCSkinToServer
 
-[简体中文](README.md) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | **日本語**
+[简体中文](README.md) | [繁體中文](README.zh-Hant.md) | [English](README.en.md) | **日本語**
 
 Minecraft アカウント外付けログイン + スキン／マントテクスチャサーバー（Yggdrasil プロトコル互換）。`CatTavernSkins`(plan3) の再構築版です。
 

@@ -1,6 +1,6 @@
 # MCSTS · MCSkinToServer
 
-[简体中文](README.md) | [繁體中文](README.zh-TW.md) | **English** | [日本語](README.ja.md)
+[简体中文](README.md) | [繁體中文](README.zh-Hant.md) | **English** | [日本語](README.ja.md)
 
 A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A rebuild of `CatTavernSkins` (plan3).
 

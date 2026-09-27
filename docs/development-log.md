@@ -1065,7 +1065,7 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 
 - 四份 README 小节骨架一致（各 95–97 行，差异只在语言备注行）；`2.3.6` 与基线 `408/408 pass / 0 fail / 0 skipped` 在四语言全部保留，无历史版本号残留。
 - 全部相对链接与锚点逐一校验通过（含 `docs/uploads-cors.md#referer-配方`、`docs/deployment.md` 等交叉引用），无断链；文档里的每个设置键、索引名、环境变量名都回到 `schema/`、`src/site/runtimeSettings.ts`、`.env.example` 核对过。
-- 语言串味扫描：`README.zh-TW.md` / `README.en.md` / `README.ja.md` 均无简体字残留；行尾统一 CRLF（与仓库既有 README/文档一致）。
+- 语言串味扫描：`README.zh-Hant.md` / `README.en.md` / `README.ja.md` 均无简体字残留；行尾统一 CRLF（与仓库既有 README/文档一致）。
 - 迁移时逐条回到代码核对文档事实，纠正三处：
   - `docs/human-verification.md` 的图片题耗时原写「单张 2–7KB、p50 约 7ms、p95 约 14ms」是估算值，重新实测（Node 22.22.2，`renderCaptchaPng` 60 张）后改为 **190×64、5.3–6.8KB、p50 4.3ms / p95 7.6ms / max 8.7ms**。
   - `docs/uploads-cors.md` 的放行表原写「无 `Origin` + 白名单 `*` → `ACAO: *`」，与 `src/server/uploadsCors.ts` 实际顺序不符（无 Origin 在判白名单之前就 `next()`），改为三列都是「不发 ACAO」并补一句原因。
