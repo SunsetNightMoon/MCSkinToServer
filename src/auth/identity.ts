@@ -300,13 +300,40 @@ export class IdentityService {
     }
   }
 
-  private async loadUserForAuth(email: string): Promise<UserRow> {
-    const user = await this.users.findByEmail(email);
+  /**
+   * 把「登录时填的地址」解析成账号：主邮箱，或**已验证**的备用邮箱。
+   *
+   * 三种拿不到账号的情况一律走同一句凭据错误，不对外区分：
+   * 地址查不到、输入不是字符串、以及**跨列冲突**（同一地址既是 A 的主邮箱又是 B 的
+   * 备用邮箱 —— 数据库管不了这种重复，只能靠注册/绑定时的应用层查重，历史脏数据
+   * 或旁路写入都可能造出来）。冲突时只记一条服务端日志：它意味着数据不变量被破坏，
+   * 需要人去查；但对客户端绝不能有区别，否则这个端点就变成冲突探测器。
+   */
+  private async resolveLoginAccount(
+    address: unknown,
+  ): Promise<{ user: UserRow; viaBackup: boolean } | null> {
+    const text = typeof address === 'string' ? address.trim() : '';
+    if (text === '') return null;
+    const match = await this.users.findForLogin(text);
+    if (!match) return null;
+    if (match.conflict) {
+      console.warn(
+        `[auth] 登录地址命中多个账号（邮箱唯一性被破坏，需要人工核查）：user=${match.user.id}`,
+      );
+      return null;
+    }
+    return { user: match.user, viaBackup: match.slot === 'backup' };
+  }
+
+  private async loadUserForAuth(
+    email: string,
+  ): Promise<{ user: UserRow; viaBackup: boolean }> {
+    const resolved = await this.resolveLoginAccount(email);
     // 用户不存在与密码错误统一报错，不泄露账号是否存在
-    if (!user) {
+    if (!resolved) {
       throw new AppError('INVALID_CREDENTIALS', '邮箱或密码不正确');
     }
-    return user;
+    return resolved;
   }
 
   /** Yggdrasil 侧凭据错误必须走 ForbiddenOperationException（403） */
@@ -314,14 +341,15 @@ export class IdentityService {
     email: string,
     password: string,
   ): Promise<UserRow> {
-    const user = await this.users.findByEmail(email);
+    const resolved = await this.resolveLoginAccount(email);
     if (
-      !user ||
+      !resolved ||
       typeof password !== 'string' ||
-      !(await bcrypt.compare(password, user.passwordHash))
+      !(await bcrypt.compare(password, resolved.user.passwordHash))
     ) {
       throw forbiddenOperation('Invalid credentials');
     }
+    const { user } = resolved;
     // 已注销账号不再具备 Yggdrasil 登录能力（宽限期内可先恢复）
     if (user.deletedAt) {
       throw forbiddenOperation('Account deleted');
@@ -354,6 +382,14 @@ export class IdentityService {
 
     if (await this.users.findByEmail(email)) {
       throw new AppError('EMAIL_TAKEN', '该邮箱已被注册');
+    }
+    // 跨列占用：数据库的两个唯一索引各管一列（lower(email) 与 lower(backup_email)），
+    // 管不到「A 的主邮箱 == B 的备用邮箱」。改邮箱/绑备用那条路径由
+    // `assertAddressAvailable` 补了这道检查，注册此前只查主邮箱 —— 于是可以拿别人
+    // 已绑定的备用邮箱注册成主邮箱，一个地址就绑到两个号上。备用邮箱现在能登录，
+    // 这个口子必须堵掉。
+    if (await this.users.findByBackupEmail(email)) {
+      throw new AppError('EMAIL_TAKEN', '该邮箱已被其他账号用作备用邮箱');
     }
     if (await this.profiles.findByName(input.profileName)) {
       throw new AppError('NAME_TAKEN', '该角色名已被占用');
@@ -431,7 +467,7 @@ export class IdentityService {
     password: string;
     requireEmailVerified?: boolean;
   }): Promise<RegisterResult> {
-    const user = await this.loadUserForAuth(input.email);
+    const { user, viaBackup } = await this.loadUserForAuth(input.email);
     await this.assertPassword(user, input.password);
     // 先验密码再报注销/封禁状态，避免向未持密码者泄露账号状态
     this.assertNotDeleted(user);
@@ -439,7 +475,10 @@ export class IdentityService {
       throw new AppError('USER_DISABLED', '账号已被停用');
     }
     this.assertNotBanned(user);
-    if (input.requireEmailVerified === true && !user.emailVerified) {
+    // 用**已验证的备用邮箱**登录时，视为满足「要求邮箱验证」这道门槛。
+    // 备用邮箱存在的意义就是主邮箱收不到信时的兜底；这里再卡一道主邮箱已验证，
+    // 等于把兜底堵死 —— 账号只能靠超管人工处理。
+    if (input.requireEmailVerified === true && !user.emailVerified && !viaBackup) {
       throw new AppError(
         'EMAIL_NOT_VERIFIED',
         '邮箱尚未验证，请先完成邮箱验证后再登录',
@@ -1124,7 +1163,7 @@ export class IdentityService {
     email: string;
     password: string;
   }): Promise<RegisterResult> {
-    const user = await this.loadUserForAuth(input.email);
+    const { user } = await this.loadUserForAuth(input.email);
     await this.assertPassword(user, input.password);
     if (!user.deletedAt) {
       throw new AppError('VALIDATION_ERROR', '该账号未处于注销状态');

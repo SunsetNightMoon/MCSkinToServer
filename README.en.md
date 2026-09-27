@@ -12,7 +12,7 @@ A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A 
 
 - **Yggdrasil external login**: full `/authserver/*` + `/sessionserver/*` endpoint set, verified on real launchers (HMCL etc.); RSA-signed textures, metadata mounted under multiple prefixes
 - **Asset system**: skin/cape upload (PNG validation, sha256 dedup, reference counting), 3D preview, public library, review queue, favorites, view/download counters, permission matrix (visibility × download policy)
-- **Accounts**: register/login, email verification, password reset & change, account deletion with 15-day recovery (UIDs never reused), backup email with cross-verified email changes, human verification (none / self-hosted math / self-hosted image / external service), bans (permanent / temporary with self-healing expiry)
+- **Accounts**: register/login, email verification, password reset (cross-delivered to the other mailbox), password change, account deletion with 15-day recovery (UIDs never reused), backup email that also signs you in to the website and launchers once verified, cross-verified email changes, human verification (none / self-hosted math / self-hosted image / external service), bans (permanent / temporary with self-healing expiry)
 - **Username modes**: site-wide single/multi username mode (switchable by super admin on one page), reserved profiles + 30-day rename cooldown, name pool
 - **Site management**: install wizard (SQLite or PostgreSQL — locked after install, default language, in-process soft restart to apply instantly), site settings (branding / theme backgrounds / custom homepage HTML/CSS / email templates), admin dashboard stats (dual-dialect aggregation + timezone bucketing)
 - **Infrastructure**: one canonical schema for SQLite/PostgreSQL, versioned migration runner, optional Redis rate limiting & caching (auto-degrades to in-process memory, core features unaffected), SMTP password encrypted with AES-256-GCM, i18n in 4 languages (Simplified/Traditional Chinese, English, Japanese)
@@ -80,6 +80,18 @@ location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil +
 - The anonymous protocol endpoint `POST /api/profiles/minecraft` (name → UUID) is rate limited per source IP, 60 requests/minute by default. Without it the whole roster of names and UUIDs can be crawled at unlimited speed; a tighter bound would hit clients legitimately joining a server and shared NAT egress, hence the loose value. Every IP-based limit depends on `TRUST_PROXY` being configured correctly
 - Full environment variable list: `.env.example` (backend) and `web/.env.example` (frontend)
 
+## Email addresses and account recovery
+
+Every account has a primary email and one optional backup email. A few rules are worth spelling out.
+
+**One address binds exactly one account.** The database puts unique indexes on `lower(email)` and on `lower(backup_email)`, so duplicates within a column are rejected by the DB. Cross-column collisions (A's primary being B's backup) are beyond an index, so the application checks both slots of every other account on registration, backup binding and email change. If legacy data already contains such a collision, login **does not pick one of the accounts** — both are rejected as invalid credentials, because otherwise that address becomes a "guess it and you are in" entry point.
+
+**A verified backup email is a credential.** Web login and the launcher's `authenticate` / `signout` accept it, case-insensitively. Signing in with it satisfies the "require email verification" gate — the whole point of a backup address is that the primary mailbox stopped working, so re-imposing the primary gate would defeat the fallback. **An unverified backup email never authenticates**: "bound but unverified" is exactly the state abuse scripts crowd into, and granting it credential status would open an unlimited entry point.
+
+**Password resets are cross-delivered.** Either address can start a reset; when the account has another verified address, the email goes **there**, so a single compromised mailbox (leaked, abandoned, hijacked) is no longer enough to take over an account. When there is no other verified address the mail falls back to the same slot, otherwise those accounts could only be recovered manually by an admin. For the same reason, a cross-delivered reset does **not** mark the primary email as verified — that message proves control of the backup mailbox.
+
+**Known gap, deliberately left open.** Login rate limiting buckets by the *submitted* address, so one account has two independent buckets (primary and backup), which doubles the guessing budget against a single account. The fix is to bucket by the resolved account id, which requires counting inside the authentication path; not done in this batch.
+
 ## Human verification
 
 Which check registration and login use is picked in "Admin panel → System settings → Registration settings" and stored as the site setting `CAPTCHA_TYPE`: `none` / `math` / `image` / `external`. Sites that only ever wrote the legacy boolean `ENABLE_CAPTCHA` keep behaving as before (`true → math`, `false → none`).
@@ -129,7 +141,7 @@ Three boundaries to respect: Referer is just a header, so any non-browser client
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **392/392 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **408/408 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

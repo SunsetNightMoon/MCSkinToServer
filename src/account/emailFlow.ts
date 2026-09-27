@@ -233,23 +233,45 @@ export class EmailFlow {
 
   // ---- 密码重置 ----
 
+  /**
+   * 重置邮件投给哪个地址 —— **优先投给另一个已验证邮箱**（交叉验证）。
+   *
+   * 以前找回密码只认主邮箱，于是「单个信箱失守」就等于「账号失守」：信箱被拖库、
+   * 长期不看、或被盗号，攻击者点一封自己收到的邮件就能改密码。备用邮箱现在能登录，
+   * 更要把它降级成「一个信箱的控制权不足以重置密码」。
+   *
+   * 回落是必需的而非可省：另一槽位不存在或未验证时仍投本槽，否则这类账号会彻底
+   * 无法自助重置，只能找超管人工处理 —— 那是更糟的结果。
+   */
+  private resetDeliveryTarget(user: UserRow, viaBackup: boolean): string {
+    if (viaBackup) return user.email;
+    if (user.backupEmail !== null && user.backupEmailVerified) return user.backupEmail;
+    return user.email;
+  }
+
   private async issueAndSendReset(
     user: UserRow,
     requestOrigin?: string,
+    viaBackup = false,
   ): Promise<void> {
     const token = await this.issueToken('password_reset', user.id, RESET_TTL_MS);
     const url = await this.siteUrl.link('/reset-password', { token }, { requestOrigin });
-    await this.mail.sendPasswordReset({ to: user.email, url });
+    await this.mail.sendPasswordReset({
+      to: this.resetDeliveryTarget(user, viaBackup),
+      url,
+    });
   }
 
   /** 发送重置邮件；账号不存在时静默成功（防账号枚举，见文件头） */
   async sendReset(email: string, requestOrigin?: string): Promise<void> {
     await this.assertMailReady();
 
-    const user = await this.users.findByEmail(email);
-    if (!user || user.purgedAt !== null) return;
+    // 主邮箱或**已验证的备用邮箱**都能发起。与登录同一口径：查不到、或同一地址
+    // 命中多个账号（跨列唯一只能靠应用层保证）时一律静默返回，不透露区别。
+    const match = await this.users.findForLogin(email);
+    if (!match || match.conflict || match.user.purgedAt !== null) return;
 
-    await this.issueAndSendReset(user, requestOrigin);
+    await this.issueAndSendReset(match.user, requestOrigin, match.slot === 'backup');
   }
 
   /**
@@ -270,9 +292,11 @@ export class EmailFlow {
   /**
    * 消费重置链接并改密。
    *
-   * 三件事在事务内一起完成：消费令牌、写入新密码、置 email_verified。
-   * 「重置密码顺带完成邮箱验证」不是偷懒 —— 能点开这封邮件就已经证明了邮箱归属，
-   * 同时也是用户卡在「未验证」状态时的自救路径（管理员没配好 SMTP 时尤其重要）。
+   * 事务内一起完成：消费令牌、写入新密码、（条件性地）置 email_verified。
+   * 「重置顺带完成邮箱验证」的前提是**这封邮件投在主信箱里** —— 能点开它就证明了
+   * 主信箱归属；账号有已验证备用邮箱时链接是交叉投递的，证明的是备用信箱，
+   * 此时不再置位（见下方注释）。同时也是用户卡在「未验证」状态时的自救路径
+   * （管理员没配好 SMTP 时尤其重要）。
    *
    * 事务外吊销全部会话：密码变了，旧凭据必须立刻失效（与 change-password 语义一致）。
    */
@@ -299,7 +323,13 @@ export class EmailFlow {
         throw new AppError('TOKEN_REVOKED', '该重置链接已被使用');
       }
       await this.users.updatePassword(user.id, passwordHash, now);
-      await this.users.setEmailVerified(user.id, true, now);
+      // 「重置顺带完成邮箱验证」只在**没有已验证备用邮箱**时成立：那种情况下链接
+      // 一定投在主信箱里，点开它就证明了主信箱归属。而有已验证备用邮箱时链接是
+      // 交叉投递的，证明的是备用信箱 —— 此时把主邮箱标成已验证就是在撒谎。
+      // 宁可少标一个 verified（用户仍可走主邮箱自己的验证邮件），绝不假造。
+      if (!(user.backupEmail !== null && user.backupEmailVerified)) {
+        await this.users.setEmailVerified(user.id, true, now);
+      }
       await this.tokens.invalidateUnusedForUser('password_reset', user.id, now);
     });
 

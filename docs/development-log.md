@@ -991,6 +991,59 @@ Issue #5 是安全测试留下的两条「信息级备忘」，都不是缺陷�
 - SQLite 基线 **392 用例 / 301 pass / 0 fail / 91 skipped**；全门控（PG + Redis + Mailpit）**392/392 pass / 0 fail / 0 skipped**。
 - 文档：`.env.example` 补 `BCRYPT_COST`（含实测毫秒数与「调低不降级」）与 `PROFILE_LOOKUP_RATE_LIMIT_*`；四语言 README 部署要点各加两条（强度权衡、匿名端点限流与 `TRUST_PROXY` 依赖），基线数字同步到 392。
 
+## P5 第十六批：备用邮箱参与登录 + 邮箱唯一性收口
+
+用户直接需求（不是 Issue）：「备用邮箱参与跟主邮箱一样的登录（包括启动器登录），并检查邮箱查重是否生效，确保邮箱都绑一个号，杜绝重复注册」。
+
+### 核对现状时的两个发现
+
+1. **查重确实生效，但只到列内**。`users_email_lower_uidx`（`lower(email)`）与 `users_backup_email_lower_uidx`（`lower(backup_email)`，带 `IS NOT NULL` 条件）两个唯一索引都在，所以同类重复由 DB 拦。跨列（A 的主邮箱 == B 的备用邮箱）索引管不到，此前只有 `emailChangeFlow.assertAddressAvailable()` 补了检查 —— 改邮箱/绑备用这条路径是完整的。
+2. **注册路径漏了跨列查重**：`register()` 只查 `findByEmail`，不查 `findByBackupEmail`，于是可以拿别人已绑定的备用邮箱注册成主邮箱 —— 这才是「一个邮箱绑两个号」的真实入口。备用邮箱一旦能登录，这个口子必须堵。
+
+另外确认：**「已绑但未验证」这个状态在正常流程里不落进 `users` 表**。`users.backup_email` 只在 `verifyBackupEmail()` 点完链接时写入（并同时置 verified），pending 状态只活在 `backup_email_tokens` 里。所以未验证的绑定既不占位、也不参与认证；用户担心的「拿未验证绑定做无限量入口」在数据模型层面本就不成立，但认证查询仍显式加了 `backup_email_verified` 条件作为防线（防旁路写入/历史数据）。
+
+### 规则矩阵
+
+| 场景 | 主邮箱 | 已验证备用邮箱 | 未验证备用邮箱 |
+|---|---|---|---|
+| 网页登录 | 可以 | **可以**（本批新增） | 不行，与「账号不存在」同一口径 |
+| 启动器 `authenticate` / `signout` | 可以 | **可以** | 不行 |
+| `REQUIRE_EMAIL_VERIFICATION` 门槛 | 需主邮箱已验证 | **视为满足**（备用就是主邮箱收不到信时的兜底） | — |
+| 找回密码发起 | 可以 | **可以** | 不行 |
+| 找回密码投递 | 有已验证备用 → 投备用 | 投主邮箱 | — |
+| 注册占用 | 唯一索引 + 应用层 | **注册侧新增查重**（别人已绑的备用邮箱不能拿来注册） | — |
+| 登录限流分桶 | 按提交地址 | 按提交地址（**同一账号两个桶，已知缺口**） | — |
+
+**冲突不任选**：若历史脏数据已造出「同一地址命中两个账号」，`findForLogin` 返回 `conflict`，登录两边都按凭据错误收口 —— 否则那个地址就成了「猜中即登进某个号」的入口。冲突只记一条服务端日志（数据不变量被破坏需要人工核查），对客户端不给任何区别，免得这个端点变成冲突探测器。
+
+### 落地（后端）
+
+- `src/repositories/userRepository.ts`：新增 `findForLogin(address)` → `{user, slot, conflict}`，SQL 一条：`lower(email)=?` 或 `lower(backup_email)=? AND backup_email_verified=<1|TRUE>`（三处占位符各绑一次同一个值，SQLite 不吃重复下标）。
+- `src/auth/identity.ts`：
+  - `resolveLoginAccount()` 统一收口「查不到 / 非字符串 / 冲突」三种情况，`loadUserForAuth`（网页登录、恢复账号）与 `assertYggdrasilCredentials`（启动器）都走它。
+  - `loginWeb` 的邮箱验证门槛加 `&& !viaBackup`：用已验证备用邮箱登录即放行。
+  - `register()` 补 `findByBackupEmail` 查重。
+  - rehash-on-login 与登录路径共用，备用邮箱登录同样承担升级（很多账号只在启动器里登录）。
+- `src/account/emailFlow.ts`：
+  - `sendReset` 改走 `findForLogin`（主/备都能发起，冲突与查不到同样静默成功，保持防枚举）。
+  - `resetDeliveryTarget()`：优先投「另一个已验证槽位」，没有则回落同槽。
+  - `resetPassword` 只在**没有已验证备用邮箱**时才顺带置 `email_verified` —— 交叉投递的那封信证明的是备用信箱的归属，把主邮箱标成已验证是在撒谎。宁可少标，绝不假造。
+
+### 落地（前端）
+
+- 登录页邮箱框占位改为「主邮箱或已验证的备用邮箱」（antd AutoComplete 的占位符是独立节点 `.ant-select-selection-placeholder`，不是 input 的 `placeholder` 属性 —— 实测时按属性查会误判成没生效）。
+- 找回密码页：提示写明两个地址都能填、且邮件可能投到另一个邮箱；**提交后的成功提示不再回显投递地址**（`sentTo` 改为 `sent`）—— 回显等于替探测者确认账号存在，也会让收件人去翻错的那个邮箱。
+- 个人中心备用邮箱说明补一句「验证通过后可像主邮箱一样登录网页与启动器」。
+- i18n 四语言：新增 1 键（`auth.loginEmailPlaceholder`）+ 改写 3 键（`forgotPasswordHint` / `resetEmailSentDesc` / `profile.backupEmailExplain`）。
+
+### 验收（数字均为实际输出）
+
+- 后端与前端 `tsc` 零错误，web 生产构建通过。
+- 新增 `tests/backupEmailLogin.test.ts` 16 项（SQLite 8 项 + PG 门控 8 项），接入 `npm test` / `test:pg`：备用邮箱登录（含大小写）、未验证不参与认证、冲突不任选、门槛放行、注册查重、交叉投递两个方向、无备用时回落同槽并照旧置位、备用登录路径的哈希升级。
+- 套件：SQLite **408 用例 / 309 pass / 0 fail / 99 skipped**；全门控（PG + Redis + Mailpit）**408/408 pass / 0 fail / 0 skipped**。既有 392 项无一回归。
+- 真实实例 + Mailpit 实测：注册 `beuser@csp.local` → 绑 `besec@csp.local` → 点掉真实验证邮件里的链接（`/api/me/backup-email/verify` 200）→ 打开「要求邮箱验证」后：主邮箱登录 **403 `EMAIL_NOT_VERIFIED`**、备用邮箱登录 **200**；启动器 `/authserver/authenticate` 用备用邮箱 **200**、用未验证地址 **403 Invalid credentials**；用备用邮箱注册 **409 `EMAIL_TAKEN`**（文案「该邮箱已被其他账号用作备用邮箱」）；用主邮箱发起找回密码后 Mailpit 里只有一封「重置密码」且收件人是备用邮箱（交叉投递实证）。浏览器侧：登录页用备用邮箱提交 → `登录成功！` 并落到首页；找回密码页提示与成功文案均为新口径。
+- 已知缺口按用户口径**只记录不实现**：登录限流按提交地址分桶，同一账号有主/备两份配额；收紧方向是归一到解析出的账号 ID（要在认证路径内计数）。四语言 README 的「邮箱与账号找回」小节末尾明确写了这一条。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

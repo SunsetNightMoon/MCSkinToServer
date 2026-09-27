@@ -12,12 +12,16 @@ import { AuthLayout } from './AuthLayout'
  * 无论邮箱是否注册过，界面一律显示「已发送」。这是与后端配套的做法
  * （后端 sendReset 对不存在的邮箱静默成功）—— 否则这个免认证页面就成了
  * 「批量试探邮箱是否注册过」的工具。
+ *
+ * 因此这里**不显示投递地址**：账号绑定了另一个已验证邮箱时，邮件会交叉投到那个
+ * 信箱（单个信箱失守不足以改密码）。把地址回显出来等于替探测者确认「这个账号存在」，
+ * 也会让收件人去翻错的那个邮箱。
  */
 export function ForgotPassword() {
   const { t } = useTranslation()
   usePageTitle(t('auth.forgotPassword'))
   const [loading, setLoading] = useState(false)
-  const [sentTo, setSentTo] = useState<string | null>(null)
+  const [sent, setSent] = useState(false)
 
   const onFinish = async (values: { email: string }) => {
     setLoading(true)
@@ -31,7 +35,7 @@ export function ForgotPassword() {
       if (!res.ok) {
         throw new Error(data.errorMessage || t('auth.sendResetFailed'))
       }
-      setSentTo(values.email)
+      setSent(true)
     } catch (err: any) {
       message.error(err.message || t('auth.sendResetFailed'))
     } finally {
@@ -41,11 +45,11 @@ export function ForgotPassword() {
 
   return (
     <AuthLayout title={t('auth.forgotPassword')}>
-      {sentTo ? (
+      {sent ? (
         <>
           <Alert
             message={t('auth.resetEmailSentTitle')}
-            description={t('auth.resetEmailSentDesc', { email: sentTo })}
+            description={t('auth.resetEmailSentDesc')}
             type="success"
             showIcon
             style={{ marginBottom: 24 }}

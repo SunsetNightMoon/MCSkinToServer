@@ -114,6 +114,16 @@ function mapUserRow(raw: Record<string, unknown>): UserRow {
   };
 }
 
+/** 登录时命中的是哪一个邮箱槽位 */
+export type LoginEmailSlot = 'primary' | 'backup';
+
+export interface LoginEmailMatch {
+  user: UserRow;
+  slot: LoginEmailSlot;
+  /** 同一地址命中多个账号（跨列唯一只能靠应用层），调用方必须拒绝而不是任选一个 */
+  conflict: boolean;
+}
+
 export class UserRepository {
   constructor(private readonly db: DatabaseConnection) {}
 
@@ -381,6 +391,45 @@ export class UserRepository {
       [email.toLowerCase()],
     );
     return rows[0] ? mapUserRow(rows[0]) : null;
+  }
+
+  /**
+   * 登录入口用的地址解析：主邮箱，或**已验证**的备用邮箱。
+   *
+   * 两条刻意的约束：
+   *
+   * 1. **未验证的备用邮箱不参与认证**。绑定时 `users.backup_email` 只在点完验证链接
+   *    那一刻才写入（pending 状态只活在 `backup_email_tokens` 里），所以这条更多是
+   *    防线而非主逻辑：万一有旁路写入留下未验证地址，它也不能当登录凭据用。
+   * 2. **同一地址命中多个账号时不任选**。跨列唯一（A 的主邮箱 == B 的备用邮箱）
+   *    数据库管不了，只能靠应用层查重；历史脏数据或旁路写入都可能造出「一个地址两个号」。
+   *    任选一个等于给攻击者一条「猜中这个邮箱就能登进某个账号」的路，
+   *    所以这里只报告冲突，由调用方按凭据错误收口。
+   */
+  async findForLogin(address: string): Promise<LoginEmailMatch | null> {
+    const value = address.trim().toLowerCase();
+    if (value === '') return null;
+    // backup_email_verified 在 SQLite 是 INTEGER、在 PG 是 BOOLEAN
+    const verifiedTrue = this.db.dialect === 'postgres' ? 'TRUE' : '1';
+    const rows = await this.db.query<Record<string, unknown>>(
+      `SELECT ${USER_COLUMNS},
+              CASE WHEN lower(email) = ${phAt(this.db.dialect, 0)}
+                   THEN 'primary' ELSE 'backup' END AS matched_slot
+       FROM users
+       WHERE lower(email) = ${phAt(this.db.dialect, 1)}
+          OR (backup_email IS NOT NULL
+              AND lower(backup_email) = ${phAt(this.db.dialect, 2)}
+              AND backup_email_verified = ${verifiedTrue})`,
+      // SQLite 的每个 ? 都要绑定值，三处同一个地址就传三次
+      [value, value, value],
+    );
+    if (rows.length === 0) return null;
+    const first = rows[0]!;
+    return {
+      user: mapUserRow(first),
+      slot: first['matched_slot'] === 'backup' ? 'backup' : 'primary',
+      conflict: rows.length > 1,
+    };
   }
 
   /**

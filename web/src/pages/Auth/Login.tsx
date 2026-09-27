@@ -428,7 +428,7 @@ export function Login() {
                 onSearch={handleEmailSearch}
                 onSelect={handleEmailSelect}
                 onBlur={() => setTimeout(() => setEmailOptions([]), 200)}
-                placeholder={t('auth.emailPlaceholder')}
+                placeholder={t('auth.loginEmailPlaceholder')}
                 size="large"
               />
             </Form.Item>
