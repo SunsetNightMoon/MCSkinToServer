@@ -86,15 +86,17 @@ export interface RegisterDTO {
   profile_name: string
   captcha_session_id?: string
   captcha_answer?: string
-  turnstile_token?: string
+  /** 外部人机验证 token（none/math/image 时不带） */
+  captcha_token?: string
 }
 
 export interface LoginDTO {
   email: string
   password: string
-  // 0004 人机验证：注册/登录页在 `captcha-type` 返回 'math' 时回传这两个字段。
-  // 后端只在 `ENABLE_CAPTCHA` 开启时校验；关闭时带上也无害。
+  // 人机验证：captcha-type 返回 'math' 或 'image' 时回传这两个字段（一次一题）。
+  // 后端按 CAPTCHA_TYPE 决定校验方式；'none' 时带上也无害。
   captcha_session_id?: string
   captcha_answer?: string
-  turnstile_token?: string
+  /** 外部人机验证 token（none/math/image 时不带） */
+  captcha_token?: string
 }

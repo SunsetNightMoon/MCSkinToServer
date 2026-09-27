@@ -12,7 +12,7 @@ Minecraft 外置登入 + 皮膚／披風素材伺服器（Yggdrasil 協相容）
 
 - **Yggdrasil 外置登入**：`/authserver/*` + `/sessionserver/*` 全端點，HMCL 等啟動器真機驗證；RSA 簽章紋理、中繼資料多字首掛載
 - **素材系統**：皮膚／披風上傳（PNG 驗證、sha256 去重、引用計數）、3D 預覽、公開素材庫、審核佇列、收藏、瀏覽／下載計數、權限矩陣（可見度 × 下載策略）
-- **帳號體系**：註冊／登入、信箱驗證、找回密碼、改密碼、註銷與 15 天恢復期（UID 不重用）、備用信箱與交叉驗證改信箱、數學題驗證碼（自託管）、封禁（永久／暫時到期自愈）
+- **帳號體系**：註冊／登入、信箱驗證、找回密碼、改密碼、註銷與 15 天恢復期（UID 不重用）、備用信箱與交叉驗證改信箱、人機驗證（不啟用 / 數學題 / 服務端圖片 / 外部驗證服務）、封禁（永久／暫時到期自愈）
 - **使用者名稱模式**：全站統一 單一／多個 使用者名稱模式（超管單頁切換）、預留角色 + 30 天改名冷卻、名稱池
 - **站點管理**：安裝精靈（SQLite／PostgreSQL 二選一、鎖庫不可改、預設語言、完成後行程內軟重啟即時生效）、站點設定（品牌／主題背景／自訂首頁 HTML/CSS／郵件範本）、管理儀表板統計（雙方言聚合 + 時區分桶）
 - **基礎設施**：SQLite／PostgreSQL 雙方言同一 canonical schema、版本化遷移 runner、選配 Redis 限流與快取（未設定自動降級行程記憶體，核心功能不受影響）、SMTP 密碼 AES-256-GCM 加密入庫、i18n 四語言（簡中／繁中／英／日）
@@ -73,10 +73,28 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 業務介面 + Yggdrasil +
 ```
 
 - 反代後必須設 `TRUST_PROXY=1`（或反代層數），否則按 IP 限流會把全部用戶算進同一個桶
-- 正式環境必配 `MCSTS_SECRET`（≥16 字元）：SMTP 密碼加密主金鑰，未設定則明文入庫；輪換後舊密文無法解密（刻意設計）
+- 正式環境必配 `MCSTS_SECRET`（≥16 字元）：憑證類設定鍵（`SMTP_PASS`、`EXTERNAL_CAPTCHA_SECRET`）的加密主金鑰，未設定則明文入庫；輪換後舊密文無法解密（刻意設計）
 - **認證伺服器位址填 `https://<網域>/api/yggdrasil` 最穩**；加了上面的 ALI 頭後裸網域也能被啟動器解析。站點顯示名來自元資料的 `meta.serverName`（即站點標題），改標題後需在啟動器帳戶頁點重新整理重取元資料
 - 多實例部署必須配 `REDIS_URL`，否則限流退化為每實例各限一份
 - 環境變數完整清單見 `.env.example`，前端變數見 `web/.env.example`
+
+## 人機驗證
+
+註冊與登入要用哪種人機驗證，在「管理面板 → 系統設定 → 註冊設定」裡選，取值存在站點設定 `CAPTCHA_TYPE`：`none` / `math` / `image` / `external`。舊站點只寫過布林 `ENABLE_CAPTCHA` 時按 `true → math`、`false → none` 推導，升級不改變既有行為。
+
+| 方式 | 是否出網 | 訪客 IP 去向 | 定位 |
+|---|---|---|---|
+| `math` 數學題 | 否 | 本站 | 題干明文下發，只擋不解析回應的腳本 |
+| `image` 圖片題 | 否 | 本站 | 題干只出現在 PNG 裡，擋讀 JSON 的腳本 |
+| `external` 外部服務 | 是 | 所設定的驗證端點 | 由所選服務決定，能對抗真實自動化 |
+
+- 自託管兩種（`math` / `image`）都只用於**攔腳本**，對打碼平台和人工註冊無效；好處是零外部依賴、零合規負擔。圖片題由 sharp 在本機以向量筆畫繪製，不連線、不讀取系統字型（精簡容器裡沒字型也不會畫成空白圖），因此不會出現「部分機器上驗證碼永遠答不對」。
+- `external` 刻意做成「預設 + 全部可改」，不綁定廠商：選 Cloudflare Turnstile / hCaptcha / Google reCAPTCHA 只是把推薦值填進 `EXTERNAL_CAPTCHA_VERIFY_URL` / `EXTERNAL_CAPTCHA_SCRIPT_URL` / `EXTERNAL_CAPTCHA_GLOBAL_NAME`，三項任一項都能改成自建中繼或其他可達地址；`custom` 預設表示三項全部自己給。
+- 需要廠商簽名的服務（騰訊天御、阿里雲人機驗證、網易易盾、GeeTest v4）不符合本專案使用的「表單 POST + 布林 `success`」共同形狀，未內建；擴展位是 `src/account/externalCaptcha.ts` 的驗證入口。
+- 前端腳本地址受站點 CSP 約束時，需把該網域加入 `script-src`。
+- 驗證金鑰 `EXTERNAL_CAPTCHA_SECRET` 與 SMTP 密碼同等待遇：AES-256-GCM 加密入庫、管理端只回 `<KEY>_SET` 旗標、公開端點不下發，留空儲存不會清空已存金鑰。
+- 外部端點不可達時註冊/登入回傳 **502 `CAPTCHA_UNAVAILABLE`**，絕不靜默放行；答案錯誤或 token 過期是 400 `CAPTCHA_INVALID`，使用者換一道即可。
+- 出題限流 `CAPTCHA_GENERATE_RATE_LIMIT_*`（預設 10 次 / 5 分鐘 / 來源地址）由數學題與圖片題共用，換條路刷不出額外配額。
 
 ## 測試
 
@@ -84,7 +102,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 業務介面 + Yggdrasil +
 npm test          # SQLite 基線（無需外部服務，門控用例自動 skip）
 ```
 
-完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**347/347 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+完整測試套件需要本機依賴時可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 開門控。目前基線：**372/372 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## 文件
 

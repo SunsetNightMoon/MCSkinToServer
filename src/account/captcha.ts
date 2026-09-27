@@ -2,14 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { AppError } from '../errors.js';
 import { sha256Hex } from '../util/crypto.js';
 import type { CaptchaRepository } from '../repositories/captchaRepository.js';
+import { generateCaptchaCode, renderCaptchaPng } from './captchaImage.js';
 
 /**
- * 自托管「数学题」人机验证（0004）。
+ * 自托管人机验证（0004 数学题 + Issue #3 图片题）。
  *
  * ## 定位：挡脚本，不挡人
  *
  * 数学题对有心人毫无难度 —— 它的目标是拦掉「拿一份邮箱列表跑批量注册」这类
- * 无成本脚本，不是对抗定向攻击。因此设计上优先**不误伤真人**：
+ * 无成本脚本，不是对抗定向攻击。图片题把题干收进服务端、只回 PNG，脚本没法再
+ * 直接读明文题目，但 OCR 仍打得开，所以定位一样。因此设计上优先**不误伤真人**：
  *
  * - 题目只有两个操作数，结果非负且 ≤ 81，心算一秒出答案。
  * - 有效期 10 分钟。**这个值不能太小**：旧版前端在页面挂载时就取题，用户可能
@@ -47,6 +49,17 @@ export const CAPTCHA_TTL_SECONDS = 10 * 60;
 
 /** session_id 只做形态校验：它是关联号，不是凭据 */
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{4,64}$/;
+
+function requireSessionId(sessionId: unknown): string {
+  const id = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!SESSION_ID_PATTERN.test(id)) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      '缺少或非法的 sessionId（4-64 位字母/数字/下划线/连字符）',
+    );
+  }
+  return id;
+}
 
 type Operator = '+' | '-' | '×';
 
@@ -114,21 +127,41 @@ export class CaptchaService {
 
   /** 出题并落库。顺带清理过期行，保证表不会无限增长 */
   async generate(sessionId: unknown): Promise<CaptchaQuestion> {
-    const id = typeof sessionId === 'string' ? sessionId.trim() : '';
-    if (!SESSION_ID_PATTERN.test(id)) {
-      throw new AppError(
-        'VALIDATION_ERROR',
-        '缺少或非法的 sessionId（4-64 位字母/数字/下划线/连字符）',
-      );
-    }
-
-    const now = this.now();
+    const id = requireSessionId(sessionId);
     const { text, answer } = generateQuestion();
+    await this.issue(id, String(answer));
 
+    return {
+      sessionId: id,
+      question: text,
+      expiresInSeconds: CAPTCHA_TTL_SECONDS,
+    };
+  }
+
+  /**
+   * 出一道图片题，只回 PNG。
+   *
+   * 与 `generate` 的关键区别：**题干与答案都不进响应**。客户端只拿到一张图和
+   * 自己的 sessionId，剩下的三条硬规则（一次一题、先消费再比对、错误不透露细节）
+   * 与数学题完全共用同一套仓储与 `verify`。
+   */
+  async generateImage(
+    sessionId: unknown,
+  ): Promise<{ sessionId: string; png: Uint8Array }> {
+    const id = requireSessionId(sessionId);
+    const code = generateCaptchaCode();
+    await this.issue(id, code);
+    const png = await renderCaptchaPng(code);
+    return { sessionId: id, png };
+  }
+
+  /** 写入一道新题（同一 sessionId 只保留最新一道） */
+  private async issue(id: string, answer: string): Promise<void> {
+    const now = this.now();
     await this.challenges.replace({
       id: randomUUID(),
       sessionId: id,
-      answerHash: sha256Hex(String(answer)),
+      answerHash: sha256Hex(answer),
       expiresAt: new Date(now.getTime() + CAPTCHA_TTL_SECONDS * 1000),
       createdAt: now,
     });
@@ -142,12 +175,6 @@ export class CaptchaService {
         err instanceof Error ? err.message : err,
       );
     }
-
-    return {
-      sessionId: id,
-      question: text,
-      expiresInSeconds: CAPTCHA_TTL_SECONDS,
-    };
   }
 
   /**

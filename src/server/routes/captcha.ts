@@ -1,6 +1,6 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { CaptchaService } from '../../account/captcha.js';
-import type { RuntimeSettings } from '../../site/runtimeSettings.js';
+import type { CaptchaType, RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
 import { DEFAULT_CAPTCHA_GENERATE_RATE_LIMIT } from '../../config.js';
@@ -8,28 +8,33 @@ import { clientIp, rateLimit } from '../rateLimit.js';
 import { RateLimitKeys } from '../../cache/keys.js';
 
 /**
- * 人机验证的 HTTP 适配层（0004）。
+ * 人机验证的 HTTP 适配层（0004 数学题，Issue #3 图片题与外部验证）。
  *
- * - GET /api/captcha/captcha-type     当前类型：`{ type: 'math' | 'none' }`
- * - GET /api/captcha/generate         出题：`{ question, sessionId, expiresInSeconds }`
+ * - GET /api/captcha/captcha-type  当前类型：`{ type: 'none'|'math'|'image'|'external', ... }`
+ * - GET /api/captcha/generate      出数学题：`{ question, sessionId, expiresInSeconds }`
+ * - GET /api/captcha/image         出图片题：直接回 PNG（题干与答案都不出服务端）
  *
- * ## 为什么形状是这两个端点
+ * ## 为什么形状是这几个端点
  *
- * 旧版前端（`web/src/pages/Auth/Login.tsx` / `Register.tsx` / `Upload/SkinUpload.tsx`）
- * 在挂载时就调 `captcha-type`，拿到 `'turnstile' | 'math' | 'none'` 后决定渲染哪种控件；
- * `math` 时再调 `generate?sessionId=…` 取题，提交表单时回传
- * `captcha_session_id` + `captcha_answer`。**沿用旧版界面是硬约束**，
- * 所以这里适配前端，而不是改前端来适配这里。
+ * 前端（`web/src/pages/Auth/Login.tsx` / `Register.tsx`）在挂载时就调 `captcha-type`，
+ * 拿到类型后决定渲染哪种控件；`math` 时再调 `generate?sessionId=…` 取题、
+ * `image` 时把 `image?sessionId=…` 塞进 `<img>`，提交表单时回传
+ * `captcha_session_id` + `captcha_answer`（external 则回传 `captcha_token`）。
+ * **沿用旧版界面是硬约束**，所以这里适配前端，而不是改前端来适配这里。
  *
- * 本项目**不接 Turnstile**（不引外部 JS/服务、也不把访客 IP 交给第三方），
- * 因此 `type` 只可能是 `'math'` 或 `'none'`，响应里**不含 siteKey**。
- * 前端的 turnstile 分支因此永远不会被走到，但它留着不影响 —— 将来真要去掉，
- * 应当连同 `TurnstileWidget` 组件一起摘。
+ * ## 三种模式的取舍
+ *
+ * - `math` / `image` 都是自托管，不出网、不把访客 IP 交给任何第三方。区别是
+ *   数学题把题干明文下发（脚本算一下就能过），图片题只回 PNG。
+ * - `external` 走外部服务（默认参数指向 Cloudflare Turnstile，端点/脚本地址/全局名
+ *   四项均可改成自建中转或其它厂商）。这条路径会把访客 IP 交给校验端点，
+ *   所以是**管理员显式选择**才启用，仓库不预设任何厂商绑定。
+ *   `type` 响应里带 `siteKey` / `scriptUrl` / `globalName`，前端据此加载脚本。
  *
  * ## 未开启时的行为
  *
- * 开关（`ENABLE_CAPTCHA`）关闭时 `captcha-type` 返回 `'none'`，前端整块验证码 UI 不渲染；
- * `generate` 仍然可用（幂等无害），便于管理员开启前先自测题目样式。
+ * 类型为 `none` 时 `captcha-type` 返回 `'none'`，前端整块验证码 UI 不渲染；
+ * `generate` / `image` 仍然可用（幂等无害），便于管理员在开启前先自测样式。
  */
 export interface CaptchaRouteDependencies {
   captcha?: CaptchaService;
@@ -71,27 +76,43 @@ export function createCaptchaRouter(deps: CaptchaRouteDependencies): Router {
       : [];
 
   /**
-   * 开关答案的来源。刻意**每次请求都问一遍**（RuntimeSettings 自己有 30s 缓存），
-   * 这样管理员在后台点开关后无需重启即可生效。
+   * 类型答案的来源。刻意**每次请求都问一遍**（RuntimeSettings 自己有 30s 缓存），
+   * 这样管理员在后台改类型后无需重启即可生效。
    */
-  const isEnabled = async (): Promise<boolean> =>
-    deps.runtimeSettings ? deps.runtimeSettings.enableCaptcha() : false;
+  const currentType = async (): Promise<CaptchaType> =>
+    deps.runtimeSettings ? deps.runtimeSettings.captchaType() : 'none';
+
+  /** 未注入验证码服务属于部署问题，不能静默给空题（前端会渲染成一片空白） */
+  const serviceUnavailable = (res: Response): void => {
+    res.status(503).json({
+      error: 'CAPTCHA_UNAVAILABLE',
+      errorMessage: '人机验证服务未启用',
+      message: '人机验证服务未启用',
+    });
+  };
 
   router.get('/api/captcha/captcha-type', async (_req, res) => {
     // 开关状态随时可能被管理员改动，不能让中间层缓存住旧的 'none'
     res.setHeader('Cache-Control', 'no-store');
-    const enabled = await isEnabled();
-    res.json({ type: enabled ? 'math' : 'none' });
+    const type = await currentType();
+    if (type !== 'external' || !deps.runtimeSettings) {
+      res.json({ type });
+      return;
+    }
+    // 外部模式要告诉前端加载哪个脚本、调哪个全局对象、用哪个 siteKey；
+    // secret 永远不下发（它只在服务端校验时用）
+    const external = await deps.runtimeSettings.externalCaptcha();
+    res.json({
+      type,
+      siteKey: external.siteKey,
+      scriptUrl: external.scriptUrl,
+      globalName: external.globalName,
+    });
   });
 
   router.get('/api/captcha/generate', ...generateLimit, async (req, res) => {
     if (!deps.captcha) {
-      // 未注入服务属于部署问题，不该静默给一个空题目（前端会渲染成一片空白）
-      res.status(503).json({
-        error: 'CAPTCHA_UNAVAILABLE',
-        errorMessage: '人机验证服务未启用',
-        message: '人机验证服务未启用',
-      });
+      serviceUnavailable(res);
       return;
     }
     const sessionId = req.query['sessionId'];
@@ -100,6 +121,26 @@ export function createCaptchaRouter(deps: CaptchaRouteDependencies): Router {
     );
     res.setHeader('Cache-Control', 'no-store');
     res.json(question);
+  });
+
+  /**
+   * 图片题：响应就是 PNG 本身，题干与答案都不出现在任何 JSON 里。
+   *
+   * 与 `generate` 共用出题限流 —— 两者烧的是同一张 `captcha_challenges` 表，
+   * 分开限流反而给了「一条路打满就换另一条」的口子。
+   */
+  router.get('/api/captcha/image', ...generateLimit, async (req, res) => {
+    if (!deps.captcha) {
+      serviceUnavailable(res);
+      return;
+    }
+    const sessionId = req.query['sessionId'];
+    const { png } = await deps.captcha.generateImage(
+      Array.isArray(sessionId) ? sessionId[0] : sessionId,
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'image/png');
+    res.send(Buffer.from(png));
   });
 
   return router;

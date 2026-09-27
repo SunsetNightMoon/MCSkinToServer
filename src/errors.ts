@@ -33,6 +33,13 @@ export type AppErrorCode =
   | 'CAPTCHA_INVALID'
   /** SMTP 连接或投递失败（上游故障，非请求方错误） */
   | 'SMTP_ERROR'
+  /**
+   * 外部人机验证的校验端点不可达或响应异常（上游故障，非请求方错误）。
+   *
+   * 刻意与 `CAPTCHA_INVALID` 分开：后者是「你没答对」，可以随便重试；前者是
+   * 「本站验不了」，混在一起会让管理员以为只是用户填错。502 由 errorHandler 映射。
+   */
+  | 'CAPTCHA_UNAVAILABLE'
   // ---- 安装向导（P5 第十二批）----
   /**
    * 站点尚未完成安装（data/setup.json 不存在）。

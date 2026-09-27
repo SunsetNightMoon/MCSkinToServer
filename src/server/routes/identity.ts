@@ -1,9 +1,10 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import type { IdentityService } from '../../auth/identity.js';
 import type { TokenService } from '../../auth/tokens.js';
 import type { EmailFlow } from '../../account/emailFlow.js';
 import { requestOrigin } from '../requestOrigin.js';
 import type { CaptchaService } from '../../account/captcha.js';
+import type { ExternalCaptchaService } from '../../account/externalCaptcha.js';
 import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
@@ -42,10 +43,14 @@ export interface IdentityRouteDependencies {
   /** 邮箱流程；仅在开启「要求邮箱验证」时用到，未注入则该开关无法生效 */
   emailFlow?: EmailFlow;
   /**
-   * 0004：人机验证服务。仅在 `ENABLE_CAPTCHA` 开启时用到；
+   * 0004：自托管人机验证（`math` / `image` 两种类型都用它）。
    * **开启但未注入时注册/登录直接拒绝** —— 安全开关设成「开了但没人执行」比没开更糟。
    */
   captcha?: CaptchaService;
+  /**
+   * Issue #3：外部人机验证（`external` 类型）。同样未注入即拒绝，不静默放行。
+   */
+  externalCaptcha?: ExternalCaptchaService;
   /** 限流器；未注入则不做限流（测试场景） */
   rateLimiter?: RateLimiterPort;
   /** 限流参数；缺省用 DEFAULT_RATE_LIMIT */
@@ -109,11 +114,32 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
    * 「一道题反复试密码」。
    */
   const assertCaptcha = async (
+    req: Request,
     body: Record<string, unknown>,
   ): Promise<void> => {
     if (!deps.runtimeSettings) return;
-    if (!(await deps.runtimeSettings.enableCaptcha())) return;
+    const type = await deps.runtimeSettings.captchaType();
+    if (type === 'none') return;
 
+    if (type === 'external') {
+      // 外部人机验证：token 由前端组件给出，真正的判定在服务端那次出站校验里。
+      // 没接上校验能力同样属于「已开启但不可用」，宁可拒绝也不静默放行。
+      if (!deps.externalCaptcha) {
+        throw new AppError(
+          'CAPTCHA_UNAVAILABLE',
+          '本站已启用外部人机验证，但校验能力未启用，请联系管理员',
+        );
+      }
+      const settings = await deps.runtimeSettings.externalCaptcha();
+      await deps.externalCaptcha.verify(
+        settings,
+        body['captcha_token'] ?? body['captchaToken'],
+        clientIp(req),
+      );
+      return;
+    }
+
+    // math 与 image 共用同一条「一次一题 + 先消费再比对」的校验路径
     if (!deps.captcha) {
       // 开关开了但服务没接上：宁可拒绝，也不要让「已开启验证码」变成一句空话
       throw new AppError(
@@ -130,7 +156,7 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   router.post('/api/auth/register', ...registerLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
 
-    await assertCaptcha(body);
+    await assertCaptcha(req, body);
 
     // 注册总开关：关闭时不建号（管理员仍可用管理端接口/直接改库加人）
     if (deps.runtimeSettings && !(await deps.runtimeSettings.allowRegistration())) {
@@ -190,7 +216,7 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   router.post('/api/auth/login', ...loginLimit, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
 
-    await assertCaptcha(body);
+    await assertCaptcha(req, body);
 
     const result = await deps.identity.loginWeb({
       email: String(body['email'] ?? ''),

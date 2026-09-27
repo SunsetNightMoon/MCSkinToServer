@@ -14,6 +14,7 @@ import type { TextureService } from '../textures/ingest.js';
 import type { LibraryService } from '../library/libraryService.js';
 import type { SettingRepository } from '../repositories/settingRepository.js';
 import type { EmailFlow } from '../account/emailFlow.js';
+import type { ExternalCaptchaService } from '../account/externalCaptcha.js';
 import type { EmailChangeFlow } from '../account/emailChangeFlow.js';
 import type { OAuthProvider } from '../account/oauth/types.js';
 import type { MailService } from '../mail/mailService.js';
@@ -101,11 +102,16 @@ export interface AppDependencies {
   /** 0003：备用邮箱与邮箱变更流程；未注入则相关端点不挂载 */
   emailChangeFlow?: EmailChangeFlow;
   /**
-   * 0004：人机验证服务（自托管数学题）。
-   * 未注入时 `/api/captcha/generate` 返回 503（明确报部署问题），
-   * 而 `/api/captcha/captcha-type` 仍可用 —— 开关关着时它返回 `'none'`。
+   * 0004：自托管人机验证（数学题与图片题两种类型）。
+   * 未注入时 `/api/captcha/generate` 与 `/api/captcha/image` 返回 503（明确报部署问题），
+   * 而 `/api/captcha/captcha-type` 仍可用 —— 类型是 `none` 时它返回 `'none'`。
    */
   captcha?: CaptchaService;
+  /**
+   * Issue #3：外部人机验证（`CAPTCHA_TYPE=external` 时用，端点可配、不绑定厂商）。
+   * 未注入时该类型下注册/登录一律 502 拒绝，不会静默放行。
+   */
+  externalCaptcha?: ExternalCaptchaService;
   /**
    * 统计聚合（仪表盘概览与趋势）；未注入时 `/api/admin/stats*` 返回 501。
    *
@@ -294,6 +300,7 @@ export function createApp(deps: AppDependencies): Express {
       runtimeSettings: deps.runtimeSettings,
       emailFlow: deps.emailFlow,
       captcha: deps.captcha,
+      externalCaptcha: deps.externalCaptcha,
       rateLimiter: deps.rateLimiter,
       rateLimit: deps.rateLimitSettings,
     }),

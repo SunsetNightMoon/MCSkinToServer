@@ -44,15 +44,23 @@ export interface SettingRouteDependencies {
 
 const MAX_KEY_LENGTH = 64;
 
-/** 入库前需要加密的键 */
-const ENCRYPTED_KEYS: ReadonlySet<string> = new Set(['SMTP_PASS']);
+/**
+ * 入库前需要加密的键。
+ *
+ * `EXTERNAL_CAPTCHA_SECRET` 与 SMTP 口令同一待遇：它是本站去外部校验端点换 token
+ * 的凭据，泄露等于别人可以冒充本站做校验（并可被拿去做滥用配额）。
+ */
+const ENCRYPTED_KEYS: ReadonlySet<string> = new Set([
+  'SMTP_PASS',
+  'EXTERNAL_CAPTCHA_SECRET',
+]);
 
 /**
  * 只读回传用的脱敏键：值一律替换为空串，另以 `<KEY>_SET` 布尔告知「是否已配置」。
  * 放在这里而不是让前端自己判断空串，是因为「空串」既可能是没设过、也可能是被清空，
  * 前端无法区分，会显示错误的提示文案。
  */
-const SECRET_KEYS: readonly string[] = ['SMTP_PASS'];
+const SECRET_KEYS: readonly string[] = ['SMTP_PASS', 'EXTERNAL_CAPTCHA_SECRET'];
 
 export function createSettingRouter(deps: SettingRouteDependencies): Router {
   const router = Router();

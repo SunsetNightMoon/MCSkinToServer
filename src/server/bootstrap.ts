@@ -22,6 +22,7 @@ import { MailService } from '../mail/mailService.js';
 import { EmailFlow } from '../account/emailFlow.js';
 import { EmailChangeFlow } from '../account/emailChangeFlow.js';
 import { CaptchaService } from '../account/captcha.js';
+import { ExternalCaptchaService } from '../account/externalCaptcha.js';
 import { TokenService } from '../auth/tokens.js';
 import { IdentityService } from '../auth/identity.js';
 import { purgeExpiredAccounts } from '../auth/accountLifecycle.js';
@@ -151,9 +152,11 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
 
   const accountTokens = new AccountTokenRepository(db);
   const emailChangeRepo = new EmailChangeRepository(db);
-  // ---- 0004：人机验证（自托管数学题；开关由 ENABLE_CAPTCHA 控制）----
+  // ---- 人机验证：自托管（math/image）+ 外部服务（external，端点可配不绑定厂商）----
+  // 具体走哪条由 CAPTCHA_TYPE 决定（见 runtimeSettings.captchaType），每次请求现读。
   const captchaRepo = new CaptchaRepository(db);
   const captcha = new CaptchaService({ challenges: captchaRepo });
+  const externalCaptcha = new ExternalCaptchaService();
   // ---- 管理后台统计（仪表盘）：分桶时区可配，默认 UTC+8 ----
   const stats = new StatsRepository(db, config.statsTzOffsetMinutes);
   const smtpMailer = new SmtpMailer(runtimeSettings);
@@ -241,6 +244,7 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     emailFlow,
     emailChangeFlow,
     captcha,
+    externalCaptcha,
     stats,
     themeImages,
     mailService,

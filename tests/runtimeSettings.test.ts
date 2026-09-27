@@ -277,3 +277,90 @@ test('runtimeSettings: 前端 settingBool 与后端 toSettingBool 逐项一致',
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Issue #3：人机验证类型与外部验证配置
+// ---------------------------------------------------------------------------
+
+const BOX_SECRET = 'test-master-secret-value';
+
+function runtimeWith(values: Record<string, unknown>): RuntimeSettings {
+  return new RuntimeSettings({
+    settings: fakeSettings(values),
+    secretBox: new SecretBox(BOX_SECRET),
+  });
+}
+
+test('runtimeSettings: captchaType 显式值优先，缺省时才按旧布尔推导', async () => {
+  // 老站点只写过 ENABLE_CAPTCHA，升级后行为必须一字不变
+  assert.equal(await runtimeWith({ ENABLE_CAPTCHA: true }).captchaType(), 'math');
+  assert.equal(await runtimeWith({ ENABLE_CAPTCHA: false }).captchaType(), 'none');
+  assert.equal(await runtimeWith({}).captchaType(), 'none');
+
+  // 显式类型压过旧布尔 —— 包括「新区里关掉验证码」这一条
+  assert.equal(
+    await runtimeWith({ CAPTCHA_TYPE: 'image', ENABLE_CAPTCHA: false }).captchaType(),
+    'image',
+  );
+  assert.equal(
+    await runtimeWith({ CAPTCHA_TYPE: 'none', ENABLE_CAPTCHA: true }).captchaType(),
+    'none',
+  );
+  // 形态容忍：大小写与空白都要能认
+  assert.equal(await runtimeWith({ CAPTCHA_TYPE: ' IMAGE ' }).captchaType(), 'image');
+
+  // 枚举值写坏时不能让验证静默消失，必须回落到旧布尔口径
+  assert.equal(
+    await runtimeWith({ CAPTCHA_TYPE: 'nope', ENABLE_CAPTCHA: true }).captchaType(),
+    'math',
+  );
+});
+
+test('runtimeSettings: externalCaptcha 用预设填默认值，管理员写过的项优先', async () => {
+  const box = new SecretBox(BOX_SECRET);
+  const turnstile = await runtimeWith({
+    EXTERNAL_CAPTCHA_PRESET: 'turnstile',
+    EXTERNAL_CAPTCHA_SITE_KEY: 'site-public',
+    EXTERNAL_CAPTCHA_SECRET: box.encrypt('secret-private'),
+  }).externalCaptcha();
+  assert.equal(turnstile.preset, 'turnstile');
+  assert.equal(turnstile.siteKey, 'site-public');
+  // 库里是密文，读出来就得是能直接用的明文
+  assert.equal(turnstile.secret, 'secret-private');
+  assert.equal(
+    turnstile.verifyUrl,
+    'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+  );
+  assert.equal(turnstile.scriptUrl, 'https://challenges.cloudflare.com/turnstile/v0/api.js');
+  assert.equal(turnstile.globalName, 'turnstile');
+
+  // 只改一项，其余仍跟预设；历史上没加密的明文也照旧能用
+  const overridden = await runtimeWith({
+    EXTERNAL_CAPTCHA_PRESET: 'hcaptcha',
+    EXTERNAL_CAPTCHA_VERIFY_URL: 'https://relay.internal/siteverify',
+    EXTERNAL_CAPTCHA_GLOBAL_NAME: 'mycaptcha',
+    EXTERNAL_CAPTCHA_SECRET: 'plain-legacy-secret',
+  }).externalCaptcha();
+  assert.equal(overridden.verifyUrl, 'https://relay.internal/siteverify');
+  assert.equal(overridden.scriptUrl, 'https://js.hcaptcha.com/1/api.js');
+  assert.equal(overridden.globalName, 'mycaptcha');
+  assert.equal(overridden.secret, 'plain-legacy-secret');
+
+  // 空串是「没写」，不是「刻意清空成空端点」
+  const blank = await runtimeWith({
+    EXTERNAL_CAPTCHA_PRESET: 'recaptcha',
+    EXTERNAL_CAPTCHA_SCRIPT_URL: '   ',
+  }).externalCaptcha();
+  assert.equal(blank.scriptUrl, 'https://www.google.com/recaptcha/api.js');
+  assert.equal(blank.globalName, 'grecaptcha');
+
+  // custom 预设没有默认地址，三项全靠管理员给（缺的项就是空串）
+  const custom = await runtimeWith({ EXTERNAL_CAPTCHA_PRESET: 'custom' }).externalCaptcha();
+  assert.equal(custom.verifyUrl, '');
+  assert.equal(custom.scriptUrl, '');
+
+  // 预设名写坏按 turnstile 处理，不要把三项都清空
+  const broken = await runtimeWith({ EXTERNAL_CAPTCHA_PRESET: 'no-such' }).externalCaptcha();
+  assert.equal(broken.preset, 'turnstile');
+  assert.ok(broken.verifyUrl.startsWith('https://challenges.cloudflare.com/'));
+});

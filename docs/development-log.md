@@ -872,6 +872,56 @@ $ curl -s http://localhost:3000/api/admin/stats
 
 ---
 
+## P5 第十三批：人机验证三态（Issue #3）
+
+GitHub Issue #3 的原始诉求是「生产站开着注册却没有验证码」。实测线上 `/api/settings/public` 与设置形态后确认：`CAPTCHA` 只有布尔开关、只有数学题一种实现，且题干明文下发。用户选择的路线是**三种都做、做成可选项**，并追加「保留国内外第三方人机验证端点，从不绑定，让管理者有更多的选择」。
+
+> 本批**推翻此前「本项目不接 Turnstile」的三处文档口径**（`src/server/routes/captcha.ts` 头注释、`tests/captcha.test.ts` 断言注释、前端 `TurnstileWidget` 的既成事实）。推翻的不是「不依赖厂商」这一点，而是实现方式：外部验证以**预设 + 四项全可改**的形态存在，任何厂商都只是 `EXTERNAL_CAPTCHA_*` 的一组默认值，仓库本身不绑定它，也不为它写死端点。
+
+### 规则矩阵
+
+| 场景 | `none` | `math` | `image` | `external` |
+|---|---|---|---|---|
+| `GET /api/captcha/captcha-type` | `{type:'none'}` | `{type:'math'}` | `{type:'image'}` | `{type,siteKey,scriptUrl,globalName}`（**不含 secret**） |
+| 出题端点 | `generate` 明文题干 | 同左 | `GET /api/captcha/image` 回 PNG，题干不出服务端 | 无（token 由外部脚本给） |
+| 提交字段 | 无 | `captcha_session_id` + `captcha_answer` | 同左 | `captcha_token` |
+| 校验失败 | — | 400 `CAPTCHA_INVALID`（一次一题，答错即烧） | 同左 | 400 `CAPTCHA_INVALID`（token 空/端点说不过） |
+| 能力缺失 / 上游不通 | — | 服务未注入 → 400 fail-closed | 同左 | **502 `CAPTCHA_UNAVAILABLE`**（未注入、缺配置、超时、非 2xx、非 JSON） |
+| 访客 IP 去向 | 本站 | 本站 | 本站 | 所配置的校验端点 |
+| 旧站点（只写过 `ENABLE_CAPTCHA`） | `false → none` | `true → math` | — | — |
+
+三条硬规则（一次一题、先消费再比对、四类失败同一文案）由 `math` 与 `image` **共用同一套仓储与 `verify`**，图片模式没有另开一条校验路径。
+
+### 落地（后端）
+
+- `src/site/runtimeSettings.ts`：新键 `CAPTCHA_TYPE`（`none|math|image|external`）+ `EXTERNAL_CAPTCHA_{PRESET,SITE_KEY,SECRET,VERIFY_URL,SCRIPT_URL,GLOBAL_NAME}`；`captchaType()` 在枚举未写时按旧布尔推导，写坏的枚举值同样回落旧口径（**绝不因脏值变成「谁都不校验」**）；`EXTERNAL_CAPTCHA_PRESETS` 内置 turnstile/hcaptcha/recaptcha 三组默认值，`externalCaptcha()` 做「预设填默认、管理员显式值优先、空串视为未写」的合并，secret 走 `SecretBox` 解密且兼容历史明文。
+- `src/account/captchaImage.ts`（新）：图片题渲染器。数字用**手写矢量笔画路径**画，不用 `<text>` —— `<text>` 依赖系统字体，精简容器（alpine-slim/distroless）里会画成空白图，用户永远答不对且只在部分机器复现。先试过七段数码管段位表，实测 `1`/`7` 旋转后不可辨认，故改手写笔画。sharp 已是硬依赖（`src/textures/ingest.ts`），无新增依赖。
+- `src/account/captcha.ts`：`generateImage()` 与 `generate()` 共用私有 `issue()`（replace + 顺带清过期）；`requireSessionId` 提到模块级复用。
+- `src/account/externalCaptcha.ts`（新）：只依赖「表单 POST（`secret`+`response`+`sitekey`+`remoteip`）→ 布尔 `success`」这一共同形状，因此换厂商、换自建中转都只是改配置。两条硬约束：默认 5s 超时（这是挂在注册/登录路径上的出站 HTTP）、失败绝不静默放行。协议锁死 http/https，**刻意不拦内网地址**（指向自建/内网校验服务正是这项能力存在的理由）。需要厂商签名的服务（天御/阿里云/易盾/GeeTest v4）不在此形状内，未预先塞无法验证的代码，扩展位写在注释里。
+- `src/errors.ts` + `src/server/errorHandler.ts`：新增 `CAPTCHA_UNAVAILABLE` → 502，与 `SMTP_ERROR` 同一类「上游故障」；刻意与 `CAPTCHA_INVALID` 分开，否则管理员会把「本站验不了」当成「用户填错」。
+- `src/server/routes/captcha.ts`：`captcha-type` 按类型给形状、`image` 端点与 `generate` **共用出题限流**（两者烧同一张表，分开限流等于给「一条路打满换另一条」留口子）、未注入服务回 503 而不是空题。
+- `src/server/routes/identity.ts`：`assertCaptcha` 改为按 `captchaType()` 分派；external 分支只认 `captcha_token`，且数学题字段在这条路上不作数（防换条路绕过）。
+- `src/server/routes/settings.ts`：`EXTERNAL_CAPTCHA_SECRET` 进 `ENCRYPTED_KEYS` 与 `SECRET_KEYS`（与 `SMTP_PASS` 同待遇：写入加密、回传脱敏 + `<KEY>_SET`）。`/api/settings/public` 是白名单式，新键默认不公开。
+
+### 落地（前端）
+
+- `web/src/components/ExternalCaptchaWidget/`（新）取代 `TurnstileWidget/`（删）：脚本地址、全局对象名、siteKey 全部由配置传入，脚本按 URL 去重复用，`waitForApi` 轮询到 `render` 就绪再挂载；失败只给**原因码**（`load`/`unavailable`/`verify`/`expired`），文案留在页面层，四语言才跟得上。
+- `Login.tsx` / `Register.tsx`：三态渲染（外部 widget / 图片 `<img>` / 数学题只读输入框），提交前分别拦住「token 还没拿到」与「题目没就绪」，失败后 external 清 token、自托管换一道。图片 `<img>` 带 `onError` 提示，避免只剩一个破图标。
+- `SystemSettings.tsx`：`ENABLE_CAPTCHA` 开关换成四选一 Select，选 image 出「本机绘制/只拦脚本」提示，选 external 出「会把访客 IP 交给端点、不通时 502」警告 + 预设与四项配置；密钥框留空即保留已存值（占位文案由 `<KEY>_SET` 驱动）。
+- `SkinUpload.tsx`：删掉那段**永远走不到的 turnstile 死代码**（后端从未返回过 `'turnstile'`，上传链路也不校验验证码），顺带去掉 `authService` 与 `RegisterDTO`/`LoginDTO` 里没人消费的 `turnstile_token` 字段，改传 `captcha_token`。
+- i18n 四语言各补 29 个键，同时删掉因上述死代码而失效的 `admin.enableCaptcha*` 与 `upload.pleaseCompleteCaptcha`。
+
+### 验收（数字均为实际输出）
+
+- 后端 `npm run typecheck` 与前端 `tsc --noEmit` 零错误；`web` 生产构建通过。
+- 单测：SQLite 基线 **372 用例 / 282 pass / 0 fail / 90 skipped**；全门控（PG + Redis + Mailpit）**372/372 pass / 0 fail / 0 skipped**。本批新增 18 个用例：图片码形态与 PNG 尺寸、external 的 6 条服务层分支（缺配置不出网、表单四项、success=false、非法 token、上游不通/非 2xx/非 JSON）、`CAPTCHA_TYPE` 显式优先与脏值回落、图片题端到端（含「答错烧题后正确答案也不再放行」）、external 端到端（含未注入服务 502 与「校验不通不建号」）、`runtimeSettings` 类型与预设合并、`EXTERNAL_CAPTCHA_SECRET` 密文入库/脱敏/留空不覆盖。
+- 浏览器实测（便携包站点 + 本地验证桩，三种模式逐一过）：
+  - `image`：注册页 PNG 实际渲染成人眼可读的 5 位数字（截图核对 `17602`/`21987`），答对 → 注册成功；答错 → 提示「人机验证答案不正确，请换一道重试」并自动换一道；`login` 同样被拦（空答案时出必填提示）。
+  - `external`：管理端填自建桩的校验地址/脚本地址/全局名后，注册页加载本地脚本并渲染出自定义 widget，提交后桩服务收到 `secret`+`response`+`sitekey`+`remoteip` 四项齐全的表单并放行；把校验地址改到死端口 → 502 `CAPTCHA_UNAVAILABLE`；把脚本地址改到死端口 → 页面出「人机验证组件加载失败…」而不是一片空白；管理端密钥框显示为空 + 占位「留空则保留已保存的密钥」。
+  - `math`：题干明文（`28 - 17 = ?`）正常作答登录成功，确认旧模式未被本批改坏。
+  - `none`（默认）：注册/登录页整块验证码 UI 不渲染，与升级前一致。
+- 收尾：临时实例、验证桩与 `.tmp-*` 脚本全部删除，不留测试账号。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

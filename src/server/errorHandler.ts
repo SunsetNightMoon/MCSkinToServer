@@ -37,8 +37,10 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     // 未验证邮箱：凭据正确但账号状态不允许登录，前端据此展示「重发验证邮件」
     case 'EMAIL_NOT_VERIFIED':
       return 403;
-    // SMTP 是上游依赖，故障归 502 而不是 500（区分「我们写错了」与「邮件服务不通」）
+    // SMTP 与外部人机验证都是上游依赖，故障归 502 而不是 500
+    // （区分「我们写错了」与「上游服务不通」）
     case 'SMTP_ERROR':
+    case 'CAPTCHA_UNAVAILABLE':
       return 502;
     // 未安装：状态问题（装完就好），语义同 USER_DISABLED 的 403
     case 'SETUP_REQUIRED':

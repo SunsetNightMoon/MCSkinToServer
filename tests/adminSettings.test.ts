@@ -26,6 +26,7 @@ import { AssetUrlResolver } from '../src/storage/assetUrl.js';
 import { TextureProfileBuilder } from '../src/yggdrasil/textures.js';
 import { loadOrCreateKeyPair } from '../src/yggdrasil/keys.js';
 import { sha256Hex } from '../src/util/crypto.js';
+import { SecretBox } from '../src/util/secretBox.js';
 import { createApp, type AppDependencies } from '../src/server/app.js';
 import type { AppConfig } from '../src/config.js';
 
@@ -102,6 +103,9 @@ async function buildEnv(): Promise<Env> {
       resolver,
     }),
     settings: new SettingRepository(db),
+    // 凭据类键（SMTP_PASS / EXTERNAL_CAPTCHA_SECRET）要在写入时加密，
+    // 没有主密钥的 harness 会退化成明文落库，那样就测不到这条链路
+    secretBox: new SecretBox('test-master-secret-for-admin-settings'),
   };
 
   const server = createApp(deps).listen(0, '127.0.0.1');
@@ -675,4 +679,66 @@ test('settings: 凭据类与部署类键不进公开白名单，写入后公开�
   assert.equal(admin.body.BASE_URL, 'https://secret.test');
   assert.equal(admin.body.SMTP_PASS, '');
   assert.equal(admin.body.SMTP_PASS_SET, true);
+});
+
+// ---------------------------------------------------------------------------
+// Issue #3：外部人机验证的密钥与配置键
+//
+// 和 SMTP_PASS 同一待遇：公开端点看不到、管理端只回「已配置」标志、表单原样
+// 回传空串时不得把库里的真值清空。siteKey 是前端本来就要用的公开值，留空反而
+// 会让注册页渲染不出控件，所以它不进 SECRET_KEYS。
+// ---------------------------------------------------------------------------
+
+test('settings: 外部人机验证的密钥加密入库、不公开、只回 _SET 标志、留空不覆盖', async () => {
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('EXTERNAL_CAPTCHA_SECRET'));
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('EXTERNAL_CAPTCHA_VERIFY_URL'));
+  assert.ok(!PUBLIC_SETTING_KEYS.includes('CAPTCHA_TYPE'));
+
+  const put = await api('/api/admin/settings', {
+    method: 'PUT',
+    token: env().adminToken,
+    body: {
+      CAPTCHA_TYPE: 'external',
+      EXTERNAL_CAPTCHA_PRESET: 'turnstile',
+      EXTERNAL_CAPTCHA_SITE_KEY: 'site-public',
+      EXTERNAL_CAPTCHA_SECRET: 'external-should-never-leak',
+    },
+  });
+  assert.equal(put.status, 200);
+
+  // 库里存的是密文，不是能直接拿去用的密钥
+  const stored = await env().db.query<Record<string, unknown>>(
+    'SELECT value FROM system_settings WHERE key = ?',
+    ['EXTERNAL_CAPTCHA_SECRET'],
+  );
+  assert.equal(stored.length, 1);
+  // 值列是 JSON 编码的，先剥掉这层再判断密文形态
+  const column = stored[0]!['value'];
+  const cipher = typeof column === 'string' ? (JSON.parse(column) as string) : String(column);
+  assert.ok(SecretBox.isEncrypted(cipher), `凭据键必须加密入库，实际是：${cipher.slice(0, 24)}`);
+  assert.ok(!cipher.includes('external-should-never-leak'));
+
+  const pub = await api('/api/settings/public');
+  assert.equal(pub.body.EXTERNAL_CAPTCHA_SECRET, undefined);
+  assert.equal(pub.body.CAPTCHA_TYPE, undefined);
+  assert.ok(
+    !JSON.stringify(pub.body).includes('external-should-never-leak'),
+    '密钥绝不能随公开端点下发',
+  );
+
+  const admin = await api('/api/admin/settings', { token: env().adminToken });
+  assert.equal(admin.body.EXTERNAL_CAPTCHA_SECRET, '');
+  assert.equal(admin.body.EXTERNAL_CAPTCHA_SECRET_SET, true);
+  // siteKey 是前端要用的公开值，管理端要能原样读回（否则保存一次就丢）
+  assert.equal(admin.body.EXTERNAL_CAPTCHA_SITE_KEY, 'site-public');
+
+  // 只改类型、把脱敏字段原样回传空串：库里密钥必须还在
+  const second = await api('/api/admin/settings', {
+    method: 'PUT',
+    token: env().adminToken,
+    body: { CAPTCHA_TYPE: 'image', EXTERNAL_CAPTCHA_SECRET: '' },
+  });
+  assert.equal(second.status, 200);
+  const after = await api('/api/admin/settings', { token: env().adminToken });
+  assert.equal(after.body.EXTERNAL_CAPTCHA_SECRET_SET, true, '留空保存不得清空已存密钥');
 });

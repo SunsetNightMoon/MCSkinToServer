@@ -65,7 +65,7 @@ export const authService = {
         // 也照样被拒」，且前端看起来一切正常（字段在页面里、类型也对）。
         captcha_session_id: data.captcha_session_id,
         captcha_answer: data.captcha_answer,
-        turnstile_token: data.turnstile_token,
+        captcha_token: data.captcha_token,
       },
     })
     return {
@@ -85,7 +85,7 @@ export const authService = {
         // 同 register：验证码字段必须透传，否则登录在被要求验证码时必然 400
         captcha_session_id: data.captcha_session_id,
         captcha_answer: data.captcha_answer,
-        turnstile_token: data.turnstile_token,
+        captcha_token: data.captcha_token,
       },
     })
 

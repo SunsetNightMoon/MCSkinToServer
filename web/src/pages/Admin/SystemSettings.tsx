@@ -3,7 +3,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useSiteStore } from '../../store/siteStore'
 import { clearSiteTitleCache } from '../../hooks/usePageTitle'
 import { fetchWithAuth } from '../../utils/api'
-import { Form, Input, Switch, Button, message, Card, Spin, Modal, Upload, Space, Slider, Alert } from 'antd'
+import { Form, Input, Switch, Button, message, Card, Spin, Modal, Upload, Space, Slider, Alert, Select } from 'antd'
 import { SendOutlined, EditOutlined, CloseOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
 import './SystemSettings.css'
@@ -39,6 +39,10 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [loadingSettings, setLoadingSettings] = useState(true)
+  /** 外部人机验证的密钥是否已配置（后端只回 `*_SET` 布尔，不回密文） */
+  const [externalSecretSet, setExternalSecretSet] = useState(false)
+  // 类型决定这一组里哪些字段要显示；用 useWatch 而不是 state，避免与表单值两套来源
+  const captchaType = Form.useWatch('CAPTCHA_TYPE', form)
 
   const loadSettings = async () => {
     setLoadingSettings(true)
@@ -59,8 +63,24 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
           data.REQUIRE_EMAIL_VERIFICATION,
           false,
         ),
-        ENABLE_CAPTCHA: settingBool(data.ENABLE_CAPTCHA, false),
+        // CAPTCHA_TYPE 是后加的枚举；老站点只写过 ENABLE_CAPTCHA，
+        // 没写类型时按后端同一口径推导（true → math），否则管理员会看到「关闭」
+        // 而实际站点仍在出数学题。
+        CAPTCHA_TYPE:
+          typeof data.CAPTCHA_TYPE === 'string' && data.CAPTCHA_TYPE !== ''
+            ? data.CAPTCHA_TYPE
+            : settingBool(data.ENABLE_CAPTCHA, false)
+              ? 'math'
+              : 'none',
+        EXTERNAL_CAPTCHA_PRESET: data.EXTERNAL_CAPTCHA_PRESET || 'turnstile',
+        EXTERNAL_CAPTCHA_SITE_KEY: data.EXTERNAL_CAPTCHA_SITE_KEY || '',
+        // 密钥永远不回传（脱敏成空串）：留空提交即「不改动」，见 handleSave
+        EXTERNAL_CAPTCHA_SECRET: '',
+        EXTERNAL_CAPTCHA_VERIFY_URL: data.EXTERNAL_CAPTCHA_VERIFY_URL || '',
+        EXTERNAL_CAPTCHA_SCRIPT_URL: data.EXTERNAL_CAPTCHA_SCRIPT_URL || '',
+        EXTERNAL_CAPTCHA_GLOBAL_NAME: data.EXTERNAL_CAPTCHA_GLOBAL_NAME || '',
       })
+      setExternalSecretSet(data.EXTERNAL_CAPTCHA_SECRET_SET === true)
     } catch (err: any) {
       message.error(err.message || t('admin.loadSettingsFailed'))
     } finally {
@@ -73,10 +93,16 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
   const handleSave = async (values: any) => {
     setLoading(true)
     try {
+      // 密钥输入框留空表示「保持原值」：后端 PUT 是按键覆盖，不剔除就会把已配好的
+      // 密钥清成空串，表现为「管理员只是改了别的字段，验证码却突然全挂」
+      const payload: Record<string, unknown> = { ...values }
+      if (payload.EXTERNAL_CAPTCHA_SECRET === '' || payload.EXTERNAL_CAPTCHA_SECRET == null) {
+        delete payload.EXTERNAL_CAPTCHA_SECRET
+      }
       const res = await fetchWithAuth('/api/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -120,13 +146,91 @@ function RegistrationSettings({ autoApply, onAutoApplyChange }: { autoApply: boo
         </Form.Item>
 
         <Form.Item
-          label={t('admin.enableCaptcha')}
-          name="ENABLE_CAPTCHA"
-          valuePropName="checked"
-          tooltip={t('admin.enableCaptchaTooltip')}
+          label={t('admin.captchaType')}
+          name="CAPTCHA_TYPE"
+          tooltip={t('admin.captchaTypeTooltip')}
         >
-          <Switch checkedChildren={t('common.on')} unCheckedChildren={t('common.off')} />
+          <Select
+            options={[
+              { value: 'none', label: t('admin.captchaTypeNone') },
+              { value: 'math', label: t('admin.captchaTypeMath') },
+              { value: 'image', label: t('admin.captchaTypeImage') },
+              { value: 'external', label: t('admin.captchaTypeExternal') },
+            ]}
+          />
         </Form.Item>
+
+        {captchaType === 'image' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={t('admin.captchaImageHint')}
+          />
+        )}
+
+        {captchaType === 'external' && (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={t('admin.captchaExternalWarning')}
+            />
+            <Form.Item
+              label={t('admin.captchaExternalPreset')}
+              name="EXTERNAL_CAPTCHA_PRESET"
+              tooltip={t('admin.captchaExternalPresetTooltip')}
+            >
+              <Select
+                options={[
+                  { value: 'turnstile', label: 'Cloudflare Turnstile' },
+                  { value: 'hcaptcha', label: 'hCaptcha' },
+                  { value: 'recaptcha', label: 'Google reCAPTCHA' },
+                  { value: 'custom', label: t('admin.captchaExternalPresetCustom') },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item
+              label={t('admin.captchaExternalSiteKey')}
+              name="EXTERNAL_CAPTCHA_SITE_KEY"
+              tooltip={t('admin.captchaExternalSiteKeyTooltip')}
+            >
+              <Input autoComplete="off" />
+            </Form.Item>
+            <Form.Item
+              label={t('admin.captchaExternalSecret')}
+              name="EXTERNAL_CAPTCHA_SECRET"
+              tooltip={t('admin.captchaExternalSecretTooltip')}
+            >
+              <Input.Password
+                autoComplete="new-password"
+                placeholder={externalSecretSet ? t('admin.secretSavedHint') : ''}
+              />
+            </Form.Item>
+            <Form.Item
+              label={t('admin.captchaExternalVerifyUrl')}
+              name="EXTERNAL_CAPTCHA_VERIFY_URL"
+              tooltip={t('admin.captchaExternalVerifyUrlTooltip')}
+            >
+              <Input placeholder={t('admin.captchaExternalUsePreset')} />
+            </Form.Item>
+            <Form.Item
+              label={t('admin.captchaExternalScriptUrl')}
+              name="EXTERNAL_CAPTCHA_SCRIPT_URL"
+              tooltip={t('admin.captchaExternalScriptUrlTooltip')}
+            >
+              <Input placeholder={t('admin.captchaExternalUsePreset')} />
+            </Form.Item>
+            <Form.Item
+              label={t('admin.captchaExternalGlobalName')}
+              name="EXTERNAL_CAPTCHA_GLOBAL_NAME"
+              tooltip={t('admin.captchaExternalGlobalNameTooltip')}
+            >
+              <Input placeholder={t('admin.captchaExternalUsePreset')} />
+            </Form.Item>
+          </>
+        )}
 
         <Form.Item>
           <Button type="primary" htmlType="submit" loading={loading}>

@@ -9,7 +9,7 @@ import { authService } from '../../services/authService'
 import { useAuthStore, roleToLevel } from '../../store/authStore'
 import { useSiteStore } from '../../store/siteStore'
 import { usePageTitle } from '../../hooks/usePageTitle'
-import { TurnstileWidget } from '../../components/TurnstileWidget/TurnstileWidget'
+import { ExternalCaptchaWidget } from '../../components/ExternalCaptchaWidget/ExternalCaptchaWidget'
 import { isVideoFile } from '../../utils/media'
 import './AuthShared.css'
 
@@ -52,10 +52,14 @@ export function Login() {
   // 出题失败（限流/服务不可用）时的提示与加载态：没有这两项，失败就表现为空白题干
   const [captchaError, setCaptchaError] = useState<string>('')
   const [captchaLoading, setCaptchaLoading] = useState(false)
-  // MCSTS 未启用验证码：后端返回 type='none'，此时整块验证码 UI 不渲染
-  const [captchaType, setCaptchaType] = useState<'turnstile' | 'math' | 'none'>('none')
-  const [turnstileToken, setTurnstileToken] = useState<string>('')
-  const [turnstileSiteKey, setTurnstileSiteKey] = useState<string>('')
+  // 后端 captcha-type 的四种取值；'none' 时整块验证码 UI 不渲染
+  const [captchaType, setCaptchaType] = useState<'external' | 'image' | 'math' | 'none'>('none')
+  /** 图片题的 <img> 地址（换一道时靠变化的查询参数绕开浏览器缓存） */
+  const [captchaImageSrc, setCaptchaImageSrc] = useState<string>('')
+  const [captchaToken, setCaptchaToken] = useState<string>('')
+  const [externalSiteKey, setExternalSiteKey] = useState<string>('')
+  const [externalScriptUrl, setExternalScriptUrl] = useState<string>('')
+  const [externalGlobalName, setExternalGlobalName] = useState<string>('')
   const [oauthProviders, setOauthProviders] = useState<{ github: boolean; microsoft: boolean }>({ github: false, microsoft: false })
   // 账号处于注销宽限期时，登录会被拒（ACCOUNT_DELETED）；此处保留凭据用于一键恢复
   const [deletedAccount, setDeletedAccount] = useState<{ email: string; password: string; message: string } | null>(null)
@@ -80,11 +84,23 @@ export function Login() {
     setEmailOptions([])
   }
 
-  const loadCaptcha = async () => {
+  const loadCaptcha = async (
+    // 首次出题是在拿到 captcha-type 的同一刻触发的，那时 state 还没更新，
+    // 所以类型必须由调用方显式给，不能只读 captchaType
+    type: 'external' | 'image' | 'math' | 'none' = captchaType,
+  ) => {
     setCaptchaLoading(true)
     setCaptchaError('')
+    const sessionId = Math.random().toString(36).substring(2, 15)
     try {
-      const sessionId = Math.random().toString(36).substring(2, 15)
+      if (type === 'image') {
+        // 图片题不走 JSON：题干与答案都不该出现在响应体里，<img> 直接吃这个 URL。
+        // t 参数只为绕开浏览器缓存 —— 同一个 sessionId 换一道时不能拿到旧图。
+        setCaptchaSessionId(sessionId)
+        setCaptchaQuestion('')
+        setCaptchaImageSrc(`/api/captcha/image?sessionId=${sessionId}&t=${Date.now()}`)
+        return
+      }
       const response = await fetch(`/api/captcha/generate?sessionId=${sessionId}`)
       // 必须查 response.ok：拿到 429/503 时若照旧读 data.question，题干会渲染成
       // 一个空白输入框 —— 用户填不出、也看不到任何提示，登录这条路就堵死了。
@@ -121,12 +137,17 @@ export function Login() {
       try {
         const response = await fetch('/api/captcha/captcha-type')
         const data = await response.json()
-        setCaptchaType(data.type)
-        if (data.type === 'turnstile' && data.siteKey) {
-          setTurnstileSiteKey(data.siteKey)
+        const nextType: 'external' | 'image' | 'math' | 'none' =
+          data.type ?? 'none'
+        setCaptchaType(nextType)
+        if (nextType === 'external') {
+          // siteKey 可以公开（它只标识站点在对方服务里的身份）；secret 永远只在服务端
+          setExternalSiteKey(data.siteKey || '')
+          setExternalScriptUrl(data.scriptUrl || '')
+          setExternalGlobalName(data.globalName || '')
         }
-        if (data.type === 'math') {
-          loadCaptcha()
+        if (nextType === 'math' || nextType === 'image') {
+          loadCaptcha(nextType)
         }
       } catch {
         // 问不到类型就按「不启用」处理。此时 UI 不渲染，再去出题只会白烧配额。
@@ -147,20 +168,34 @@ export function Login() {
     fetchOAuthProviders()
   }, [])
 
-  const handleTurnstileVerify = useCallback((token: string) => {
-    setTurnstileToken(token)
+  const handleExternalVerify = useCallback((token: string) => {
+    setCaptchaToken(token)
   }, [])
 
-  const handleTurnstileError = useCallback((error: string) => {
-    message.error(error)
-    setTurnstileToken('')
-  }, [])
+  const handleExternalError = useCallback(
+    (reason: 'load' | 'unavailable' | 'verify' | 'expired') => {
+      // 组件只给原因码，文案在这里出，四语言才能跟上
+      message.error(
+        reason === 'load' || reason === 'unavailable'
+          ? t('auth.captchaExternalLoadFailed')
+          : t('auth.captchaExternalVerifyFailed'),
+      )
+      setCaptchaToken('')
+    },
+    [t],
+  )
 
   const onFinish = async (values: any) => {
     // 题目没就绪就提交必然是白跑一趟（后端只会回 CAPTCHA_INVALID），
     // 而且会把「为什么失败」掩盖成一句笼统的登录失败。这里先拦住并说清原因。
-    if (captchaType === 'math' && !captchaSessionId) {
+    if ((captchaType === 'math' || captchaType === 'image') && !captchaSessionId) {
       message.error(captchaError || t('auth.captchaLoadFailed'))
+      return
+    }
+    // 外部验证的 token 是异步拿到的，用户手快就会在 widget 出结果前提交；
+    // 后端此时只会回一句 CAPTCHA_INVALID，看不出「还没验证」。
+    if (captchaType === 'external' && !captchaToken) {
+      message.error(t('auth.captchaExternalPending'))
       return
     }
     setLoading(true)
@@ -170,9 +205,10 @@ export function Login() {
         password: values.password,
       }
 
-      if (captchaType === 'turnstile' && turnstileToken) {
-        loginData.turnstile_token = turnstileToken
-      } else {
+      if (captchaType === 'external') {
+        loginData.captcha_token = captchaToken
+      } else if (captchaType !== 'none') {
+        // math 与 image 回传的是同一对字段（sessionId + 答案），后端共用一条校验路径
         loginData.captcha_session_id = captchaSessionId
         loginData.captcha_answer = values.captcha_answer
       }
@@ -201,10 +237,12 @@ export function Login() {
       } else {
         message.error(msg)
       }
-      if (captchaType === 'math') {
+      if (captchaType === 'math' || captchaType === 'image') {
+        // 答错（或密码错）都要换一道：后端一次一题，旧题已被消费
         loadCaptcha()
       } else {
-        setTurnstileToken('')
+        // 外部验证的 token 同样是一次性的，清掉让用户重新勾一次
+        setCaptchaToken('')
       }
     } finally {
       setLoading(false)
@@ -403,28 +441,46 @@ export function Login() {
               <Input.Password placeholder={t('auth.passwordPlaceholder')} size="large" />
             </Form.Item>
 
-            {captchaType !== 'none' && (captchaType === 'turnstile' ? (
+            {captchaType === 'external' && (
               <Form.Item label={t('auth.captcha')}>
-                <TurnstileWidget
-                  siteKey={turnstileSiteKey}
-                  mode="managed"
-                  onVerify={handleTurnstileVerify}
-                  onError={handleTurnstileError}
+                <ExternalCaptchaWidget
+                  siteKey={externalSiteKey}
+                  scriptUrl={externalScriptUrl}
+                  globalName={externalGlobalName}
+                  onVerify={handleExternalVerify}
+                  onError={handleExternalError}
                 />
               </Form.Item>
-            ) : (
+            )}
+
+            {(captchaType === 'math' || captchaType === 'image') && (
               <>
-                <Form.Item label={t('auth.captchaMath')}>
+                <Form.Item
+                  label={captchaType === 'image' ? t('auth.captchaImage') : t('auth.captchaMath')}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <Input
-                      value={captchaQuestion}
-                      disabled
-                      status={captchaError ? 'error' : undefined}
-                      placeholder={captchaError ? '—' : undefined}
-                      style={{ width: '180px', fontWeight: 'bold' }}
-                      size="large"
-                    />
-                    <Button onClick={loadCaptcha} loading={captchaLoading} size="large">
+                    {captchaType === 'image' ? (
+                      // 图片题：图本身就是题干。加载失败必须说清 —— 否则只剩一个
+                      // 破图标，用户不知道是网络问题还是本站没配好。
+                      <img
+                        src={captchaImageSrc}
+                        alt={t('auth.captchaImageAlt')}
+                        width={190}
+                        height={64}
+                        style={{ borderRadius: 6, background: '#f5f7fa', display: 'block' }}
+                        onError={() => setCaptchaError(t('auth.captchaLoadFailed'))}
+                      />
+                    ) : (
+                      <Input
+                        value={captchaQuestion}
+                        disabled
+                        status={captchaError ? 'error' : undefined}
+                        placeholder={captchaError ? '—' : undefined}
+                        style={{ width: '180px', fontWeight: 'bold' }}
+                        size="large"
+                      />
+                    )}
+                    <Button onClick={() => loadCaptcha()} loading={captchaLoading} size="large">
                       {t('auth.captchaRefresh')}
                     </Button>
                   </div>
@@ -450,17 +506,29 @@ export function Login() {
                 <Form.Item
                   name="captcha_answer"
                   label={t('auth.captchaAnswerLabel')}
-                  rules={[{ required: true, message: t('auth.captchaAnswerPlaceholder') }]}
+                  rules={[
+                    {
+                      required: true,
+                      message:
+                        captchaType === 'image'
+                          ? t('auth.captchaImageAnswerPlaceholder')
+                          : t('auth.captchaAnswerPlaceholder'),
+                    },
+                  ]}
                 >
                   <Input
                     disabled={!captchaSessionId}
-                    placeholder={t('auth.captchaAnswerPlaceholder')}
+                    placeholder={
+                      captchaType === 'image'
+                        ? t('auth.captchaImageAnswerPlaceholder')
+                        : t('auth.captchaAnswerPlaceholder')
+                    }
                     style={{ width: '180px' }}
                     size="large"
                   />
                 </Form.Item>
               </>
-            ))}
+            )}
 
             <Form.Item style={{ marginBottom: 16 }}>
               <Button type="primary" htmlType="submit" loading={loading} block size="large">
