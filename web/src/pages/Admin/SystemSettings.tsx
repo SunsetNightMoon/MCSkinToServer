@@ -1277,9 +1277,11 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
   const handleResetTemplate = () => {
     const emailVar = '{{EMAIL}}';
     const verifyUrlVar = '{{VERIFY_URL}}';
-    const yearVar = '{{YEAR}}';
     // 与后端 templates.ts 的 SITE_LOGO_IMG 同语义：未设置徽标时为空串，不渲染破图
     const logoImgVar = '{{SITE_LOGO_IMG}}';
+    // 落款走占位符而不是写死品牌名：管理员改「版权设置」后，即便用这里的默认正文，
+    // 寄出的邮件也跟着变（后端 copyrightFooter 负责拼，未设置时回落品牌名 + 年份）
+    const footerVar = '{{COPYRIGHT_FOOTER}}';
     setTemplateHtml(`<!DOCTYPE html>
 <html>
 <head>
@@ -1310,7 +1312,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
     <p>${t('admin.emailTemplateOrCopy')}</p>
     <div class="code">${verifyUrlVar}</div>
     <p style="font-size:13px;color:#8b949e;margin-top:20px;">${t('admin.emailTemplateLinkValid')}</p>
-    <div class="footer">Minecraft Skin Server &copy; ${yearVar}</div>
+    <div class="footer">${footerVar}</div>
   </div>
 </body>
 </html>`)
@@ -1432,7 +1434,7 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
               {t('admin.editEmailTemplate')}
             </Button>
             <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-subtle)' }}>
-              {t('admin.templatePlaceholders')}<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{EMAIL}}'}</code>、<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{VERIFY_URL}}'}</code>、<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{YEAR}}'}</code>
+              {t('admin.templatePlaceholders')}<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{EMAIL}}'}</code>、<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{VERIFY_URL}}'}</code>、<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{YEAR}}'}</code>、<code style={{ background: '#1e3a5f', color: '#58a6ff', padding: '2px 6px', borderRadius: 4, fontSize: 12 }}>{'{{COPYRIGHT_FOOTER}}'}</code>
             </div>
           </Form.Item>
 
@@ -1502,6 +1504,8 @@ function EmailSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; o
           <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>= {t('admin.placeholderYear')}</span>
           <span style={{ fontSize: 12, fontFamily: 'monospace', background: '#1e3a5f', color: '#58a6ff', padding: '2px 8px', borderRadius: 4, border: '1px solid #1f6feb' }}>{'{{SITE_LOGO_IMG}}'}</span>
           <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>= {t('admin.placeholderSiteLogoImg')}</span>
+          <span style={{ fontSize: 12, fontFamily: 'monospace', background: '#1e3a5f', color: '#58a6ff', padding: '2px 8px', borderRadius: 4, border: '1px solid #1f6feb' }}>{'{{COPYRIGHT_FOOTER}}'}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-subtle)' }}>= {t('admin.placeholderCopyrightFooter')}</span>
         </div>
         <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #30363d' }}>
           <Editor
@@ -1613,6 +1617,10 @@ function CopyrightSettings({ autoApply, onAutoApplyChange }: { autoApply: boolea
         >
           <Input placeholder={t('admin.beianPlaceholder')} />
         </Form.Item>
+
+        <div style={{ marginTop: -8, marginBottom: 16, fontSize: 12, color: 'var(--text-subtle)' }}>
+          {t('admin.copyrightMailHint')}
+        </div>
 
         <Form.Item>
           <div style={{ 

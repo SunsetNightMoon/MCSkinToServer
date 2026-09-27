@@ -25,6 +25,11 @@ import type { MailTemplateSetting } from '../site/runtimeSettings.js';
  * 也填入重置链接。宁可给一个能用的链接，也不要寄出一封含字面占位符的死信。
  * 未知占位符原样保留 —— 便于管理员发现自己拼错了，而不是被静默吃掉。
  *
+ * 页脚版权：
+ * - 内置模板页脚是 `{{COPYRIGHT_FOOTER}}`，内容与网页页脚同构、同源（版权设置三项），
+ *   管理员改「版权设置」后新寄出的邮件立即跟着变，不再写死品牌名。
+ * - 管理员自定义模板同样能用它；不用它就等于自己决定落款，属正常选择。
+ *
  * ## 内置模板以「占位符原文」形式保存
  *
  * 关键设计：内置正文存的是**未替换**的字符串常量，而不是「拼好变量的成品」。
@@ -46,7 +51,8 @@ export type MailKind =
   | 'change_notice';
 
 const BRAND_FALLBACK = 'Minecraft Skin Server';
-const YEAR_PLACEHOLDER = '{{YEAR}}';
+/** 与网页页脚（web/src/components/Layout/Layout.tsx）指向同一处备案查询入口 */
+const BEIAN_QUERY_URL = 'https://beian.miit.gov.cn/#/Integrated/recordQuery';
 
 /** 全部支持的占位符，供管理端提示与测试断言引用 */
 export const MAIL_PLACEHOLDERS = [
@@ -63,6 +69,19 @@ export const MAIL_PLACEHOLDERS = [
   /** 站点徽标的完整 <img> 标签；未设置 = 空串（内置模板抬头用它） */
   'SITE_LOGO_IMG',
   'YEAR',
+  /**
+   * 版权三项 + 拼好的整行页脚。
+   *
+   * 邮件页脚必须与网页页脚读同一组设置（COPYRIGHT_TEXT / COPYRIGHT_BEIAN /
+   * COPYRIGHT_PROJECT），否则管理员改了「版权设置」只有网站跟着变，
+   * 收件人看到的落款还是旧的 —— 同一份品牌信息在两个地方各说各话。
+   * 三个分项之外再加 COPYRIGHT_FOOTER：内置模板用它，一行就与网页完全同构；
+   * 想自己排版的管理员可以用三个分项。
+   */
+  'COPYRIGHT_TEXT',
+  'COPYRIGHT_BEIAN',
+  'COPYRIGHT_PROJECT',
+  'COPYRIGHT_FOOTER',
 ] as const;
 
 /** 替换 `{{NAME}}`（容忍花括号内空格）；未识别的占位符原样留下 */
@@ -120,7 +139,7 @@ function shell(input: {
     <p>或者，复制以下链接到浏览器地址栏：</p>
     <div class="code">${input.urlPlaceholder}</div>
     <p style="font-size:13px;color:#8b949e;margin-top:20px;">${input.validity}</p>
-    <div class="footer">${BRAND_FALLBACK} &copy; ${YEAR_PLACEHOLDER}</div>
+    <div class="footer">{{COPYRIGHT_FOOTER}}</div>
   </div>
 </body>
 </html>`;
@@ -236,7 +255,7 @@ function noticeShell(input: {
     <p style="font-size:13px;color:#8b949e;margin-top:20px;">
       这不是你需要执行的操作，只是变更完成后的知情通知。如果这不是你本人做的，请立即修改密码。
     </p>
-    <div class="footer">${BRAND_FALLBACK} &copy; ${YEAR_PLACEHOLDER}</div>
+    <div class="footer">{{COPYRIGHT_FOOTER}}</div>
   </div>
 </body>
 </html>`;
@@ -300,12 +319,24 @@ export interface MailRenderVars {
   siteTitle: string;
   /** 站点徽标 URL；未设置 = 空串（此时 SITE_LOGO_IMG 也是空串） */
   siteLogo?: string;
+  /**
+   * 版权设置三项（与网页页脚同源）。整项未设置时：
+   * text 为空 → 页脚回落成 `Minecraft Skin Server © 年份`；
+   * project 为空 → 由 RuntimeSettings.copyright 先兜成协议要求的署名，到不了这里。
+   */
+  copyright?: MailCopyrightVars;
   /** 邮箱变更通知用：被替换掉的旧地址 */
   oldEmail?: string;
   /** 邮箱变更通知用：生效的新地址 */
   newEmail?: string;
   /** 缺省取当前年份（UTC） */
   year?: string;
+}
+
+export interface MailCopyrightVars {
+  text: string;
+  beian: string;
+  project: string;
 }
 
 /**
@@ -325,8 +356,60 @@ function siteLogoImg(siteLogo: string | undefined, siteTitle: string): string {
   );
 }
 
+/** 把纯文本设置项安全嵌进 HTML；设置里不该出现标签，出现也只当文字 */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * 拼出与网页页脚同构、同源的版权落款。
+ *
+ * 三段依次是版权正文、ICP 备案号（链到工信部查询页）、项目署名 ——
+ * 对应 `web/src/components/Layout/Layout.tsx` 的 `<Footer>`。样式全部内联，
+ * 理由同站点徽标：收件端对 `<style>` 的支持不完整。
+ *
+ * `text` 按原文（HTML）插入，与网页端的 `dangerouslySetInnerHTML` 同一口径：
+ * 管理员在版权设置里写的 `©`、`<br>` 之类的写法两边渲染结果一致。
+ * 该项只有管理员能改，不是收件人可控输入；把它转义反而会让网页与邮件不一致。
+ * `beian` / `project` 是纯文本，故转义。
+ *
+ * 未设置正文时回落到品牌名 + 年份，保证任何情况下都有一行完整落款。
+ * `project` 缺省值由 RuntimeSettings 兜底为协议要求的署名，正常不会为空。
+ */
+function copyrightFooter(
+  copyright: MailCopyrightVars | undefined,
+  year: string,
+): string {
+  const text = (copyright?.text ?? '').trim();
+  const beian = (copyright?.beian ?? '').trim();
+  const project = (copyright?.project ?? '').trim();
+  const parts = [text !== '' ? text : `${BRAND_FALLBACK} &copy; ${year}`];
+  if (beian !== '') {
+    parts.push(
+      `<a href="${BEIAN_QUERY_URL}" style="margin-left: 12px; color: inherit; text-decoration: none;">` +
+        `${escapeHtml(beian)}</a>`,
+    );
+  }
+  if (project !== '') {
+    parts.push(
+      `<span style="margin-left: 12px; opacity: 0.6;">${escapeHtml(project)}</span>`,
+    );
+  }
+  return parts.join('');
+}
+
 /** 组装完整占位符表；两种链接名都指向本次动作链接，理由见文件头「宽容规则」 */
 function placeholderValues(vars: MailRenderVars): Record<string, string> {
+  const year = vars.year ?? String(new Date().getUTCFullYear());
+  const copyright: MailCopyrightVars = {
+    text: vars.copyright?.text ?? '',
+    beian: vars.copyright?.beian ?? '',
+    project: vars.copyright?.project ?? '',
+  };
   return {
     EMAIL: vars.email,
     // ACTION_URL 是给 0003 那几个内置模板用的中性名字；保留 VERIFY_URL / RESET_URL
@@ -339,7 +422,11 @@ function placeholderValues(vars: MailRenderVars): Record<string, string> {
     SITE_TITLE: vars.siteTitle,
     SITE_LOGO: (vars.siteLogo ?? '').trim(),
     SITE_LOGO_IMG: siteLogoImg(vars.siteLogo, vars.siteTitle),
-    YEAR: vars.year ?? String(new Date().getUTCFullYear()),
+    YEAR: year,
+    COPYRIGHT_TEXT: copyright.text,
+    COPYRIGHT_BEIAN: copyright.beian,
+    COPYRIGHT_PROJECT: copyright.project,
+    COPYRIGHT_FOOTER: copyrightFooter(copyright, year),
   };
 }
 

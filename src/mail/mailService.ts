@@ -67,6 +67,9 @@ export class MailService {
         // 邮件抬头与登录/注册页用同一枚徽标（SITE_LOGO）；未设置 = 空串，
         // 内置模板里的 {{SITE_LOGO_IMG}} 会随之留空，不会渲染出破图
         siteLogo: await this.runtime.siteLogoUrl(),
+        // 页脚落款与网页页脚读同一组版权设置：管理员改「版权设置」时网站和寄出的
+        // 邮件必须一起变，不能只有网站跟着改
+        copyright: await this.runtime.copyright(),
         year: String(this.now().getUTCFullYear()),
         ...(input.oldEmail !== undefined ? { oldEmail: input.oldEmail } : {}),
         ...(input.newEmail !== undefined ? { newEmail: input.newEmail } : {}),

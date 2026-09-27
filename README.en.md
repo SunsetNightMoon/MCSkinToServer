@@ -82,7 +82,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # business API + Yggdrasil +
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **335/335 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **346/346 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

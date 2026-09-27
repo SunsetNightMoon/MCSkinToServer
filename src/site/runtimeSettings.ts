@@ -50,6 +50,14 @@ export const RuntimeSettingKeys = {
   smtpFromName: 'SMTP_FROM_NAME',
   mailTemplateSubject: 'EMAIL_TEMPLATE_SUBJECT',
   mailTemplateHtml: 'EMAIL_TEMPLATE_HTML',
+  /**
+   * 页脚版权三项（管理端「版权设置」）。
+   * 邮件正文的页脚必须与网页页脚读同一组键 —— 此前邮件里写死品牌名，
+   * 管理员改了版权设置只有网页跟着变，收件人看到的还是旧落款。
+   */
+  copyrightText: 'COPYRIGHT_TEXT',
+  copyrightBeian: 'COPYRIGHT_BEIAN',
+  copyrightProject: 'COPYRIGHT_PROJECT',
 } as const;
 
 /** 缺省值：未设置时按这里的语义走，与前端表单初值保持一致 */
@@ -62,6 +70,13 @@ export const RUNTIME_SETTING_DEFAULTS = {
   enableCaptcha: false,
   /** 邮件落款用的站点名；未设置时用这个通用名 */
   siteTitle: 'Minecraft Skin Server',
+  /**
+   * 页脚的项目署名（`COPYRIGHT_PROJECT` 未设置时的缺省）。
+   *
+   * 必须与前端 `siteStore.SITE_DEFAULTS.copyrightProject` 同值：许可的附加条款要求
+   * 对外提供服务时保留这条署名，网页有、邮件没有就是口径漏洞。
+   */
+  copyrightProject: 'Powered by MCSkinToServer',
 } as const;
 
 const TRUE_VALUES: ReadonlySet<string> = new Set(['true', '1', 'on', 'yes']);
@@ -199,6 +214,22 @@ export class RuntimeSettings {
    */
   async siteLogoUrl(): Promise<string> {
     return toSettingString(await this.read(RuntimeSettingKeys.siteLogo)).trim();
+  }
+
+  /**
+   * 页脚版权三项（网页页脚与管理端「版权设置」用的是同一组键）。
+   *
+   * `text` / `beian` 未设置就是空串，由渲染层决定回落什么；`project` 这里就回落
+   * 缺省署名，因为「管理员没填」和「管理员填了空」在署名条款上不能区别对待。
+   */
+  async copyright(): Promise<{ text: string; beian: string; project: string }> {
+    return {
+      text: toSettingString(await this.read(RuntimeSettingKeys.copyrightText)).trim(),
+      beian: toSettingString(await this.read(RuntimeSettingKeys.copyrightBeian)).trim(),
+      project:
+        toSettingString(await this.read(RuntimeSettingKeys.copyrightProject)).trim()
+        || RUNTIME_SETTING_DEFAULTS.copyrightProject,
+    };
   }
 
   // ---- 邮件 ----

@@ -82,7 +82,7 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 业务接口 + Yggdrasil +
 npm test          # SQLite 基线（无需外部服务，门控用例自动 skip）
 ```
 
-全量套件需要本地依赖时可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 开门控。当前基线：**335/335 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全开）。
+全量套件需要本地依赖时可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 开门控。当前基线：**346/346 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全开）。
 
 ## 文档
 
