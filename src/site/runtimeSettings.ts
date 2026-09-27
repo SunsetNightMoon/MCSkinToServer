@@ -1,6 +1,7 @@
 import type { SettingRepository } from '../repositories/settingRepository.js';
 import type { SecretBox } from '../util/secretBox.js';
 import { SecretBox as SecretBoxClass } from '../util/secretBox.js';
+import { normalizeOrigin } from './siteUrl.js';
 
 /**
  * 站点设置的**运行期**读取器（P5）。
@@ -47,6 +48,14 @@ export const RuntimeSettingKeys = {
   siteTitle: 'SITE_TITLE',
   /** 站点徽标（顶栏/登录页/邮件抬头共用）；未设置 = 空串，而不是默认图 */
   siteLogo: 'SITE_LOGO',
+  /**
+   * 允许跨源**读取** `/uploads` 纹理像素的来源（逗号/换行分隔）。
+   *
+   * 空 = 只放行同源与站点自身来源；`*` = 任何来源都放行（改动前的行为）。
+   * 注意它防的是「第三方把本站素材读进 canvas 抠走」，**不防热链** ——
+   * `<img>` 显示图片不走 CORS，有没有这个头都能显示。
+   */
+  uploadCorsOrigins: 'UPLOAD_CORS_ORIGINS',
   /**
    * 全站统一的用户名模式（P5 第十一批）：'single' | 'multi'。
    * 不再按用户各自设置 —— 由超级管理员在管理面板切换，影响全部账号。
@@ -183,6 +192,35 @@ function toSettingInt(value: unknown, fallback: number): number {
 function toSettingString(value: unknown): string {
   if (value === undefined || value === null) return '';
   return typeof value === 'string' ? value : String(value);
+}
+
+/**
+ * 解析跨源读取白名单（`UPLOAD_CORS_ORIGINS`）。
+ *
+ * 管理员的写法容忍三种：逗号/分号/换行分隔的列表、JSON 数组、单个来源。
+ * 每一项都过 `normalizeOrigin`（只认 http/https，缺协议按 https 补，尾斜杠与路径丢掉），
+ * **认不出来的项直接丢弃而不是整条作废** —— 一个填错的域名不该让其余白名单失效。
+ *
+ * 分隔符刻意**不含空格**：把空格也当分隔符的话，管理员手滑写下的 `not a url`
+ * 会被拆成 `https://not`、`https://a`、`https://url` 三个「看起来合法」的来源
+ * 并写进白名单 —— 那是静默放宽，而不是丢垃圾项。整项含空格时交给 URL 解析，
+ * 它会直接判失败。
+ *
+ * 特殊值 `*` 命中即返回 `['*']`，含义是「任何来源都放行」（退回本功能加入前的行为）。
+ */
+export function parseOriginList(value: unknown): string[] {
+  const items = Array.isArray(value)
+    ? value.map((item) => toSettingString(item))
+    : toSettingString(value).split(/[,;\n\r]+/);
+  const out: string[] = [];
+  for (const item of items) {
+    const trimmed = item.trim();
+    if (trimmed === '') continue;
+    if (trimmed === '*') return ['*'];
+    const normalized = normalizeOrigin(trimmed);
+    if (normalized && !out.includes(normalized)) out.push(normalized);
+  }
+  return out;
 }
 
 export interface SmtpSettings {
@@ -349,6 +387,17 @@ export class RuntimeSettings {
           fromPreset?.globalName,
         ) || 'turnstile',
     };
+  }
+
+  /**
+   * 允许跨源读取 `/uploads` 纹理像素的来源列表。
+   *
+   * 返回 `['*']` 表示全放行；空数组表示「只放行同源与站点自身来源」（由调用方补）。
+   * 这里刻意不做「把站点自身来源也塞进来」的事：站点根来自 `SiteUrlResolver`，
+   * 让本模块只负责解析管理员写的那份名单，两个职责不互相纠缠。
+   */
+  async uploadCorsOrigins(): Promise<string[]> {
+    return parseOriginList(await this.read(RuntimeSettingKeys.uploadCorsOrigins));
   }
 
   /** 站点名（邮件标题与落款）；未配置时回落到通用名 */

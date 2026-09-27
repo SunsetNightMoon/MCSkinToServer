@@ -922,6 +922,49 @@ GitHub Issue #3 的原始诉求是「生产站开着注册却没有验证码」�
   - `none`（默认）：注册/登录页整块验证码 UI 不渲染，与升级前一致。
 - 收尾：临时实例、验证桩与 `.tmp-*` 脚本全部删除，不留测试账号。
 
+## P5 第十四批：/uploads 跨源读取白名单（Issue #4）
+
+Issue #4 报的是「`/uploads` 写死 `Access-Control-Allow-Origin: *`」。核对后先订正了它的前提：**这条头与热链、带宽无关** —— `<img>` 引用图片不走 CORS，别人嵌图照样显示；`*` 真正放开的是「第三方页面把本站纹理读进 canvas 原样抠走」（本站 `SkinThumbnail3D` 的 `toDataURL` 正是同一条能力）。用户据此拍板：收敛成白名单回显，Referer 防盗链**不进代码**，只在 README 写清怎么做（每台主机策略不同，属个例）。
+
+### 规则矩阵
+
+| 请求来源 | 白名单留空（默认） | 白名单含该来源 | 白名单填 `*` |
+|---|---|---|---|
+| 无 `Origin`（直接打开、`<img>` 热链、启动器取纹理） | 200，不发 ACAO | 200，不发 ACAO | 200，`ACAO: *` |
+| 同源（`Origin` == 请求自身 `Host`） | 回显该来源 | 回显该来源 | `*` |
+| 站点自身来源（`BASE_URL` 解析出的 origin） | 回显该来源 | 回显该来源 | `*` |
+| 其它来源 | **不发 ACAO**（跨源读像素被拒） | 回显该来源 | `*` |
+| 任意来源 | — | — | `*` |
+
+`/uploads` 的每个响应**无论命中与否都带 `Vary: Origin`**：回显具体来源等于让同一 URL 的响应随来源变化，共享缓存不按来源分键就会把 A 的响应发给 B，表现为「我这边好、他那边图裂」。
+
+### 落地（后端）
+
+- `src/site/runtimeSettings.ts`：新键 `UPLOAD_CORS_ORIGINS` + 导出 `parseOriginList()`。分隔符只认逗号/分号/换行，**刻意不认空格** —— 认空格的话管理员手滑写的 `not a url` 会被拆成 `https://not`、`https://a`、`https://url` 三个「看着合法」的来源写进白名单，那是静默放宽而不是丢垃圾项；含空格的整项交给 URL 解析直接判失败。认不出的项逐项丢弃，不让一条脏值废掉整张表；`*` 命中即短路。
+- `src/server/uploadsCors.ts`（新）：中间件形态挂在 `express.static` 之前。三条判定依次是「请求自身 Host 的同源」「`SiteUrlResolver` 的站点根」「管理员白名单」，命中才回显**归一化后的值**（绝不把请求头原文写进响应）。同源那条不依赖 `BASE_URL` 是否配置，避免「没配站点根 → 自家站点头像整片裂」这种新引入的故障。
+- `src/server/app.ts`：`/uploads` 的 `setHeaders: res.set('Access-Control-Allow-Origin','*')` 移除，改为挂中间件；`maxAge` 等其余语义不变。
+
+### 落地（前端）
+
+- `SystemSettings.tsx`：「站点设置」卡末尾加 `UPLOAD_CORS_ORIGINS` 多行输入，tooltip 直接写明「不防热链，要防热链去网关按 Referer 处理」——管理员最容易把这两件事混为一谈，写完白名单发现带宽没降还以为功能坏了。
+- i18n 四语言各补 3 个键（label / tooltip / placeholder）。
+
+### 文档
+
+- 四语言 README 新增「素材跨源读取」一节：默认策略、独立图床/CDN 必须把页面来源加进白名单、`Vary: Origin` 与 CDN 分键的三选一处置、以及「这不是热链防护」。
+- 另加一小节「要防热链（Referer）该怎么做」，给 nginx `valid_referers` 示例并写清三条边界：无 Referer 必须放行（直接访问/隐私模式/Referrer-Policy 降级都没有 Referer）、Yggdrasil 客户端取纹理也可能不带 Referer（规则要按 `location` 精确圈定，别把启动器挡了）、Referer 可被非浏览器客户端伪造（挡君子不挡小人，要更硬得换签名 URL）。
+- `.env.example` 标注 `UPLOAD_CORS_ORIGINS` 属站点设置而非环境变量。
+
+### 验收（数字均为实际输出）
+
+- 后端与前端 `tsc` 零错误。
+- 单测：新增 `tests/uploadsCors.test.ts` 10 项（白名单解析 4 项 + 真实 HTTP 响应头 6 项），并接入 `npm test` / `npm run test:pg` 脚本清单。SQLite 基线 **382 用例 / 292 pass / 0 fail / 90 skipped**；全门控（PG + Redis + Mailpit）**382/382 pass / 0 fail / 0 skipped**。
+- 真实实例实测（后端 :3100 提供 `/uploads`，另起 :8081 当「第三方站点」做 canvas 读回）：
+  - 响应头矩阵：`Origin: http://localhost:8081` 留空时 `ACAO=<none>`；配 `BASE_URL=http://localhost:8080` 后该来源回显、8081 仍被拒；白名单填 `http://localhost:8081, cdn.test` 后 8081 与 `https://cdn.test`（裸域名补协议）都回显、`https://evil.test` 仍被拒；填 `*` 时回显 `*`。**每一次改设置都立即生效，无需重启**，且所有分支都带 `Vary: Origin`。
+  - 浏览器（白名单为空的严格态）：`fetch(mode:'cors')` → `TypeError Failed to fetch`；`crossOrigin="anonymous"` 的 `<img>` → 加载失败；**而无 `crossOrigin` 的 `<img>` 照常显示 64×64** —— 正好实证「CORS 不防热链」这句判断。
+  - 浏览器（把 :8081 加入白名单后）：`canvas.toDataURL()` 读出 398 字节 dataURL、`getImageData` 也拿到像素，说明白名单命中时跨源读纹理完全可用（自家 3D 预览同理不受影响）。
+- 收尾：临时实例、探针页与 `.tmp-*` 全部删除。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

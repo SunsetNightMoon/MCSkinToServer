@@ -284,6 +284,8 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
         HOMEPAGE_TITLE_TEXT: String(data.HOMEPAGE_TITLE_TEXT || t('landing.welcomePrefix')),
         HOMEPAGE_TEXT: String(data.HOMEPAGE_TEXT || t('landing.welcomeText')),
         HOMEPAGE_BUTTON_TEXT: String(data.HOMEPAGE_BUTTON_TEXT || t('landing.enterProfile')),
+        // 白名单是纯文本列表（后端逐项归一化），库里存什么就回显什么
+        UPLOAD_CORS_ORIGINS: String(data.UPLOAD_CORS_ORIGINS || ''),
       })
       // 只有显式设置过的图标才出预览（缺省值 /favicon.svg 是静态资源，不是上传物）
       setFaviconPreview(String(data.SITE_FAVICON || ''))
@@ -681,6 +683,23 @@ function SiteSettings({ autoApply, onAutoApplyChange }: { autoApply: boolean; on
             </Form.Item>
           </>
         )}
+
+        {/*
+          素材跨源读取白名单。放在站点设置里而不是主题/首页那一组，是因为它影响的是
+          /uploads 的响应头，与页面外观无关。文案刻意写明「不防热链」——
+          管理员很容易把这两件事混为一谈，写了白名单却发现带宽没降。
+        */}
+        <Form.Item
+          label={t('admin.uploadCorsOrigins')}
+          name="UPLOAD_CORS_ORIGINS"
+          tooltip={t('admin.uploadCorsOriginsTooltip')}
+        >
+          <TextArea
+            rows={2}
+            placeholder={t('admin.uploadCorsOriginsPlaceholder')}
+            autoComplete="off"
+          />
+        </Form.Item>
 
         <Form.Item>
           <Button type="primary" htmlType="submit" loading={loading}>

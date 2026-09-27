@@ -38,6 +38,7 @@ import { createAdminRouter } from './routes/admin.js';
 import { createSettingRouter } from './routes/settings.js';
 import { requireAuth } from './middleware.js';
 import { errorHandler } from './errorHandler.js';
+import { createUploadsCorsMiddleware } from './uploadsCors.js';
 import { isSetupCompleted } from '../setup/setupState.js';
 import type { CaptchaService } from '../account/captcha.js';
 import type { StatsRepository } from '../repositories/statsRepository.js';
@@ -387,13 +388,14 @@ export function createApp(deps: AppDependencies): Express {
   );
 
   // ---- 本地存储静态挂载（URL 由 StoragePort 统一生成）----
-  // CORS：Web 端 canvas（头像/3D 预览）跨源读取纹理必须带 ACAO 头
+  // CORS：跨源读纹理像素要按白名单回显来源，不能写死 *（详见 uploadsCors.ts）
   app.use(
     '/uploads',
-    express.static(config.uploadDir, {
-      maxAge: '7d',
-      setHeaders: (res) => res.set('Access-Control-Allow-Origin', '*'),
+    createUploadsCorsMiddleware({
+      runtimeSettings: deps.runtimeSettings,
+      siteUrlResolver: siteUrl,
     }),
+    express.static(config.uploadDir, { maxAge: '7d' }),
   );
 
   // ---- 认证探针：当前登录用户（P1 扩展为完整 /api/auth、/api/me）----

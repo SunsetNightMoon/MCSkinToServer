@@ -96,13 +96,38 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 业务接口 + Yggdrasil +
 - 外部端点不可达时注册/登录返回 **502 `CAPTCHA_UNAVAILABLE`**，绝不静默放行；答案错或 token 过期是 400 `CAPTCHA_INVALID`，用户换一道即可。
 - 出题限流 `CAPTCHA_GENERATE_RATE_LIMIT_*`（默认 10 次 / 5 分钟 / 来源地址）由数学题与图片题共用，换条路刷不出额外配额。
 
+## 素材跨源读取
+
+`/uploads` 的纹理默认**只对同源与站点自身来源**开放跨源读取。此前这里写死 `Access-Control-Allow-Origin: *`，等于允许任何站点的脚本把本站素材读进 canvas 原样抠走。
+
+- 站点设置 `UPLOAD_CORS_ORIGINS`：逗号或换行分隔的来源列表（只写域名按 `https://` 处理）。留空 = 最严；填 `*` = 退回全放行。认不出的项被逐项丢弃，不会让整条白名单失效。
+- 同源判定用请求自己的 `Host`，不依赖 `BASE_URL` 是否配置 —— 管理员没配站点根时，自家头像与 3D 预览也不该因此图裂。
+- **素材挂在独立图床/CDN 域名下时，必须把页面所在来源写进白名单**，否则 `crossOrigin="anonymous"` 的纹理会直接加载失败（不只是画布被污染）。
+- `/uploads` 的响应一律带 `Vary: Origin`。前置 CDN/反代若**不按 Origin 分键**，会把 A 来源的响应缓存后发给 B 来源，表现为「我这边好、他那边图裂」。做不到就三选一：素材与页面同源、给 `/uploads` 关掉 CDN 缓存、或退回 `*`。
+- 这**不是热链防护**：`<img>` 引用图片不走 CORS，别人嵌图照样显示、带宽照样消耗。
+
+### 要防热链（Referer）该怎么做
+
+热链只能靠网关/CDN 按 Referer 判定，本仓库刻意不实现（每台主机的策略不同，属个例）。nginx 示例：
+
+```nginx
+location ~ ^/uploads/ {
+  # 无 Referer 必须放行：直接打开、隐私模式、Referrer-Policy 降级都没有 Referer
+  valid_referers none blocked server_names ~\.example\.com$;
+  if ($invalid_referer) { return 403; }
+  proxy_pass http://mcsts_backend;   # 或 alias 到本地目录
+}
+```
+
+三条边界：Referer 只是请求头，非浏览器客户端可以随便填，**挡君子不挡小人**；Yggdrasil 客户端取纹理同样可能不带 Referer，规则要按 `location` 精确圈定，别把启动器一起挡了；要更硬就换签名 URL / 时效 token，那要改整条素材链路，不在静态目录这一层。
+
 ## 测试
 
 ```bash
 npm test          # SQLite 基线（无需外部服务，门控用例自动 skip）
 ```
 
-全量套件需要本地依赖时可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 开门控。当前基线：**372/372 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全开）。
+全量套件需要本地依赖时可用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 开门控。当前基线：**382/382 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全开）。
 
 ## 文档
 

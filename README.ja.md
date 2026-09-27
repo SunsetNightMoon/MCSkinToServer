@@ -96,13 +96,38 @@ location ~ ^/(api|uploads|\.well-known)/ {          # 業務 API + Yggdrasil + �
 - 検証エンドポイントに到達できない場合、登録・ログインは **502 `CAPTCHA_UNAVAILABLE`** を返し、黙って通過させることはありません。回答誤りや token 失効は 400 `CAPTCHA_INVALID` で、ユーザーはやり直せます。
 - 出題レート制限 `CAPTCHA_GENERATE_RATE_LIMIT_*`（既定は送信元アドレスあたり 5 分に 10 回）は計算問題と画像で共通の枠を使い、方式を乗り換えても枠は増えません。
 
+## アセットのクロスオリジン読み取り
+
+`/uploads` のテクスチャは、既定で**同一オリジンとサイト自身のオリジンからのみ**クロスオリジン読み取りができます。以前は `Access-Control-Allow-Origin: *` が固定で、任意のサイトのスクリプトがテクスチャを canvas に読み込んでそのまま抜き取れる状態でした。
+
+- サイト設定 `UPLOAD_CORS_ORIGINS`：カンマまたは改行区切りのオリジン一覧（ホストのみ記載は `https://` 扱い）。空欄 = 最も厳格、`*` = 全面許可に戻す。認識できない項目は項目単位で破棄され、リスト全体が無効にはなりません。
+- 同一オリジン判定はリクエスト自身の `Host` を使い、`BASE_URL` の設定に依存しません —— サイトルートを未設定でも、自サイトのアバターや 3D プレビューが壊れることはありません。
+- **アセットを別ドメインの画像ホスト/CDN に置いている場合は、ページ側のオリジンをホワイトリストに追加してください。`crossOrigin="anonymous"` のテクスチャは読み込み自体が失敗します**（キャンバス汚染どころの話ではありません）。
+- `/uploads` のレスポンスは常に `Vary: Origin` を返します。前置きの CDN/リバースプロキシが **Origin でキャッシュキーを分けらない**と、A のオリジン向けレスポンスを B に配って「自分は動く、相手は画像が割れる」になります。無理なら 3 択です：アセットをページと同じオリジンにする、`/uploads` の CDN キャッシュを止める、`*` に戻す。
+- これは**hotlink 対策ではありません**：`<img>` による参照は CORS を通らないため、埋め込み画像はそのまま表示され、帯域もそのまま消費されます。
+
+### hotlink を止めたい（Referer）場合の做法
+
+Referer による判定はゲートウェイ/CDN 側で行う話で、このリポジトリでは意図的に実装していません（ホストごとに方針が違うため）。nginx の例：
+
+```nginx
+location ~ ^/uploads/ {
+  # Referer なしは通す：直接アクセス・シークレットモード・Referrer-Policy のダウングレードでは Referer が付きません
+  valid_referers none blocked server_names ~\.example\.com$;
+  if ($invalid_referer) { return 403; }
+  proxy_pass http://mcsts_backend;   # またはローカルディレクトリへの alias
+}
+```
+
+押さえるべき 3 点：Referer は単なるリクエストヘッダーなので、ブラウザ以外のクライアントは自由に偽装できます（善意の利用者しか止められません）；Yggdrasil クライアントも Referer なしでテクスチャを取り得るので、`location` で厳密に範囲を決めて起動器を巻き込まないでください；より強くするなら署名 URL / 有効期限付きトークンに置き換える必要があり、それはアセット経路全体の設計変更になります。
+
 ## テスト
 
 ```bash
 npm test          # SQLite ベースライン（外部サービス不要、ゲート付きケースは自動 skip）
 ```
 
-フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**372/372 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化。現在のベースライン：**382/382 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## ドキュメント
 

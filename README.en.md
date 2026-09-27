@@ -96,13 +96,38 @@ Which check registration and login use is picked in "Admin panel → System sett
 - When the verify endpoint is unreachable, registration and login return **502 `CAPTCHA_UNAVAILABLE`** instead of silently passing; a wrong answer or expired token is 400 `CAPTCHA_INVALID` and the visitor just gets a new challenge.
 - Challenge issuance is rate limited by `CAPTCHA_GENERATE_RATE_LIMIT_*` (default 10 per 5 minutes per source address), shared by math and image so switching types buys no extra quota.
 
+## Cross-origin asset reads
+
+Textures under `/uploads` are now readable cross-origin **only from the same origin or this site's own origin**. This used to be a hardcoded `Access-Control-Allow-Origin: *`, which let any site's script pull our textures into a canvas and copy them verbatim.
+
+- Site setting `UPLOAD_CORS_ORIGINS`: comma- or newline-separated origins (a bare host is treated as `https://`). Empty = strictest; `*` restores allow-all. Unrecognisable entries are dropped one by one instead of invalidating the whole list.
+- The same-origin check uses the request's own `Host`, not `BASE_URL` — a site whose root was never configured must not break its own avatars and 3D previews.
+- **If assets live on a separate image host / CDN domain, add the page origin to the allowlist**, otherwise textures loaded with `crossOrigin="anonymous"` fail outright (not merely a tainted canvas).
+- Every `/uploads` response carries `Vary: Origin`. A CDN or reverse proxy that does **not** key its cache by Origin will serve origin A's cached response to origin B — the classic "works for me, broken for them". If you cannot make it vary, pick one: serve assets from the page origin, disable CDN caching for `/uploads`, or go back to `*`.
+- This is **not hotlink protection**: `<img>` references bypass CORS, so embedded images still display and still consume bandwidth.
+
+### If you do want hotlink protection (Referer)
+
+That has to happen at the gateway/CDN by checking Referer, and this repository deliberately does not implement it (the policy differs per host). nginx example:
+
+```nginx
+location ~ ^/uploads/ {
+  # Requests without a Referer must pass: direct visits, private mode and Referrer-Policy downgrades send none
+  valid_referers none blocked server_names ~\.example\.com$;
+  if ($invalid_referer) { return 403; }
+  proxy_pass http://mcsts_backend;   # or alias to the local directory
+}
+```
+
+Three boundaries to respect: Referer is just a header, so any non-browser client can forge it — it deters honest users, not attackers; Yggdrasil clients may also fetch textures without a Referer, so scope the rule tightly by `location` and do not block launchers; for anything stronger use signed URLs / expiring tokens, which means changing the whole asset pipeline, not this static directory.
+
 ## Testing
 
 ```bash
 npm test          # SQLite baseline (no external services needed; gated cases auto-skip)
 ```
 
-For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **372/372 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+For the full suite, enable gates via `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL`. Current baseline: **382/382 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 
