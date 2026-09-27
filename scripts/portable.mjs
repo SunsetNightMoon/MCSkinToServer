@@ -74,7 +74,12 @@ function serveStatic(req, res) {
   let file = normalize(join(distDir, path));
   if (!file.startsWith(distDir)) { res.writeHead(403).end(); return; }
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(distDir, 'index.html');
-  res.writeHead(200, { 'content-type': MIME[extname(file)] || 'application/octet-stream' });
+  // ALI 头：启动器里填裸站点根（http://localhost:8080）时靠它发现 API 地址，
+  // 静态托管吃掉了后端的 /，这个头只能由站点入口自己补上
+  res.writeHead(200, {
+    'content-type': MIME[extname(file)] || 'application/octet-stream',
+    'x-authlib-injector-api-location': '/api/yggdrasil',
+  });
   createReadStream(file).pipe(res);
 }
 
