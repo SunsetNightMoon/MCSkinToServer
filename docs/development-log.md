@@ -1073,6 +1073,46 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - 三处代码注释里指向 README 已消失小节的指针改指 `docs/deployment.md`（`src/server/routes/settings.ts`、`web/src/pages/Profile/UserProfile.tsx`、`web/src/vite-env.d.ts`），`src/server/uploadsCors.ts` 的 Referer 配方指针改指 `docs/uploads-cors.md`。
 - 本批为文档改动：后端与前端 `tsc` 零错误，SQLite 基线 **408 用例 / 309 pass / 0 fail / 99 skipped** 与改动前一致（无既有用例断言 README 内容）。
 
+## P5 第十八批：认证页语言切换补完 + 版本号改用 `v2-26.3.6` 口径
+
+### 语言切换：从四份各写一套收敛成一份
+
+改之前同一个功能有四份实现，而且互相不一致：
+
+| 位置 | 列表来源 | 切换方式 | 显示当前语言 | 走 store |
+|---|---|---|---|---|
+| `TopNav` | 自己写死 4 项 | `i18n.changeLanguage` + 手写 localStorage | 有 | 否 |
+| `AuthLayout` | 自己写死 4 项 | 写 localStorage + **整页 reload** | 无 | 否 |
+| `Login` / `Register` | 各抄一份 | 同上 | 无 | 否 |
+| `LanguageSwitcher` 组件 | `SUPPORTED_LANGUAGES` | `setLanguage` | 有 | 是 |
+
+那个唯一正确的 `LanguageSwitcher` 组件是**死代码**（没人 import）。三处绕过 store 的写法有个实际后果：`userChosen` 永远是 false，而站点默认语言的生效条件正是「访客没主动选过」—— 于是访客自己挑的语言会在下次进站时被站点默认盖掉。
+
+现在：
+
+- `LanguageSwitcher` 重写为 Dropdown 形态（四语言取 `SUPPORTED_LANGUAGES`、`selectedKeys` 高亮当前、点击走 `useI18nStore.setLanguage`、不再整页 reload），样式类名由外部传入以复用认证页与顶栏两套既有外观。
+- `AuthLayout` 与 `TopNav` 都用它；`Login.tsx` / `Register.tsx` 连同各自抄的外壳（背景图/视频、蒙版、星空、嵌入图、logo、语言按钮、卡片骨架）一起搬进 `AuthLayout`，两页从 620/548 行降到 518/447 行，页面差异只剩表单与 Modal。
+- `i18n` 的探测顺序改成只看 `navigator` 并加 `convertDetectedLanguage` 归一（`zh-TW/zh-HK/zh-MO/zh-Hant*` → TCH，其余 `zh*` → SCH，`ja*` → JP，`en*` → EN，其他 → SCH）。此前 resources 的键是四个码，而 navigator 给的是 `zh-CN` 这类原始值，**永远匹配不上**，探测等于失效。
+- 顺带修掉一个存储键冲突：`caches: ['localStorage']` 让 i18next 往 `cattavern-language` 写裸字符串，而 zustand persist 用同一个键存 `{state:{language,userChosen},version}` —— 两边互相踩（i18next 读到一段 JSON 当语言码，或把整份 store 状态覆盖成裸串）。持久化现在只归 i18nStore 一家。
+
+**未收敛的一处（刻意）**：`SetupWizard` 底部那个语言下拉仍是自己的实现。它跑在安装完成前、样式是内联的深色底、选项文案走 `setup.lang.*` 键，而且它问的问题不同（「这个站点默认给访客什么语言」而不是「我要换语言」），塞进同一个组件反而把两种语义搅在一起。
+
+### 版本号口径改为 `v2-26.3.6`
+
+四段依次是：重制版标头 `2`（`1` = 重制前旧版）、年份 `26`、季度 `3`、季度内迭代序号 `6`；**进入下一季度迭代号重置为 1**。读出来是 `26.3.6`，书写与显示一律带 `v2-`。
+
+- npm 要求 `version` 是合法 semver（三段），四段号装不下，所以 `package.json` / `web/package.json` 与两个 lock 存 `26.3.6`，标头由展示层拼：`web/vite.config.ts` 的 `__APP_VERSION__`（页脚渲染成 `v2-26.3.6`）、`src/yggdrasil/metadata.ts` 的 `implementation.version`（`2-26.3.6`）。
+- 四语言 README 的版本行与版本口径行同步改写。
+- 加了漂移守卫 `版本号：包内 semver 与对外的 v2- 代号必须同源`（`tests/repoHygiene.test.ts`）：比对根/前端两个 package.json、校验三段格式、比对元数据里的代号、并确认四语言 README 都含 `v2-<version>`。这类「一个版本散在多处」的口径，漏一处就会变成页脚与启动器各说一套。
+
+### 验收（数字均为实际输出）
+
+- 后端与前端 `tsc` 零错误，web 生产构建通过（10.87s）。
+- SQLite 基线：**409 用例 / 310 pass / 0 fail / 99 skipped**（比上批多 1 项，即新增的版本漂移守卫）。
+- 浏览器实测（:5173 真实实例）：登录页外壳改由 `AuthLayout` 提供后仍完整（logo、站点名、卡片标题、表单、注册/忘记密码链接）；语言下拉四项齐全且高亮当前语言；切到 English 后卡片标题变 `Login`、字段变 `Email`、`document.title` 同步，**没有整页 reload**；刷新后仍是英文（持久化生效，且 `userChosen` 已置位）；注册页在英文下整页文案（含注册须知 Alert）全翻译，切繁體中文得 `註冊` / `角色名`，最后复位简体中文。顶栏（nav 变体）四项齐全、当前项高亮、`title` 提示为「语言」。
+- 版本显示：页脚实测渲染为 `v2-26.3.6`，「Powered by MCSkinToServer」署名照常在场；`buildMetadataDto` 单跑输出 `implementation = {"name":"MCSTS","version":"2-26.3.6"}`。
+- 为让 `__APP_VERSION__` 生效重启了 vite dev（:5173，新 PID 31856），后端 :3000 未动。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

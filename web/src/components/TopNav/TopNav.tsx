@@ -1,10 +1,10 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { LoginOutlined, SettingOutlined, SunOutlined, MoonOutlined, GlobalOutlined } from '@ant-design/icons'
-import { Dropdown } from 'antd'
+import { LoginOutlined, SettingOutlined, SunOutlined, MoonOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/authStore'
 import { useSiteStore } from '../../store/siteStore'
 import { SkinAvatar } from '../SkinAvatar'
+import { LanguageSwitcher } from '../LanguageSwitcher/LanguageSwitcher'
 import './TopNav.css'
 
 export interface NavItem {
@@ -19,17 +19,10 @@ interface TopNavProps {
   brandOnClick?: () => void
 }
 
-const LANG_ITEMS = [
-  { key: 'SCH', label: '简体中文' },
-  { key: 'TCH', label: '繁體中文' },
-  { key: 'EN', label: 'English' },
-  { key: 'JP', label: '日本語' },
-]
-
 export function TopNav({ links, brandOnClick }: TopNavProps) {
   const { isAuthenticated, user, skinUrl, profileName } = useAuthStore()
   const { title, description, logo, theme, toggleTheme } = useSiteStore()
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -85,25 +78,10 @@ export function TopNav({ links, brandOnClick }: TopNavProps) {
 
       {/* Right: Lang / Theme Toggle / User / Login */}
       <div className="top-nav__right">
-        <Dropdown
-          placement="bottomRight"
+        <LanguageSwitcher
+          buttonClassName="top-nav__icon-btn"
           overlayClassName="top-nav__lang-dropdown"
-          menu={{
-            items: LANG_ITEMS.map((item) => ({
-              key: item.key,
-              label: <span>{item.label}</span>,
-            })),
-            onClick: ({ key }) => {
-              i18n.changeLanguage(key)
-              window.localStorage.setItem('cattavern-language', key)
-            },
-            selectedKeys: [i18n.language || 'SCH'],
-          }}
-        >
-          <button className="top-nav__icon-btn" title={t('common.language')}>
-            <GlobalOutlined />
-          </button>
-        </Dropdown>
+        />
         <button
           className="top-nav__theme-btn"
           onClick={toggleTheme}

@@ -14,10 +14,10 @@ const proxy = {
 // 开发服务器代理到后端（MCSTS 端口 3000）
 export default defineConfig({
   plugins: [react()],
-  // 页脚版本号等展示统一取 web/package.json 的 version（口径见 README 顶部），
-  // 不再在组件里写死字面量。
+  // 版本代号 = 重制版标头 `2-` + web/package.json 的 version（页脚渲染成 `v2-26.3.6`）。
+  // npm 要求 version 是合法 semver，装不下四段号，所以标头在这里拼；口径见 README 顶部。
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(`2-${pkg.version}`),
   },
   server: {
     port: 5173,

@@ -1,16 +1,15 @@
 import type { ReactNode } from 'react'
-import { Dropdown } from 'antd'
-import { GlobalOutlined } from '@ant-design/icons'
 import { useSiteStore } from '../../store/siteStore'
 import { isVideoFile } from '../../utils/media'
+import { LanguageSwitcher } from '../../components/LanguageSwitcher/LanguageSwitcher'
 import './AuthShared.css'
 
 /**
- * 认证类页面（登录/注册/验证邮箱/忘记密码/重置密码）的共用外壳。
+ * 认证类页面（登录/注册/验证邮箱/验证备用邮箱/忘记密码/重置密码/确认改邮箱）的共用外壳。
  *
- * 存在的理由很实际：这五个页面的背景（自定义图/视频/星空）、蒙版、语言切换、
- * 品牌区完全一致。之前只有登录与注册两页，各自抄了一份；再加三个页面就会变成
- * 五份拷贝 —— 改一次配色要动五个文件，并且必然漏掉一个。
+ * 存在的理由很实际：这些页面的背景（自定义图/视频/星空）、蒙版、语言切换、品牌区完全一致。
+ * 最初只有登录与注册两页各自抄了一份，再加页面就会变成 N 份拷贝 —— 改一次配色要动 N 个文件，
+ * 并且必然漏掉一个（登录/注册两页直到本轮才搬进来）。
  *
  * 这里只统一外壳，表单与文案由各页面自己提供（它们差异很大）。
  */
@@ -36,35 +35,13 @@ export function AuthLayout({
   const isBgVideo = hasCustomBg && isVideoFile(loginBgImage)
   const isEmbedVideo = hasEmbedImage && isVideoFile(loginEmbedImage)
 
-  const langItems = [
-    { key: 'SCH', label: '简体中文' },
-    { key: 'TCH', label: '繁體中文' },
-    { key: 'EN', label: 'English' },
-    { key: 'JP', label: '日本語' },
-  ]
-
   return (
     <div className="auth-page" data-theme={theme}>
-      <div className="auth-lang-switcher">
-        <Dropdown
-          placement="bottomRight"
-          overlayClassName="auth-lang-dropdown"
-          menu={{
-            items: langItems.map((item) => ({
-              key: item.key,
-              label: <span>{item.label}</span>,
-            })),
-            onClick: ({ key }) => {
-              window.localStorage.setItem('cattavern-language', key)
-              window.location.reload()
-            },
-          }}
-        >
-          <button type="button" className="auth-lang-switcher__btn">
-            <GlobalOutlined />
-          </button>
-        </Dropdown>
-      </div>
+      <LanguageSwitcher
+        wrapperClassName="auth-lang-switcher"
+        buttonClassName="auth-lang-switcher__btn"
+        overlayClassName="auth-lang-dropdown"
+      />
 
       {hasCustomBg ? (
         isBgVideo ? (
