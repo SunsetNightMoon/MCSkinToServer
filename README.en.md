@@ -4,8 +4,8 @@
 
 A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A rebuild of `CatTavernSkins` (plan3).
 
-- **Current version: `v2-26.3.6`** (read as `26.3.6`)
-- Versioning scheme: the four parts of `v2-26.3.6` are the rebuild header `2` (`1` = pre-rebuild, `2` = rebuilt), the year `26` (2026), the quarter `3`, and the iteration within that quarter `6` (reset to `1` in a new quarter). Written and displayed forms always keep the `v2-` header; only the semver field in the package files stores `26.3.6`.
+- **Current version: `v2-26.3.7`** (read as `26.3.7`)
+- Versioning scheme: the four parts of `v2-26.3.7` are the rebuild header `2` (`1` = pre-rebuild, `2` = rebuilt), the year `26` (2026), the quarter `3`, and the iteration within that quarter `7` (reset to `1` in a new quarter). Written and displayed forms always keep the `v2-` header; only the semver field in the package files stores `26.3.7`.
 - Legacy source: https://github.com/SunsetNightMoon/CatTavernSkins (analysis baseline `b01f29a`; the rebuild never modified the legacy code)
 
 ## Features
