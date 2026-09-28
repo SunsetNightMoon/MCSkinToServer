@@ -1113,6 +1113,16 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - 版本显示：页脚实测渲染为 `v2-26.3.6`，「Powered by MCSkinToServer」署名照常在场；`buildMetadataDto` 单跑输出 `implementation = {"name":"MCSTS","version":"2-26.3.6"}`。
 - 为让 `__APP_VERSION__` 生效重启了 vite dev（:5173，新 PID 31856），后端 :3000 未动。
 
+### 发版（v2-26.3.7）
+
+- 迭代号进位：`v2-26.3.6 → v2-26.3.7`（11 处逐行改，守卫测试当场拦住一次「只改了包、README 与元数据没跟上」的漏改）。
+- tag `v2-26.3.7` 打在 `bbe5fa3`；Release 标题按固定口径 `MCSkinToServer v2-26.3.7`，挂 x64 + arm64 两个便携包，并按「只保留最新版」删掉 v2.3.6 那两个资产。
+- 中途一次口径反复：我先把版本进位到 `.7`，用户看到线上 README 后质疑「本次就是 6」，于是本地退回 `.6` 重出了包；随后确认那是误触、按正常迭代走，又进回 `.7`。**教训记在这里**：`.6` 已经挂在上一版发版上，同一次发版不可能既是 `.6` 又是 `.7`；tag 因为还没有任何 Release 引用，用「删远端 tag + 重打」而非 `--force` 移动。
+- 便携包冒烟（临时目录真跑包内启动器，SQLite 走完向导）13 项全通过：安装模式 → 同进程软重启 → 超管登录 → 元数据 `2-26.3.7` → 管理端写设置 → 切图片题 → sharp 真出 PNG（6026 字节）→ `/uploads` 的 `Vary: Origin` → `/authserver/authenticate` 正确拒绝。
+- 出包时发现的架构卫生问题：arm64 包里躺着 `node_modules/esbuild/lib/downloaded-@esbuild-win32-x64-esbuild.exe`（esbuild 安装期在本机 x64 上下的回退缓存），真正生效的是 `@esbuild/win32-arm64/esbuild.exe`。**出包脚本现在会先删掉 `esbuild/lib/downloaded-*`，再逐个原生文件核 PE 头**（x64 全 `0x8664`、arm64 全 `0xaa64`，各 5 个）。历史包（含已发的 v2.3.6）里都有这个多余文件，因 Windows on ARM 可模拟执行 x64，未造成功能故障。
+- arm64 包**未在本机实跑**（构建机是 x64，跑不了 arm64 二进制），功能冒烟只在 x64 上做过 —— 这条边界写进了 Release 正文。
+
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。
