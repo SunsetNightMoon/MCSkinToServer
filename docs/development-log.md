@@ -1123,6 +1123,31 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - arm64 包**未在本机实跑**（构建机是 x64，跑不了 arm64 二进制），功能冒烟只在 x64 上做过 —— 这条边界写进了 Release 正文。
 
 
+## P5 第十九批：修复「收藏的皮肤/披风无法使用」（线上紧急）
+
+### 症状与根因
+
+用户在衣柜的「收藏」页选中别人公开的皮肤或披风点使用，一律得到「素材不存在」；素材即便设成「不可下载、仅收藏」也一样。
+
+根因是一处所有权独占判断：`src/textures/ingest.ts` 的 `applyToProfile` 写着「素材与角色都必须归当前用户所有」，`asset.ownerUserId !== userId` 就抛 `NOT_FOUND('素材不存在')`。而衣柜收藏页里**全部**是别人的素材，所以这条路径从上线起就没通过一次。错误文案还是「素材不存在」而不是「无权使用」，排查时很容易误判成素材被删。
+
+不是第二处坑：确认过 `listMyFavorites` 返回的是 `toLibraryItem(entry.asset, …)`，前端 `toLegacyAsset` 映射的 `id` 就是素材 id，衣柜传给 apply 的没错 —— 只有这一处判断错了。
+
+### 口径订正
+
+应用到角色**不是**下载原件：别人已公开且过审的素材正是「收藏后使用」的对象。所以规则改成「角色必须归自己；素材是『自己的』或『已公开且过审的』二者之一即可」。下载策略不参与这里的判断（那是 `/download` 的口径，见 `canDownload`）。私有 / 待审 / 被拒的素材仍然不可用，且仍统一收口成 404「素材不存在」，不透露存在性。
+
+「已公开且过审」这条判断此前只在 `LibraryService` 里以方法形式存在，纹理侧没法复用，于是又各写一套。现在提为 `src/library/libraryService.ts` 的模块级 `isPubliclyVisible(asset)`（与既有的 `isAdminRole` 同一形态），`canView` / 浏览计数 / 收藏 / 应用四处共用，方法版删除。
+
+纹理读取链路本来就不看所有权（`findTextureState` 只排除 `rejected`），所以绑定一旦写入就能出图，不需要额外改动。
+
+### 验收（数字均为实际输出）
+
+- 新增回归用例 `library: 收藏的素材可以应用到角色`（SQLite + PG 门控各 1 项）：owner 上传 → 设公开 → admin 过审 → viewer 收藏 → **apply 204** → `/api/me/skin` 真出 `skinUrl`（不是只写了一行绑定）；再验「没收藏的人同样能用公开素材」（收藏是书签不是授权）、槽位类型不匹配仍 400、owner 收回公开后第三人 apply 得 404。
+- 补测试脚手架的一处失真：`tests/library.test.ts` 造 `IdentityService` 时漏传 `assetUrlResolver`（生产 `bootstrap.ts` 是传的），导致 `/api/me/skin` 永远回 `skinUrl:null` —— 第一次跑新用例就是被它挡住的。已补上。
+- 后端与前端 `tsc` 零错误。SQLite 基线 **411 用例 / 311 pass / 0 fail / 100 skipped**；全门控（PG + Redis + Mailpit）**411/411 pass / 0 fail / 0 skipped**。
+- **未做浏览器实测**：本地开发实例的 :3000 由用户的环境持有，重启它需要复用其启动密钥，我没有去探测进程参数。回归用例走的是真实 HTTP 端点（衣柜调用的同一个 `POST /api/assets/:id/apply`），但画面上没有逐屏看过。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

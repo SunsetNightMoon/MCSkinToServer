@@ -131,6 +131,9 @@ async function startHttp(t: TestContext, db: DatabaseConnection): Promise<HttpCt
       profiles: profileRepository,
       tokens: tokenService,
       sessions: new MinecraftSessionRepository(db),
+      // 生产里 IdentityService 拿得到 resolver（bootstrap.ts），本测试此前漏了 ——
+      // 漏掉的直接后果是 /api/me/skin 永远回 skinUrl:null，看不出素材到底出没出图
+      assetUrlResolver: new AssetUrlResolver(storage),
     }),
     profileRepository,
     assetRepository,
@@ -486,5 +489,94 @@ for (const c of cases) {
       (await fetch(`${ctx.baseUrl}/api/assets/00000000-0000-0000-0000-000000000000`)).status,
       404,
     );
+  });
+  /**
+   * 回归：收藏来的素材必须能用到角色上。
+   *
+   * 线上表现是「收藏皮肤/披风后点使用 → 素材不存在」：`applyToProfile` 按所有权卡
+   * （`asset.ownerUserId !== userId` 就 404），而衣柜收藏页里全是别人的素材，于是整条
+   * 路径打死。修复后口径：素材是「自己的」或「已公开且过审的」二者之一即可用到自己角色上；
+   * 下载策略不参与这里的判断（那是 /download 的口径）。
+   */
+  test(`library: 收藏的素材可以应用到角色（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    await wipeAll(db);
+    const ctx = await startHttp(t, db);
+    const owner = await register(ctx);
+    const viewer = await register(ctx);
+    const stranger = await register(ctx);
+    const admin = await register(ctx, 'admin');
+
+    const assetId = await uploadSkin(ctx, owner.token, 'fav-apply');
+    await fetch(`${ctx.baseUrl}/api/assets/${assetId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...auth(owner.token) },
+      body: JSON.stringify({ visibility: 'public' }),
+    });
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/admin/assets/${assetId}/review`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', ...auth(admin.token) },
+          body: JSON.stringify({ status: 'approved' }),
+        })
+      ).status,
+      204,
+    );
+
+    const firstProfile = async (token: string): Promise<string> =>
+      (
+        (
+          await (
+            await fetch(`${ctx.baseUrl}/api/me/profiles`, { headers: auth(token) })
+          ).json()
+        ) as { profiles: { id: string }[] }
+      ).profiles[0]!.id;
+
+    const apply = (token: string, profileId: string, slot = 'skin', id = assetId) =>
+      fetch(`${ctx.baseUrl}/api/assets/${id}/apply`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...auth(token) },
+        body: JSON.stringify({ profileId, slot }),
+      });
+
+    const viewerProfile = await firstProfile(viewer.token);
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/${assetId}/favorite`, {
+          method: 'POST',
+          headers: auth(viewer.token),
+        })
+      ).status,
+      204,
+    );
+    // 收藏 → 使用：非 owner 也能把别人公开且过审的素材用到自己角色上
+    assert.equal((await apply(viewer.token, viewerProfile)).status, 204);
+
+    // 用上之后真的出图，而不是只写了一行绑定
+    const mine = (await (
+      await fetch(`${ctx.baseUrl}/api/me/skin`, { headers: auth(viewer.token) })
+    ).json()) as { skinUrl: string | null };
+    assert.ok(mine.skinUrl, '应用到角色后应能取到皮肤 URL');
+
+    // 收藏只是书签，不是授权门槛：没收藏的人同样能用公开且过审的素材
+    assert.equal((await apply(stranger.token, await firstProfile(stranger.token))).status, 204);
+
+    // 槽位类型不匹配仍是 400（不能把皮肤当披风用）
+    assert.equal((await apply(viewer.token, viewerProfile, 'cape')).status, 400);
+
+    // owner 收回公开后，别人再应用是 404（已绑定的不动，那是既有绑定）
+    assert.equal(
+      (
+        await fetch(`${ctx.baseUrl}/api/assets/${assetId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json', ...auth(owner.token) },
+          body: JSON.stringify({ visibility: 'private' }),
+        })
+      ).status,
+      204,
+    );
+    const latecomer = await register(ctx);
+    assert.equal((await apply(latecomer.token, await firstProfile(latecomer.token))).status, 404);
   });
 }

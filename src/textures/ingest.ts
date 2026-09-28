@@ -17,6 +17,7 @@ import {
   type ModelType,
 } from '../repositories/assetRepository.js';
 import type { ProfileRepository } from '../repositories/profileRepository.js';
+import { isPubliclyVisible } from '../library/libraryService.js';
 
 /**
  * IngestTextureService（蓝图 P2）：皮肤/披风上传的唯一入口。
@@ -194,7 +195,10 @@ export class TextureService {
     return { asset, blob, deduped };
   }
 
-  /** 应用到角色槽位（衣柜语义：同槽覆盖）。素材与角色都必须归当前用户所有 */
+  /**
+   * 应用到角色槽位（衣柜语义：同槽覆盖）。角色必须归当前用户所有；
+   * 素材则是「自己的」或「已公开且过审的」二者之一即可（收藏别人素材的用途就在这里）。
+   */
   async applyToProfile(input: {
     userId: string;
     assetId: string;
@@ -205,7 +209,13 @@ export class TextureService {
     requireCanonicalUuid(input.assetId, '素材不存在');
     requireCanonicalUuid(input.profileId, '角色不存在');
     const asset = await this.assets.findById(input.assetId);
-    if (!asset || asset.ownerUserId !== input.userId) {
+    if (!asset) {
+      throw new AppError('NOT_FOUND', '素材不存在');
+    }
+    // 「用到角色上」不等于「下载原件」：别人已公开且过审的素材正是衣柜收藏页要用的东西，
+    // 只按所有权卡会让收藏页整个打死（线上表现：一律「素材不存在」）。
+    // 私有 / 待审 / 被拒的不可用；下载策略不参与这里的判断，那是 /download 的口径。
+    if (asset.ownerUserId !== input.userId && !isPubliclyVisible(asset)) {
       throw new AppError('NOT_FOUND', '素材不存在');
     }
     if (asset.kind !== input.slot) {

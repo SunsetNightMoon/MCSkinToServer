@@ -31,6 +31,16 @@ export function isAdminRole(role: ViewerRole): boolean {
   return role === 'admin' || role === 'super_admin';
 }
 
+/**
+ * 「对任何人可见 / 可用」的唯一口径：已公开且已过审。
+ *
+ * 收藏、公开库列表、浏览计数、以及**应用到角色**共用这一条判断 —— 之前只有这里写着，
+ * 应用路径另起炉灶按所有权卡，结果是衣柜的收藏页一律「素材不存在」。
+ */
+export function isPubliclyVisible(asset: AssetRow): boolean {
+  return asset.visibility === 'public' && asset.reviewStatus === 'approved';
+}
+
 export interface LibraryItem {
   id: string;
   kind: AssetKind;
@@ -133,12 +143,8 @@ export class LibraryService {
     return out;
   }
 
-  isPubliclyVisible(asset: AssetRow): boolean {
-    return asset.visibility === 'public' && asset.reviewStatus === 'approved';
-  }
-
   canView(asset: AssetRow, viewer: RequestContext | null): boolean {
-    if (this.isPubliclyVisible(asset)) return true;
+    if (isPubliclyVisible(asset)) return true;
     if (!viewer) return false;
     return asset.ownerUserId === viewer.userId || isAdminRole(viewer.role);
   }
@@ -193,7 +199,7 @@ export class LibraryService {
     if (!existing || !this.canView(existing, viewer)) {
       throw new AppError('NOT_FOUND', '素材不存在');
     }
-    if (this.isPubliclyVisible(existing)) {
+    if (isPubliclyVisible(existing)) {
       await this.assets.incrementViewCount(existing.id);
     }
     const asset = (await this.assets.findById(assetId))!;
@@ -239,7 +245,7 @@ export class LibraryService {
   async favorite(viewer: RequestContext, assetId: string): Promise<void> {
     requireCanonicalUuid(assetId, '素材不存在');
     const asset = await this.assets.findById(assetId);
-    if (!asset || !this.isPubliclyVisible(asset)) {
+    if (!asset || !isPubliclyVisible(asset)) {
       throw new AppError('NOT_FOUND', '素材不存在');
     }
     if (asset.ownerUserId === viewer.userId) {
