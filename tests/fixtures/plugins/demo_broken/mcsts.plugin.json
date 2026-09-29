@@ -1,0 +1,9 @@
+{
+  "id": "demo_broken",
+  "name": "夹具：加载即抛错",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "main": "index.ts",
+  "description": "验证一个插件的 setup 抛错不会带走站点，也不会带走别的插件",
+  "endpoints": [{ "kind": "router", "method": "GET", "path": "/never", "auth": "public" }]
+}

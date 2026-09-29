@@ -1,0 +1,9 @@
+{
+  "id": "demo_undeclared",
+  "name": "夹具：注册未声明的入口",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "main": "index.ts",
+  "description": "验证「manifest 声明与实际行为一致」是被技术落实的，而不是文档里的一句希望",
+  "endpoints": []
+}

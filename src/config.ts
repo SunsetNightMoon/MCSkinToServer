@@ -32,6 +32,14 @@ export interface AppConfig {
   /** 本地存储根目录（StoragePort 的 local provider 使用） */
   uploadDir: string;
   /**
+   * 插件子系统开关与目录，来自 `MCSTS_PLUGINS` / `MCSTS_PLUGIN_DIR`。
+   *
+   * **默认关闭**：这套接口有做废的可能，默认关就等价于「不存在」—— 不扫盘、不挂
+   * /api/plugins、面板不显示入口。目录默认在 `data/` 下（`data/` 已在 .gitignore 里），
+   * 所以插件本体天然不进版本库。
+   */
+  plugins?: { enabled: boolean; dir: string };
+  /**
    * **素材**对外前缀（含静态挂载点，如 https://skin.example/uploads）。
    *
    * 注意这里不是「站点根」：站点根由后台设置 `BASE_URL` 决定，见 site/siteUrl.ts。
@@ -361,6 +369,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     installMode,
     migrationsRoot: resolve(env['MIGRATIONS_DIR'] ?? './schema'),
     uploadDir: resolve(env['UPLOAD_DIR'] ?? './data/uploads'),
+    plugins: {
+      enabled: env['MCSTS_PLUGINS'] === '1' || env['MCSTS_PLUGINS'] === 'true',
+      dir: resolve(env['MCSTS_PLUGIN_DIR'] ?? './data/plugins'),
+    },
     publicBaseUrl: env['PUBLIC_BASE_URL'] ?? 'http://localhost:3000/uploads',
     rsaPrivateKeyPath: resolve(
       env['RSA_PRIVATE_KEY_PATH'] ?? './data/keys/yggdrasil.pem',

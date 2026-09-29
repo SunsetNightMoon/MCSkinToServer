@@ -44,6 +44,7 @@ import { AssetUrlResolver } from '../storage/assetUrl.js';
 import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
 import { recordExistingEnvironment } from '../setup/setupService.js';
 import { createApp } from './app.js';
+import { PluginHost } from '../plugins/loader.js';
 
 /**
  * 正常模式（installed / auto）的完整装配（P5 第十二批补充）。
@@ -219,6 +220,21 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     );
   }
 
+  // ---- 插件系统（默认关闭；MCSTS_PLUGINS 未设时连对象都不建）----
+  const pluginHost = config.plugins?.enabled
+    ? new PluginHost({
+        db,
+        settings: settingRepository,
+        secretBox: secretBox ?? undefined,
+        siteUrlResolver,
+        tokenService,
+        cache: cacheLayer.cache,
+        rateLimiter: cacheLayer.rateLimiter,
+        pluginDir: config.plugins.dir,
+        now: () => new Date(),
+      })
+    : undefined;
+
   const app = createApp({
     config,
     database: db,
@@ -253,7 +269,11 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     themeImages,
     mailService,
     secretBox,
+    plugins: pluginHost,
   });
+
+  // 加载插件放在装配之后、listen 之前：首个请求到达时就绪，且启停不需要重启进程
+  await pluginHost?.boot();
 
   const closeResources = async (): Promise<void> => {
     await Promise.all([

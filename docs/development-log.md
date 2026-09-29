@@ -1148,6 +1148,45 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - 后端与前端 `tsc` 零错误。SQLite 基线 **411 用例 / 311 pass / 0 fail / 100 skipped**；全门控（PG + Redis + Mailpit）**411/411 pass / 0 fail / 0 skipped**。
 - **未做浏览器实测**：本地开发实例的 :3000 由用户的环境持有，重启它需要复用其启动密钥，我没有去探测进程参数。回归用例走的是真实 HTTP 端点（衣柜调用的同一个 `POST /api/assets/:id/apply`），但画面上没有逐屏看过。
 
+## P6 第一批：插件系统接口与框架（仅 Dev，未推 master）
+
+### 定位与责任边界（用户口径）
+
+- 项目**只提供接口**给开发者做功能性插件；**安装与启用是超级管理员的决定**，插件行为由安装者负责。
+- 因此刻意**不做**签名校验、权限审批、沙盒 —— 那是把安装者的责任往项目身上揽，而且进程内 ESM 本来关不住，假安全感比说清楚更糟。
+- 项目负责的是另外四件事：接口稳定（`PLUGIN_API_VERSION` 闸门）、声明可核（注册未声明的入口直接拒载）、看得见（面板摊开 manifest 的入口/依赖/设置/启停记录）、炸不穿（加载失败与回调抛错不影响站点和别的插件）。
+- 通道：接口与框架走 Dev，功能测试完全才推 master；第一个真实插件（基岩身份绑定）走本地 spellcard 通道，不进 git —— 它的作用是**对练**，逼接口补齐缺口。
+
+### 为「做废」留的回溯准备
+
+- **核心迁移链一个文件都不加**：插件状态与启停记录存在现成的 `system_settings`（两个键），插件表由插件在 `plugin_<id>_` 前缀下自建自删。回退代码不需要回退数据库。
+- **默认关**：`MCSTS_PLUGINS` 未设时连 `PluginHost` 都不建，`/api/plugins` 不存在。
+- **启停不动 listen 路径**：启动时只往 `/api/plugins` 挂一个分发器，按请求现查已加载插件；因此不需要软重启，也不碰 `main.ts` 的换绑时序。
+- **接缝清单**（做废时逐条删除即可）：
+  1. `src/config.ts`：`plugins?: { enabled; dir }` 一个字段（可选，所以 18 个测试文件的 config 字面量都不用改）；
+  2. `src/server/bootstrap.ts`：建 `PluginHost` + `await pluginHost?.boot()` + deps 传 `plugins`；
+  3. `src/server/app.ts`：`plugins?: PluginHost` 一个依赖字段 + 两行挂载；
+  4. 事件 emit 共 4 处单行：`identity.ts` 注册/改名/删除、`accountLifecycle.ts` 清除；都走 `emitPluginEvent()`，未启用时是 no-op；
+  5. `src/server/routes/plugins.ts` + `web/src/pages/Admin/PluginManagement.tsx` + 面板菜单一项 + i18n `plugins` 段（四语言各 36 键 + `admin.plugins`）；
+  6. 新增文件本体：`src/plugins/**`、`plugin-api.d.ts`、`docs/plugin-api-guide.md`、`tests/plugins.test.ts`、`tests/fixtures/plugins/**`。
+
+### 接口定型过程中被实测逼出来的四处
+
+1. **web token 不隐含角色**。`RequestContext.profileId` 只在启动器选定角色时有值，网页 token 是 null。所以「按角色绑定」的插件必须自己带 `profileId` —— 夹具的 `/issue` 现在缺它就 400，而不是静默回落到 userId（回落会让绑定落在错误粒度上且无人知晓）。
+2. **`auth:'hmac'` 不能挂 `requireAuth`**。原先「非 public 一律要 Bearer」，机器回调没有 Bearer，先返 401，签名校验根本轮不到执行。
+3. **手动委托子 Router 要改写 `req.url`**。Express 不会替我们剥挂载段，子 Router 里的 `/ping` 永远匹配不上（症状是整个插件 404 到兜底）。
+4. **未配 Redis 时防重放不能静默消失**。nonce 记录加了进程内存兜底 —— 可选依赖关掉之后安全属性直接没了，是最坏的一种降级。
+
+另外修了一处测试脚手架自己的坑：`assert.equal(res.status, 200, await res.text())` 看着省事，实际**每次都把 body 读掉**（断言消息即时求值），后面再 `.json()` 就炸「Body has already been read」。现在统一走一个 `read()` 助手。
+
+### 验收（数字均为实际输出）
+
+- 后端与前端 `tsc` 零错误，web 生产构建通过。
+- 新增 `tests/plugins.test.ts` 7 项（SQLite 4 项真跑 + PG 门控 3 项 skip→可跑），接入 `npm test` / `test:pg`：未启用时入口不存在、发现不等于授权（默认 disabled）、setup 抛错只标该插件且别的插件照常、注册未声明入口被拒、停用后入口消失、端到端「码 + HMAC 两条证据」（无签名 403 / 绑定 200 / 同码二次 400 / 重放 nonce 403 / 密钥不对 403 / 绑定落在角色 UUID 上 / 改名事件送达插件）、manifest 拒绝非法 id 与 API 版本不匹配。
+- SQLite 基线：**418 用例 / 315 pass / 0 fail / 103 skipped**。
+- 全门控（PG + Redis + Mailpit）：**418/418 pass / 0 fail / 0 skipped**，插件用例在 PostgreSQL 上同样通过（含 `DELETE ... RETURNING` 的原子消费与 `ON CONFLICT` 建表）。
+- 夹具插件 `tests/fixtures/plugins/demo_link` 只 `import type` 自仓库根的 `plugin-api.d.ts`，**不 import 任何核心模块** —— 它是「仓库外作者」的替身，上面第 1 条缺口就是它逼出来的。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

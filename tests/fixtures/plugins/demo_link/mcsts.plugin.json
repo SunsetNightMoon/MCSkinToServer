@@ -1,0 +1,35 @@
+{
+  "id": "demo_link",
+  "name": "夹具：绑定式集成",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "mcsts": ">=2-26.3.8",
+  "main": "index.ts",
+  "author": "MCSTS tests",
+  "description": "验证 ctx 的全部能力：路由鉴权、HMAC 回调、一次性令牌原子消费、事件订阅、设置读写",
+  "requires": [
+    {
+      "id": "geyser",
+      "label": "GeyserMC + Floodgate",
+      "note": "夹具用的假声明，只为验证面板会把外部依赖摊给超管看"
+    }
+  ],
+  "settings": [
+    { "key": "GREETING", "type": "string", "label": "问候语", "default": "hi" },
+    { "key": "SERVER_SECRET", "type": "secret", "label": "服务器共享密钥" }
+  ],
+  "endpoints": [
+    { "kind": "router", "method": "GET", "path": "/ping", "auth": "public", "note": "回显当前设置" },
+    { "kind": "router", "method": "POST", "path": "/issue", "auth": "user", "note": "给当前角色发一枚一次性码" },
+    { "kind": "router", "method": "GET", "path": "/bindings", "auth": "user", "note": "列出本站已发生的绑定" },
+    { "kind": "router", "method": "GET", "path": "/renames", "auth": "admin", "note": "改名事件计数" },
+    {
+      "kind": "hooks",
+      "method": "POST",
+      "path": "/bind",
+      "auth": "hmac",
+      "note": "服务器实测身份 + 玩家码 → 绑定",
+      "rateLimit": { "max": 30, "windowMs": 60000 }
+    }
+  ]
+}

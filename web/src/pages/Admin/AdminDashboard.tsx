@@ -22,6 +22,7 @@ import ProfileModeSettings from './ProfileModeSettings'
 import AdminSkinManagement from './AdminSkinManagement'
 import AdminCapeManagement from './AdminCapeManagement'
 import AdminErrorBoundary from './AdminErrorBoundary'
+import { PluginManagement } from './PluginManagement'
 import {
   LineChart,
   Line,
@@ -117,6 +118,12 @@ export function AdminDashboard(_props: AdminDashboardProps) {
       icon: <SettingOutlined />,
       label: t('admin.systemSettings'),
     }] : []),
+    // 插件台账（仅超管）：装插件等于往本站进程加代码，这个决定不该由管理员做出
+    ...(isSuperAdmin ? [{
+      key: 'plugins',
+      icon: <AppstoreOutlined />,
+      label: t('admin.plugins'),
+    }] : []),
   ]
 
   const renderContent = () => {
@@ -138,6 +145,8 @@ export function AdminDashboard(_props: AdminDashboardProps) {
           return <ProfileModeSettings />
         case 'settings':
           return <SystemSettings />
+        case 'plugins':
+          return <PluginManagement />
         default:
           return <DashboardContent />
       }

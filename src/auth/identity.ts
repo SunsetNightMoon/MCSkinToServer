@@ -25,6 +25,7 @@ import type { SettingRepository } from '../repositories/settingRepository.js';
 import { RuntimeSettingKeys } from '../site/runtimeSettings.js';
 import type { AssetUrlResolver } from '../storage/assetUrl.js';
 import { requireCanonicalUuid } from '../util/uuid.js';
+import { emitPluginEvent } from '../plugins/events.js';
 
 /**
  * 身份应用服务（蓝图 §7.1）：注册 / 登录 / Yggdrasil 五端点 / 角色管理。
@@ -417,6 +418,13 @@ export class IdentityService {
         now,
       });
       return { userId, userUid, profileId };
+    });
+
+    // 插件事件：注册**落库之后**才发（事务里发会让回滚的注册也惊动插件）
+    emitPluginEvent('user.registered', {
+      userId: created.userId,
+      profileId: created.profileId,
+      profileName: input.profileName,
     });
 
     const user: UserRow = {
@@ -1067,7 +1075,14 @@ export class IdentityService {
       newName,
       this.identityChangeStamp(profile, this.now()),
     );
-    return (await this.profiles.findById(profileId))!;
+    const renamed = await this.profiles.findById(profileId);
+    emitPluginEvent('profile.renamed', {
+      userId,
+      profileId,
+      from: profile.name,
+      to: renamed?.name ?? newName,
+    });
+    return renamed!;
   }
 
   async deleteProfile(userId: string, profileId: string): Promise<void> {
@@ -1093,6 +1108,11 @@ export class IdentityService {
     }
     // 删预留角色是允许的：它只是放弃一个占位（能力减少，不构成身份变更，不需要冷却）
     await this.profiles.delete(profileId);
+    emitPluginEvent('profile.deleted', {
+      userId,
+      profileId,
+      name: profile.name,
+    });
   }
 
   // ---- 账号生命周期（改密 / 注销 / 恢复）----

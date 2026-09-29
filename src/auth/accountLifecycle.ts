@@ -3,6 +3,7 @@ import type { AssetRepository } from '../repositories/assetRepository.js';
 import type { ProfileRepository } from '../repositories/profileRepository.js';
 import type { UserRepository } from '../repositories/userRepository.js';
 import { ACCOUNT_DELETE_GRACE_MS } from './identity.js';
+import { emitPluginEvent } from '../plugins/events.js';
 
 /**
  * 账号宽限期到期清理（注销生命周期，对应 0002_account_lifecycle.sql）。
@@ -41,6 +42,7 @@ export async function purgeExpiredAccounts(
   const expired = await deps.users.findExpiredDeleted(cutoff);
 
   for (const user of expired) {
+    const profileIds = (await deps.profiles.listByUserId(user.id)).map((item) => item.id);
     await deps.db.transaction(async () => {
       await deps.assets.deleteByOwner(user.id);
       await deps.profiles.deleteByUserId(user.id);
@@ -50,6 +52,8 @@ export async function purgeExpiredAccounts(
         now,
       );
     });
+    // 插件事件：整个事务已提交，插件此刻看到的库状态与这里一致
+    emitPluginEvent('account.purged', { userId: user.id, profileIds });
   }
 
   return { purged: expired.length, userIds: expired.map((user) => user.id) };
