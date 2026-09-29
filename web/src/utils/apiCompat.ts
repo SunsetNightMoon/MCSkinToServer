@@ -628,6 +628,9 @@ export async function compatFetch(
     // 带尾斜杠是有意的：`/api/admin/users`（列表）由上面的分支处理，
     // 前缀写成不带斜杠会把列表也一起放过去，绕过它原本的翻译逻辑。
     '/api/admin/users/',
+    // 插件管理（P6 第一批）：列表 / scan / enable / disable / settings / hook-secret
+    // 全是后端 `routes/plugins.ts` 的原样 JSON，前端不需要翻译。
+    '/api/admin/plugins',
   ]
   if (
     path.startsWith('/api/admin/') &&

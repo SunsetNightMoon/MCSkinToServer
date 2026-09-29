@@ -67,6 +67,23 @@ export type AppErrorCode =
    * 否则会出现「用户还没选，后端已经替他定了」的状态漂移。
    */
   | 'MODE_CHOICE_REQUIRED'
+  /**
+   * GitHub 导入被拒（`src/plugins/importer.ts`）。
+   *
+   * 覆盖「仓库没有识别代号标记」「标记与 manifest 不一致」「文件清单里有不允许的内容」
+   * 「tag 与预览时不是同一个 commit」等：都是**请求内容与外部仓库状态**的问题，
+   * 不是本站出错，所以归 400 而不是 500。
+   * 单独成码是为了让面板能把「导入失败的原因」原样摊给超管，而不是笼统一句「操作失败」。
+   */
+  | 'PLUGIN_IMPORT_REJECTED'
+  /**
+   * GitHub 不可达 / 限流 / 5xx —— 与 `PLUGIN_IMPORT_REJECTED` 刻意分开。
+   *
+   * 前者是「你给的仓库不合规」，重试没用；后者是「本站现在问不到 GitHub」，
+   * 过一会儿再点一次可能就成了。混在一起（或直接让它冒成 500「内部错误」）
+   * 会让超管以为是自己填错了仓库。口径与 `SMTP_ERROR` / `CAPTCHA_UNAVAILABLE` 一致：502。
+   */
+  | 'PLUGIN_IMPORT_UNREACHABLE'
   // ---- 0003 / 批4-F：预留端口 ----
   /**
    * 该能力在本项目里只是**预留端口**，没有内置实现。

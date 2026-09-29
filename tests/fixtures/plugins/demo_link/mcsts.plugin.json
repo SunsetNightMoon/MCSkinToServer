@@ -16,6 +16,7 @@
   ],
   "settings": [
     { "key": "GREETING", "type": "string", "label": "问候语", "default": "hi" },
+    { "key": "LINK_TTL_SECONDS", "type": "int", "label": "有效期（秒）", "default": 300 },
     { "key": "SERVER_SECRET", "type": "secret", "label": "服务器共享密钥" }
   ],
   "endpoints": [

@@ -33,6 +33,7 @@ import { createEmailChangeRouter } from './routes/emailChange.js';
 import { createOAuthRouter } from './routes/oauth.js';
 import { createPluginRouter } from './routes/plugins.js';
 import type { PluginHost } from '../plugins/loader.js';
+import type { PluginImporter } from '../plugins/importer.js';
 import { createCaptchaRouter } from './routes/captcha.js';
 import { createAssetRouter } from './routes/assets.js';
 import { createLibraryRouter } from './routes/library.js';
@@ -137,6 +138,8 @@ export interface AppDependencies {
   themeImages?: ThemeImageService;
   /** 插件宿主；未启用时是 undefined，此时 /api/plugins 根本不存在 */
   plugins?: PluginHost;
+  /** GitHub 导入器；与宿主同时存在/同时不存在（都取决于 MCSTS_PLUGINS） */
+  pluginImporter?: PluginImporter;
   /**
    * 批4-F：第三方登录 provider 列表来源。
    * 未注入时读模块级注册表（宿主在自己的启动脚本里 `registerOAuthProvider`）。
@@ -352,7 +355,7 @@ export function createApp(deps: AppDependencies): Express {
   // ---- 插件系统（P6 第一批）----
   // 管理端接口始终挂：未启用时它回一句「设 MCSTS_PLUGINS=1 后重启」，
   // 比 404 更好排查；数据面入口只在真启用了才挂。
-  app.use(createPluginRouter({ tokenService, plugins: deps.plugins }));
+  app.use(createPluginRouter({ tokenService, plugins: deps.plugins, importer: deps.pluginImporter }));
   if (deps.plugins) app.use('/api/plugins', deps.plugins.router);
 
   // ---- 人机验证（0004；开关关着时 captcha-type 返回 'none'，前端不渲染）----

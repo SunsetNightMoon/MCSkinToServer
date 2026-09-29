@@ -2,8 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import pkg from './package.json';
 
-// 后端地址：dev 与 preview 都需要代理 /api 等前缀（否则生产构建无法本地联调）
-const BACKEND = 'http://localhost:3000';
+// 后端地址：dev 与 preview 都需要代理 /api 等前缀（否则生产构建无法本地联调）。
+// MCSTS_BACKEND 可以指向另一个端口，便于「开发实例 + 隔离测试实例」同时跑而互不干扰。
+const BACKEND = process.env['MCSTS_BACKEND'] ?? 'http://localhost:3000';
 const proxy = {
   '/api': BACKEND,
   '/uploads': BACKEND,

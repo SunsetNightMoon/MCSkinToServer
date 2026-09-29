@@ -166,7 +166,29 @@ MCSTS 无法主动连你的 Minecraft 服务器，所以方向是**入站**：Ja
 - 解绑只允许网页侧（玩家本人）操作；服务器侧不许单方面解绑。
 - 皮肤落地：MCSTS 已有 RSA 签名的纹理输出，`lookup` 类端点可以直接把 `value` / `signature` 交给伴生插件塞进 profile properties，不需要另写 Geyser skin provider。
 
-## 8. 调试与常见失败
+## 8. 发布与导入（GitHub）
+
+除了手工把目录放进 `MCSTS_PLUGIN_DIR`，超管可以在面板点「从 GitHub 导入」。要让插件能被这条路径装上，仓库需要满足：
+
+**① 目录形态**：`mcsts.plugin.json` 与入口文件放在一起（仓库根，或 monorepo 的某个子目录）。
+
+**② 识别代号标记**：仓库根必须有 `.mcsts-plugin/<id>.json`，内容形如
+
+```json
+{ "id": "my_plugin", "name": "我的插件", "author": "someone", "repository": "someone/mcsts-my-plugin" }
+```
+
+四个字段会与 manifest **逐项比对**（`author` 在 manifest 没填时按空串比）。它的作用是给出一个可核对的声明：这个仓库认领了这个识别代号。标记缺失或对不上，导入直接被拒 —— 这是导入唯一的硬门槛，也是它全部的承诺：**它不证明代码无害**（见 §0）。
+
+**③ 打 tag**：导入只接受 tag，不接受分支或裸 sha。站点会把 tag 解析成 commit sha，之后所有文件都按那个 sha 取；安装时会再解析一次并比对，tag 被人重打过就中止。
+
+**④ 只放文本文件**：允许 `.ts .mts .cts .js .mjs .cjs .json .md .txt`；单文件 ≤ 512 KB、总量 ≤ 4 MB、文件数 ≤ 200。出现二进制或未知类型（含 `.wasm`、图片、字体）整包被拒 —— 「插件是纯文本、可以逐行读过」是对安装者最有用的保证。
+
+导入分两步：**预览**（不写盘，列出文件清单、体积、manifest 摘要、标记核对结果、解析出的 sha）→ **安装**。安装只做「落盘 + 发现」，**不会自动启用**，与手工放目录完全一致。装完目录里会多一份 `.mcsts-import.json`，记着来源仓库、tag、commit sha、每个文件的 git blob sha、以及谁在什么时候装的 —— 别手改它，重装会覆盖。
+
+私有仓库或撞限流时给站点进程配 `MCSTS_GH_TOKEN`（只从环境变量读，不进站点设置、不出现在任何接口响应里）。
+
+## 9. 调试与常见失败
 
 | 现象 | 原因 |
 |---|---|
@@ -177,9 +199,13 @@ MCSTS 无法主动连你的 Minecraft 服务器，所以方向是**入站**：Ja
 | 回调 403 `replayed` | 同一 nonce 在窗口内用了第二次（每次请求都要新 nonce） |
 | 回调 403 `missing_header` | 三个头缺一个；或该插件还没在面板生成服务器密钥 |
 | `密文解密失败` | 站点换过 `MCSTS_SECRET`，插件设置里的密文解不开 —— 重新保存该设置 |
+| 按「重载」后代码没变 | **重载只重跑 `setup`，换不掉已导入的模块**（tsx 会把 URL 上的版本参数归一掉）。面板会标出这条提示，改代码请重启站点 |
+| 导入报 `无法访问 GitHub：…` | 上游问题（DNS / 连不上 / 限流），不是仓库不合规；稍后重试，或配 `MCSTS_GH_TOKEN` |
+| 导入报 `识别代号标记未通过` | 仓库缺 `.mcsts-plugin/<id>.json`，或其字段与 manifest 不一致 |
 
-## 9. 参考文件
+## 10. 参考文件
 
 - `plugin-api.d.ts`（仓库根）：唯一的类型来源，复制到你的插件目录用；
 - `tests/fixtures/plugins/`：MCSTS 自带的夹具插件，**只 import `plugin-api.d.ts` 的类型**，可当最小可运行示例；
-- `tests/plugins.test.ts`：这些能力的行为契约（含失败隔离与签名校验的具体断言）。
+- `tests/plugins.test.ts`：这些能力的行为契约（含失败隔离与签名校验的具体断言）；
+- `tests/pluginImport.test.ts`：导入的判定契约（标记核对、清单上限、逐字节核对、上游与请求错误分开）。

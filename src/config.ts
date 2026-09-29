@@ -38,7 +38,7 @@ export interface AppConfig {
    * /api/plugins、面板不显示入口。目录默认在 `data/` 下（`data/` 已在 .gitignore 里），
    * 所以插件本体天然不进版本库。
    */
-  plugins?: { enabled: boolean; dir: string };
+  plugins?: { enabled: boolean; dir: string; githubToken?: string };
   /**
    * **素材**对外前缀（含静态挂载点，如 https://skin.example/uploads）。
    *
@@ -372,6 +372,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     plugins: {
       enabled: env['MCSTS_PLUGINS'] === '1' || env['MCSTS_PLUGINS'] === 'true',
       dir: resolve(env['MCSTS_PLUGIN_DIR'] ?? './data/plugins'),
+      // 只服务 GitHub 导入：公开仓库不填也能用，填了是为了私有仓库与撞限流。
+      // 与 SMTP 口令同等待遇 —— 只从环境读，不进站点设置、不出现在任何接口响应里。
+      githubToken: env['MCSTS_GH_TOKEN'] || undefined,
     },
     publicBaseUrl: env['PUBLIC_BASE_URL'] ?? 'http://localhost:3000/uploads',
     rsaPrivateKeyPath: resolve(

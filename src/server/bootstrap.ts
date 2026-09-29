@@ -45,6 +45,7 @@ import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
 import { recordExistingEnvironment } from '../setup/setupService.js';
 import { createApp } from './app.js';
 import { PluginHost } from '../plugins/loader.js';
+import { PluginImporter } from '../plugins/importer.js';
 
 /**
  * 正常模式（installed / auto）的完整装配（P5 第十二批补充）。
@@ -235,6 +236,15 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
       })
     : undefined;
 
+  // 导入器只在宿主存在时才有意义（插件目录由同一个配置项决定）
+  const pluginImporter = config.plugins?.enabled
+    ? new PluginImporter({
+        pluginDir: config.plugins.dir,
+        now: () => new Date(),
+        token: config.plugins.githubToken,
+      })
+    : undefined;
+
   const app = createApp({
     config,
     database: db,
@@ -270,6 +280,7 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     mailService,
     secretBox,
     plugins: pluginHost,
+    pluginImporter,
   });
 
   // 加载插件放在装配之后、listen 之前：首个请求到达时就绪，且启停不需要重启进程

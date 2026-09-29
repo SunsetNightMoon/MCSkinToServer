@@ -140,3 +140,39 @@ test('版本号：包内 semver 与对外的 v2- 代号必须同源', async () =
     );
   }
 });
+
+/**
+ * 后端新增 `/api/admin/<资源>` 端点时，前端兼容层必须知道它。
+ *
+ * `web/src/utils/apiCompat.ts` 末尾有一条**按前缀拦截**的兜底：凡是没进
+ * `ADMIN_PASSTHROUGH`、也没有翻译分支的 `/api/admin/*`，一律返回 501「敬请期待」。
+ * 于是后端接口明明是好的，开发环境里页面只会显示空数据 —— 插件面板第一次挂载时
+ * 就是这样：列表恒为「插件目录里没有任何插件」，而 `GET /api/admin/plugins` 直接
+ * 用 curl 调是 200 一条就绪的插件。
+ *
+ * 这条守卫把「加端点必须同时告诉兼容层」从注释里的提醒变成会红的测试。
+ * 判定按**资源名**（`/api/admin/` 后第一段）而不是整条路径：兼容层里既有字面量
+ * 也有正则（`\/api\/admin\/theme-image\/([^/]+)`），去掉反斜杠后两种写法都能命中。
+ */
+test('后端 /api/admin 端点必须被前端兼容层认出', () => {
+  const compat = fs
+    .readFileSync(path.join(ROOT, 'web', 'src', 'utils', 'apiCompat.ts'), 'utf8')
+    .replace(/\\/g, '');
+  const routesDir = path.join(ROOT, 'src', 'server', 'routes');
+  const resources = new Map<string, string>();
+  for (const file of fs.readdirSync(routesDir)) {
+    if (!file.endsWith('.ts')) continue;
+    const src = fs.readFileSync(path.join(routesDir, file), 'utf8');
+    for (const hit of src.matchAll(/['"`]\/api\/admin\/([A-Za-z0-9_-]+)/g)) {
+      if (!resources.has(hit[1]!)) resources.set(hit[1]!, file);
+    }
+  }
+  assert.ok(resources.size > 0, '一条 /api/admin 路由都没扫到：正则或目录结构变了，这条守卫已失效');
+  const missing = [...resources].filter(([name]) => !compat.includes(`/api/admin/${name}`));
+  assert.deepEqual(
+    missing,
+    [],
+    `这些管理端资源在 apiCompat 里毫无提及，开发环境会被兜底拦成 501：` +
+      missing.map(([name, file]) => `/api/admin/${name}（${file}）`).join('、'),
+  );
+});

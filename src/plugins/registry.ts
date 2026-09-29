@@ -31,7 +31,12 @@ export interface PluginRecord {
 export interface PluginLogEntry {
   at: string;
   actor: string;
-  action: 'discover' | 'enable' | 'disable' | 'error' | 'rotate-secret' | 'unload';
+  /**
+   * `enable` / `disable` 是**超管的意图**（按下按钮、状态翻过来）；
+   * `load` 才是**结果**（代码真的挂进本进程了）。以前加载成功也再记一笔 `enable`，
+   * 于是一次点击留下两行同名记录，而两行都不说明「到底挂上没有」。
+   */
+  action: 'discover' | 'enable' | 'disable' | 'load' | 'error' | 'rotate-secret' | 'unload' | 'import';
   pluginId: string;
   detail?: string;
 }
@@ -125,6 +130,30 @@ export class PluginRegistry {
   async logError(id: string, message: string): Promise<void> {
     const state = await this.read();
     this.pushLog(state, 'error', id, message.slice(0, 300));
+    await this.write(state);
+  }
+
+  /**
+   * 正常卸载（停用）不是错误。以前这里借 `logError` 记一笔，
+   * 于是台账上一次成功的停用显示成 `error` —— 面板唯一该可信的就是这张表。
+   */
+  async logUnload(id: string, actor: string): Promise<void> {
+    const state = await this.read();
+    this.pushLog(state, 'unload', id, `已由 ${actor} 停用`, actor);
+    await this.write(state);
+  }
+
+  /** 加载成功（不改状态，只记结果）：与 `setEnabled` 的「意图」区分开 */
+  async logLoaded(id: string, actor: string, detail: string): Promise<void> {
+    const state = await this.read();
+    this.pushLog(state, 'load', id, detail, actor);
+    await this.write(state);
+  }
+
+  /** 从 GitHub 导入落盘（发现不等于授权，所以这里只到「装进目录」） */
+  async logImported(id: string, actor: string, detail: string): Promise<void> {
+    const state = await this.read();
+    this.pushLog(state, 'import', id, detail, actor);
     await this.write(state);
   }
 

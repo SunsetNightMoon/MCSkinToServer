@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, utimes, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,7 +94,7 @@ interface HttpCtx {
 async function startHttp(
   t: TestContext,
   db: DatabaseConnection,
-  opts: { withHost: boolean },
+  opts: { withHost: boolean; pluginDir?: string },
 ): Promise<HttpCtx> {
   const dir = await mkdtemp(join(tmpdir(), 'mcsts-plugin-http-'));
   const config: AppConfig = {
@@ -128,7 +128,7 @@ async function startHttp(
         settings: settingRepository,
         siteUrlResolver: siteUrl,
         tokenService,
-        pluginDir: FIXTURE_DIR,
+        pluginDir: opts.pluginDir ?? FIXTURE_DIR,
         now: () => new Date(),
       })
     : undefined;
@@ -293,6 +293,108 @@ for (const c of cases) {
     });
     assert.equal(disable.status, 200, disable.text);
     assert.equal((await call(ctx, '/api/plugins/demo_link/ping')).status, 404, '停用后入口必须消失');
+
+    // 启停台账：一次成功的停用不该记成 error，一次点击也不该留下两行同名 enable。
+    // 面板把这张表当作「装了什么、谁动的、挂上没有」的唯一凭据。
+    const log = await ctx.host!.log();
+    assert.equal(
+      log.filter((e) => e.pluginId === 'demo_link' && e.action === 'enable').length,
+      1,
+      '按下启用只记一条意图',
+    );
+    assert.ok(
+      log.some((e) => e.pluginId === 'demo_link' && e.action === 'load'),
+      '加载成功要单独记一条结果',
+    );
+    assert.ok(
+      log.some((e) => e.pluginId === 'demo_link' && e.action === 'disable'),
+      '停用要有记录',
+    );
+    assert.ok(
+      log.some((e) => e.pluginId === 'demo_link' && e.action === 'unload'),
+      '卸载应记成 unload',
+    );
+    assert.ok(
+      !log.some((e) => e.pluginId === 'demo_link' && e.action === 'error' && /停用/.test(e.detail ?? '')),
+      '正常卸载不该记成 error',
+    );
+
+    // 设置：manifest 只带 key/default，**当前值**在 GET .../settings 里。
+    // 面板曾经只渲染 manifest，于是表单永远显示成「什么都没配」。
+    const put = await call(ctx, '/api/admin/plugins/demo_link/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...auth(admin.token) },
+      body: JSON.stringify({ LINK_TTL_SECONDS: 600 }),
+    });
+    assert.equal(put.status, 200, put.text);
+    const loaded = await call(ctx, '/api/admin/plugins/demo_link/settings', { headers: auth(admin.token) });
+    assert.equal(loaded.status, 200, loaded.text);
+    const ttl = (loaded.json.settings as { key: string; value?: unknown }[]).find(
+      (s) => s.key === 'LINK_TTL_SECONDS',
+    );
+    assert.equal(ttl?.value, 600, '保存后要读得回当前值');
+
+    // 清空数字框提交的是 ''：`Number('')` 会得到 0，那是把有效期悄悄改成 0
+    const cleared = await call(ctx, '/api/admin/plugins/demo_link/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', ...auth(admin.token) },
+      body: JSON.stringify({ LINK_TTL_SECONDS: '' }),
+    });
+    assert.equal(cleared.status, 200, cleared.text);
+    const after = await call(ctx, '/api/admin/plugins/demo_link/settings', { headers: auth(admin.token) });
+    assert.equal(
+      (after.json.settings as { key: string; value?: unknown }[]).find((s) => s.key === 'LINK_TTL_SECONDS')
+        ?.value,
+      600,
+      '空串按「没改」处理，不能落成 0',
+    );
+  });
+
+  /**
+   * 「重载」到底能做什么：重跑 setup 可以，换掉已导入的模块不行。
+   *
+   * tsx 的解析器会把 `file:` URL 上的 query / hash 归一掉（实测 `?v=1` 与不带 query
+   * 拿到同一个模块对象），所以磁盘上的代码改了也换不进正在运行的进程。
+   * 面板不能在这种情况下报「重载成功」—— 那会让人以为新代码已经生效。
+   * 这里用「入口 mtime 变了、而 import 回来的还是同一个模块」判定 stale。
+   */
+  test(`plugins: 重载只重跑 setup，换不掉模块时必须标 stale（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    // 改文件必须在临时副本上做：夹具目录是 git 里的资产
+    const dir = await mkdtemp(join(tmpdir(), 'mcsts-plugin-reload-'));
+    const copy = join(dir, 'plugins');
+    await cp(FIXTURE_DIR, copy, { recursive: true });
+    const ctx = await startHttp(t, db, { withHost: true, pluginDir: copy });
+
+    const admin = await register(ctx);
+    await promoteSuper(ctx, admin.userId);
+    const enable = await call(ctx, '/api/admin/plugins/demo_link/enable', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(admin.token) },
+    });
+    assert.equal(enable.status, 200, enable.text);
+
+    const entry = join(copy, 'demo_link', 'index.ts');
+    await writeFile(entry, `${await readFile(entry, 'utf8')}\n// 重载用例改过的一行\n`, 'utf8');
+    // mtime 显式推到未来，不靠「写入总该比导入晚几毫秒」这种时序运气
+    const future = new Date(Date.now() + 60_000);
+    await utimes(entry, future, future);
+
+    const reload = await call(ctx, '/api/admin/plugins/demo_link/reload', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(admin.token) },
+    });
+    assert.equal(reload.status, 200, reload.text);
+    assert.equal(reload.json.staleCode, true, '磁盘代码已变而模块没换，要标 stale 而不是重载成功');
+
+    const again = await call(ctx, '/api/admin/plugins/demo_link/reload', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...auth(admin.token) },
+    });
+    assert.equal(again.json.staleCode, true, '连续重载不能把 stale 标记洗掉');
+
+    // 但插件确实还活着：setup 重跑过，入口照常服务
+    assert.equal((await call(ctx, '/api/plugins/demo_link/ping')).status, 200);
   });
 
   test(`plugins: 端到端 —— 码 + HMAC 两条证据才成立（${c.label}）`, { skip: c.skip }, async (t) => {
@@ -388,9 +490,18 @@ for (const c of cases) {
 
     const bindings = await call(ctx, '/api/plugins/demo_link/bindings', { headers: auth(admin.token) });
     assert.equal(bindings.status, 200, bindings.text);
-    assert.equal(bindings.json.bindings.length, 1);
-    assert.equal(bindings.json.bindings[0].remote, 'xuid-1');
-    assert.equal(bindings.json.bindings[0].subject, admin.profileId, '绑定要落在角色上，不是用户上');
+    /**
+     * 夹具的 `/bindings` 回的是**全表**（它只是个测试替身，没有按调用者过滤），
+     * 而 PostgreSQL 用例共用同一个库、插件表不会在建库时清空 —— 于是「长度等于 1」
+     * 实际上是在断言「这台机器上一次跑干净过」。按 subject 取自己那条来断言：
+     * 要验的本来就是「绑定落在这个角色上、远端身份是 xuid-1、且只有一条」。
+     */
+    const mine = (bindings.json.bindings as { subject: string; remote: string }[]).filter(
+      (row) => row.subject === admin.profileId,
+    );
+    assert.equal(mine.length, 1, '每个角色一条绑定，重复绑定不该另起一行');
+    assert.equal(mine[0]?.remote, 'xuid-1');
+    assert.equal(mine[0]?.subject, admin.profileId, '绑定要落在角色上，不是用户上');
 
     // 事件真的送达
     const before = await call(ctx, '/api/plugins/demo_link/renames', { headers: auth(admin.token) });

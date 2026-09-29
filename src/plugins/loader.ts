@@ -47,6 +47,13 @@ export interface PluginStatus {
   state: 'ready' | 'disabled' | 'error' | 'invalid';
   error?: string;
   manifest?: PluginManifest;
+  /**
+   * 磁盘上的入口文件比内存里那份模块实例新 —— **重载救不了这种情况**。
+   * tsx 的解析器会把 `file:` URL 上的 query / hash 归一掉（实测：带 `?v=1` 与不带
+   * 拿到的是同一个模块实例），所以重载只是重跑了 `setup`，编译产物还是旧的。
+   * 面板必须把这件事说出来，而不是给一个「重载成功」的假象。
+   */
+  staleCode?: boolean;
 }
 
 export interface PluginHostDeps {
@@ -65,6 +72,11 @@ interface LoadedPlugin {
   manifest: PluginManifest;
   capabilities: PluginCapabilities;
   router: Router;
+  entryPath: string;
+  /** 导入那一刻入口文件的 mtime */
+  entryMtimeMs: number;
+  /** 拿到的模块命名空间本体：与下次导入的结果比身份，就知道运行时有没有真的换代码 */
+  entryModule: unknown;
 }
 
 export class PluginHost {
@@ -75,6 +87,12 @@ export class PluginHost {
   private readonly dirs = new Map<string, string>();
   private readonly parent = Router();
   private booted = false;
+  /**
+   * 重载计数：ESM 的 `import()` 按 URL 缓存模块，同一个 file URL 第二次拿到的是同一份代码。
+   * 作者改完插件不该只能重启整站，所以重载时给 URL 挂一个版本参数把它隔开。
+   * 只在真的重载过之后才加参数（`?v=0` 之外），避免给首启动引入不必要的 URL 变体。
+   */
+  private reloadSeq = 0;
 
   constructor(private readonly deps: PluginHostDeps) {
     this.registry = new PluginRegistry(deps.settings, deps.now);
@@ -188,6 +206,36 @@ export class PluginHost {
     await this.unload(id, actor);
   }
 
+  /**
+   * 重载单个插件：重读 manifest、重新导入代码，**保持原来的启用状态**。
+   *
+   * 为什么要有它：插件跑在本进程里，作者改完一行代码原本只能重启整站；
+   * 而重启会把「装了什么、现在什么状态」这件事和一堆无关服务一起搅动。
+   * 影响面收在单个插件上，才是这个面板该有的操作粒度。
+   */
+  async reload(id: string, actor: string): Promise<PluginStatus> {
+    const dir = this.dirs.get(id);
+    if (!dir) throw new AppError('NOT_FOUND', `未发现插件：${id}`);
+    const state = await this.registry.read();
+    const wasEnabled = state.plugins[id]?.enabled ?? false;
+    const prior = this.loaded.get(id);
+    if (this.loaded.has(id)) await this.unload(id, actor);
+    this.reloadSeq += 1;
+    if (!wasEnabled) {
+      // 没启用的插件只重读 manifest，不因为一次重载就悄悄挂进进程 —— 与「发现不等于授权」同一口径
+      await this.scan();
+      const status = this.statuses.get(id);
+      if (!status) throw new AppError('NOT_FOUND', `未发现插件：${id}`);
+      return status;
+    }
+    await this.loadOne(id, dir, actor, prior);
+    const status = this.statuses.get(id);
+    if (!status || status.state === 'error') {
+      throw new AppError('CONFIG_ERROR', status?.error ?? '插件重新加载失败');
+    }
+    return status;
+  }
+
   async listStatuses(): Promise<PluginStatus[]> {
     const state = await this.registry.read();
     const list = [...this.statuses.values()];
@@ -230,6 +278,11 @@ export class PluginHost {
     return (await this.registry.read()).log;
   }
 
+  /** 导入落盘后记一笔台账：面板要能回答「这东西什么时候、从哪个仓库来的」 */
+  async logImport(id: string, actor: string, detail: string): Promise<void> {
+    await this.registry.logImported(id, actor, detail);
+  }
+
   /** 面板用：这个插件有没有声明需要服务器密钥（hmac 入口） */
   needsHookSecret(id: string): boolean {
     return (this.statuses.get(id)?.manifest?.endpoints ?? []).some((e) => e.auth === 'hmac');
@@ -251,7 +304,13 @@ export class PluginHost {
     return typeof raw === 'string' && raw !== '';
   }
 
-  private async loadOne(id: string, dir: string, actor: string): Promise<void> {
+  private async loadOne(
+    id: string,
+    dir: string,
+    actor: string,
+    /** 重载时由调用方在 unload 之前取好的旧实例（unload 会把 loaded 里的记录删掉） */
+    prior?: LoadedPlugin,
+  ): Promise<void> {
     try {
       const result = await readManifest(dir);
       if (!result.ok) throw new Error(result.issues.map((i) => `${i.field}: ${i.message}`).join('；'));
@@ -260,8 +319,22 @@ export class PluginHost {
         throw new Error(`插件要求 API v${manifest.apiVersion}，本站是 v${PLUGIN_API_VERSION}`);
       }
       const entry = resolve(dir, manifest.main);
-      // Windows 下裸路径不能被 import() 接受，必须 file:// URL
-      const imported = (await import(pathToFileURL(entry).href)) as PluginEntry;
+      const entryMtimeMs = (await stat(entry)).mtimeMs;
+      // Windows 下裸路径不能被 import() 接受，必须 file:// URL。
+      // 这个 query 在纯 node 下确实能拿到新模块；在 tsx 下会被解析器归一掉，等于没有。
+      const entryUrl =
+        this.reloadSeq > 0
+          ? `${pathToFileURL(entry).href}?mcsts-reload=${this.reloadSeq}`
+          : pathToFileURL(entry).href;
+      const imported = (await import(entryUrl)) as PluginEntry;
+      /**
+       * 「代码到底换没换」不靠猜运行时：入口文件 mtime 变了，而 `import()` 回来的
+       * 还是**同一个模块对象**，就说明缓存没被绕开 —— 内存里跑的仍是旧代码。
+       * （实测 tsx 会把 URL 上的 query / hash 归一掉，正是这种情况；纯 node 会拿到
+       * 一个新命名空间对象，于是这里自动判为「已换代码」。）
+       */
+      const staleCode =
+        prior !== undefined && prior.entryMtimeMs !== entryMtimeMs && prior.entryModule === imported;
       const setup = imported.default ?? imported.setup;
       if (typeof setup !== 'function') {
         throw new Error(`${manifest.main} 没有导出 setup 函数（默认导出或具名导出 setup 均可）`);
@@ -296,6 +369,10 @@ export class PluginHost {
         manifest,
         capabilities: capabilitiesWithDispose,
         router: this.buildRouter(manifest, capabilitiesWithDispose),
+        entryPath: entry,
+        // 代码没换成功时，继续记**旧那份**的指纹：否则下一次重载会以为已经换过了
+        entryMtimeMs: staleCode ? prior!.entryMtimeMs : entryMtimeMs,
+        entryModule: staleCode ? prior!.entryModule : imported,
       });
       this.statuses.set(id, {
         id,
@@ -305,8 +382,9 @@ export class PluginHost {
         enabled: true,
         state: 'ready',
         manifest,
+        staleCode,
       });
-      await this.registry.setEnabled(id, true, actor, `${manifest.name} ${manifest.version}`).catch(() => undefined);
+      await this.registry.logLoaded(id, actor, `${manifest.name} ${manifest.version}`).catch(() => undefined);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.statuses.set(id, {
@@ -343,7 +421,7 @@ export class PluginHost {
       state: 'disabled',
       manifest,
     });
-    await this.registry.logError(id, `已由 ${actor} 停用`).catch(() => undefined);
+    await this.registry.logUnload(id, actor).catch(() => undefined);
   }
 
   private buildRouter(manifest: PluginManifest, caps: PluginCapabilities): Router {

@@ -3,6 +3,7 @@ import type { TokenService } from '../../auth/tokens.js';
 import { requireAuth, requireSuperAdmin } from '../middleware.js';
 import { AppError } from '../../errors.js';
 import type { PluginHost } from '../../plugins/loader.js';
+import type { ImportSource, PluginImporter } from '../../plugins/importer.js';
 import type { PluginManifest } from '../../plugins/api.js';
 import { generateHookSecret } from '../../plugins/hmac.js';
 
@@ -19,6 +20,8 @@ import { generateHookSecret } from '../../plugins/hmac.js';
 export interface PluginRouteDependencies {
   tokenService: TokenService;
   plugins?: PluginHost;
+  /** GitHub 导入器；未启用插件系统时是 undefined，接口回 501 而不是假装能装 */
+  importer?: PluginImporter;
 }
 
 interface SettingValue {
@@ -67,6 +70,50 @@ export function createPluginRouter(deps: PluginRouteDependencies): Router {
     res.json({ ok: true });
   });
 
+  const requireImporter = (): PluginImporter => {
+    if (!deps.importer) {
+      throw new AppError('NOT_IMPLEMENTED', '本实例未启用插件系统（设 MCSTS_PLUGINS=1 后重启后端）');
+    }
+    return deps.importer;
+  };
+
+  const sourceOf = (body: unknown): ImportSource => {
+    const record = (body ?? {}) as Record<string, unknown>;
+    return {
+      repo: String(record['repo'] ?? ''),
+      tag: String(record['tag'] ?? ''),
+      dir: record['dir'] === undefined ? undefined : String(record['dir']),
+    };
+  };
+
+  // 预览不写盘：先把「要装什么」摊给超管看（文件清单、体积、manifest 摘要、标记核对结果）
+  router.post('/api/admin/plugins/import/preview', auth, superAdmin, async (req, res) => {
+    const preview = await requireImporter().preview(sourceOf(req.body));
+    res.json({ preview });
+  });
+
+  // 安装 = 落盘 + 发现。**不启用** —— 与「发现不等于授权」同一口径。
+  // `sha` 必须带回来：预览看到的那一份 commit 和实际装进磁盘的必须是同一份。
+  router.post('/api/admin/plugins/import', auth, superAdmin, async (req, res) => {
+    const host = requireHost();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const sha = String(body['sha'] ?? '');
+    if (sha.length < 7) throw new AppError('VALIDATION_ERROR', '请先预览，再带着预览给出的 commit sha 安装');
+    const result = await requireImporter().install(
+      sourceOf(body),
+      sha,
+      req.context!.userId,
+      body['replace'] === true,
+    );
+    await host.scan();
+    await host.logImport(
+      result.manifest.id,
+      req.context!.userId,
+      `${result.repo}@${result.tag}（${sha.slice(0, 10)}），${result.files.length} 个文件`,
+    );
+    res.json({ ok: true, id: result.manifest.id, sha: result.sha, files: result.files.length });
+  });
+
   router.post('/api/admin/plugins/:id/enable', auth, superAdmin, async (req, res) => {
     const host = requireHost();
     const id = String(req.params['id'] ?? '');
@@ -78,6 +125,16 @@ export function createPluginRouter(deps: PluginRouteDependencies): Router {
     const host = requireHost();
     await host.disable(String(req.params['id'] ?? ''), req.context!.userId);
     res.json({ ok: true });
+  });
+
+  // 只重载单个插件（重读 manifest + 重跑 setup），不重启站点。
+  // 注意 `staleCode`：入口文件在内存里那份模块被导入之后又改过，而运行时（tsx）
+  // 会把 URL 上的版本参数归一掉，模块换不下来 —— 这时「重载成功」只重跑了 setup，
+  // 代码还是旧的，必须回给面板一个可信的说法。
+  router.post('/api/admin/plugins/:id/reload', auth, superAdmin, async (req, res) => {
+    const host = requireHost();
+    const status = await host.reload(String(req.params['id'] ?? ''), req.context!.userId);
+    res.json({ ok: true, state: status.state, version: status.version, staleCode: status.staleCode === true });
   });
 
   router.get('/api/admin/plugins/:id/settings', auth, superAdmin, async (req, res) => {
@@ -120,7 +177,9 @@ export function createPluginRouter(deps: PluginRouteDependencies): Router {
       if (raw === undefined) continue;
       // 空串 = 「没改」而不是「刻意清空」：与 SMTP_PASS / EXTERNAL_CAPTCHA_SECRET 同一口径，
       // 否则管理员改别的字段顺手保存一次就把密钥清了，而且没有任何提示。
-      if (spec.type === 'secret' && raw === '') continue;
+      // int 同治：清空数字框提交的是 ''，`Number('')` 会得到 0 —— 那是把有效期/上限
+      // 悄悄改成 0，比「没改」危险得多，所以一并跳过（要恢复默认值请显式填数字）。
+      if ((spec.type === 'secret' || spec.type === 'int') && raw === '') continue;
       const value =
         spec.type === 'int'
           ? Number(raw)

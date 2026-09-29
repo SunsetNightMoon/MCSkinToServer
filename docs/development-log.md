@@ -1187,6 +1187,58 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - 全门控（PG + Redis + Mailpit）：**418/418 pass / 0 fail / 0 skipped**，插件用例在 PostgreSQL 上同样通过（含 `DELETE ... RETURNING` 的原子消费与 `ON CONFLICT` 建表）。
 - 夹具插件 `tests/fixtures/plugins/demo_link` 只 `import type` 自仓库根的 `plugin-api.d.ts`，**不 import 任何核心模块** —— 它是「仓库外作者」的替身，上面第 1 条缺口就是它逼出来的。
 
+## P6 第二批：面板收敛、GitHub 导入，与肉眼验收逼出来的六处缺陷（仅 Dev，未推 master）
+
+### 这一批做了什么
+
+- **面板版式收敛（用户口径）**：卡片只留「描述 + 版本要求」，底部控件恒为 启用/关闭 · 重载 · 设置；入口表、外部依赖、设置表单、服务器密钥全部收进设置弹窗的三个页签。原来一张卡把 5 列入口表 + 3 条依赖告警 + 设置表单全摊在页面上，超管扫一眼就关掉了 —— 台账要能管得住，先得看得完。
+- **单插件重载**：`POST /api/admin/plugins/:id/reload`，重读 manifest + 重跑 `setup`，保持启用状态；未启用的插件只重读 manifest，不会因为一次重载就悄悄挂进进程。
+- **GitHub 导入**（`src/plugins/importer.ts`）：识别代号标记 + 只接受 tag + 预览/安装两步。信任模型见 `docs/plugin-api-guide.md` §8。
+
+### 肉眼逐屏验收逼出来的六处（每一处都是「后端是对的、界面在撒谎」）
+
+1. **兼容层前缀兜底把 `/api/admin/plugins` 拦成 501**。`apiCompat.ts` 末尾那条「凡没进 `ADMIN_PASSTHROUGH` 的 `/api/admin/*` 一律返回敬请期待」的兜底，文件里本来就写着「新增端点必须同时加白名单」—— 注释是对的，只是没人会去翻。症状极难归因：面板显示「插件目录里没有任何插件」，而直接 curl 是 200 且插件 `ready`。补白名单一项，并加**会红的守卫**：`tests/repoHygiene.test.ts` 扫后端所有 `/api/admin/<资源>`，凡在兼容层毫无提及就失败（实测删掉白名单那一行，守卫立刻报出 `/api/admin/plugins（plugins.ts）`）。
+2. **`App.useApp()` 在没有 `<App>` provider 时是静默 no-op**。antd 5.29 的 `AppContext` 默认值是 `{message:{}, notification:{}, modal:{}}`，本站从没挂过 `<App>`，于是 `useApp()` 拿到三个空对象 —— 密钥确实生成了、接口 200，界面上什么都不显示，报错提示也全哑。改用静态 `message` / `Modal.info`（与其余管理页同一写法）。
+3. **设置表单永远显示成「什么都没配」**：面板只渲染 `manifest.settings`（只有 key/label/default），而从不调已有的 `GET /api/admin/plugins/:id/settings` —— 当前值在另一个端点里躺着。合并之后，当前值直接填进输入框而不是当 placeholder（灰字提示会被读成「示例值」）。
+4. **清空数字框保存会把有效期改成 0**：`Number('') === 0` 且 `Number.isFinite(0)` 为真，于是「我没填」被静默写成「设成 0」。现在 int 与 secret 同口径 —— 空串按「没改」处理。
+5. **台账把成功记成错误**：正常停用借 `logError` 记了一笔 `error`，面板唯一该可信的那张表里混进假警报；而启用一次记两条同名 `enable`，两条都不说明「到底挂上没有」。现在 `enable`/`disable` 是**意图**、`load`/`unload` 是**结果**。
+6. **弹窗在亮色下白底白字**：站点没有 antd 的 `ConfigProvider` 暗色算法，主题全靠 CSS 覆盖，而亮色覆盖写成 `.layout-page[data-theme="light"] …` —— Modal 是 React portal，挂在 `.layout-page` **外面**，选择器进不去，暗色默认的白色文字就漏进了亮色弹窗。补齐 body 级亮色规则（typography / divider / tabs / table / input-number / alert / badge），另补暗色缺的 `.ant-card-actions`（原本一整条纯白操作条）与 `.ant-input-number`（原本一块白格子）。
+
+### 「重载」到底能做什么（本批最值得记的一条）
+
+想当然的做法是给入口 URL 挂 `?mcsts-reload=N` 绕开 ESM 缓存。**实测不成立**：纯 node 下 query 确实能拿到新模块（`a.count=1, b.count=2`），但 tsx 的解析器会把 `file:` URL 上的 query 与 hash 一起归一掉，两次 import 拿到的是**同一个模块对象**。本站全程用 tsx 跑（没有构建产物），所以重载换不掉代码。
+
+没有把这件事藏进「重载成功」里，而是让它**自证**：导入时记下入口文件的 mtime 与模块对象本体，重载后如果 mtime 变了而 `import()` 回来的还是同一个对象，就标 `staleCode`，面板直说「内存里跑的还是旧代码，需要重启站点」。判定与运行时无关 —— 哪天换成纯 node 跑，模块对象会变，标记自动不出现。测试用「改文件 + 显式把 mtime 推到未来」来断言，不靠写入时序的运气。
+
+### GitHub 导入的取舍
+
+- **识别代号 = 仓库内标记文件** `.mcsts-plugin/<id>.json`，四个字段与 manifest 逐项比对（含 `repository` 必须等于所请求的仓库）。它证明的是「这个仓库认领了这个代号」，**不是**「这份代码无害」—— 后者本来就无法由站点担保（§0 责任边界）。
+- **只接受 tag**，并且解析成 commit sha 之后所有取文件都按 sha 走；安装时再解析一次并比对，tag 被重打过就中止。
+- 只允许文本扩展名，单文件 ≤ 512 KB / 总量 ≤ 4 MB / 文件数 ≤ 200，出现二进制或未知类型整包被拒；清单被 GitHub 截断（超大仓库）也直接拒。
+- 每个文件按 git blob sha 逐字节核对下载结果；装完目录里留一份 `.mcsts-import.json`（仓库、tag、sha、文件哈希、谁在什么时候装的）。
+- **安装 = 落盘 + 发现，不自动启用**；已装同名插件必须显式勾选替换才动。
+- 上游不通（DNS/连不上/限流）与仓库不合规分成两个码：`PLUGIN_IMPORT_UNREACHABLE` → 502、`PLUGIN_IMPORT_REJECTED` → 400。以前网络异常会冒成 500「内部错误」，超管对着四个字只能猜；现在文案里带出 `err.cause` 的 message 与 code（`fetch failed：Connect Timeout Error … UND_ERR_CONNECT_TIMEOUT`）。
+
+### 接缝清单增补（做废时与第一批一起删）
+
+7. `src/plugins/importer.ts` + `tests/pluginImport.test.ts` + `web/src/pages/Admin/PluginImportModal.tsx`；
+8. `src/config.ts`：`plugins.dir` 之外多一个 `githubToken`（读 `MCSTS_GH_TOKEN`）；`bootstrap.ts` 建 `pluginImporter`、`app.ts` 多一个依赖字段与一行传参；
+9. `src/errors.ts` 两个码 + `errorHandler.ts` 两行映射（400 / 502）；
+10. `src/server/routes/plugins.ts` 的 `reload` / `import/preview` / `import` 三条路由；`registry.ts` 的 `load` / `import` 两个动作与 `logLoaded` / `logUnload` / `logImported` 三个方法。
+
+### 顺手修掉的一处测试卫生问题
+
+`tests/plugins.test.ts` 的端到端用例断言 `bindings.length === 1`，而夹具的 `/bindings` 回的是**全表**，PostgreSQL 用例又共用同一个库、插件表不会在建库时清空 —— 那条断言实际是在断言「这台机器上次跑干净过」，跑第二次就变 3。改成按 `subject` 取自己那条再断言（要验的本来就是「绑定落在这个角色上、远端身份是 xuid-1、且只有一条」）。
+
+### 验收（数字均为实际输出）
+
+- 后端与前端 `tsc` 零错误，web 生产构建通过。
+- SQLite 基线：**434 用例 / 330 pass / 0 fail / 104 skipped**（第一批是 418/315/103）。
+- 全门控（PG + Redis + Mailpit）：**434/434 pass / 0 fail / 0 skipped**。
+- 新增 `tests/pluginImport.test.ts` 14 项：预览清单与标记核对、安装落盘与来源记录、缺标记拒装、标记与 manifest 不一致拒装、二进制文件整包拒、manifest 校验问题原样带出、tag 重打后安装中止、非法仓库名/子目录/未知 tag、monorepo 子目录只取该目录、清单截断即拒、同名已装须显式替换、下载内容与清单不符即中止、上游不通与仓库不合规分码。
+- 新增守卫：`tests/repoHygiene.test.ts`「后端 /api/admin 端点必须被前端兼容层认出」；`tests/plugins.test.ts` 台账（enable/load/disable/unload 不混记）+ 设置读回当前值 + int 空串落成 0 的回归 + 重载 stale 判定。
+- 浏览器实测（隔离测试实例 :3010 + vite :5174，暗色与亮色各一遍）：卡片三控件、设置弹窗三页签、密钥一次性弹窗、重载提示、导入弹窗对真实 GitHub 的拒绝原因（`插件目录里找不到 mcsts.plugin.json`）均按预期显示。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

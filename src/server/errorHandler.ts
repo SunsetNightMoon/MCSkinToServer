@@ -18,6 +18,8 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     case 'VALIDATION_ERROR':
     // 验证码错误属于请求内容问题，前端要允许用户重试
     case 'CAPTCHA_INVALID':
+    // 导入被拒是仓库/请求内容的问题（缺标记、清单越界…），不是本站出错
+    case 'PLUGIN_IMPORT_REJECTED':
       return 400;
     case 'TOKEN_INVALID':
     case 'TOKEN_EXPIRED':
@@ -41,6 +43,8 @@ export function mapAppErrorStatus(code: AppErrorCode): number {
     // （区分「我们写错了」与「上游服务不通」）
     case 'SMTP_ERROR':
     case 'CAPTCHA_UNAVAILABLE':
+    // GitHub 不可达 / 限流同属上游问题
+    case 'PLUGIN_IMPORT_UNREACHABLE':
       return 502;
     // 未安装：状态问题（装完就好），语义同 USER_DISABLED 的 403
     case 'SETUP_REQUIRED':

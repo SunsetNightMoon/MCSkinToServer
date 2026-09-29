@@ -259,6 +259,54 @@
   color: rgba(255, 255, 255, 0.55) !important;
 }
 
+/* Card 底部操作条：antd 按亮色 token 把它画成纯白，暗色下就是一整块刺眼的白条
+   （插件面板卡片的「启用/停用 · 重载 · 设置」排在这里） */
+.ant-card-actions {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ant-card-actions > li:not(:last-child) {
+  border-inline-end: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.ant-card-actions > li:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.ant-card-actions .ant-btn-link {
+  color: #4a9eff !important;
+}
+
+.ant-card-actions .ant-btn-link.ant-btn-dangerous {
+  color: #ff7875 !important;
+}
+
+/* InputNumber：本文件以前只覆盖了 .ant-input，数字框一直按亮色白底渲染，
+   暗色主题下就是一块白格子 */
+.ant-input-number {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.ant-input-number-input {
+  color: #fff !important;
+}
+
+.ant-input-number-handler-wrap {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+.ant-input-number-handler {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+
+.ant-input-number-focused {
+  border-color: #4a9eff !important;
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2) !important;
+}
+
 /* Tabs */
 .ant-tabs-tab {
   color: rgba(255, 255, 255, 0.55) !important;
@@ -1072,6 +1120,73 @@ body[data-theme="light"] .ant-popconfirm .ant-popover-inner,
 body[data-theme="light"] .ant-popover .ant-popover-inner {
   background: #ffffff !important;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ------------------------------------------------------------
+   亮色：portal 组件（Modal / Drawer / Popover 里的内容）
+   ------------------------------------------------------------
+   弹窗是 React portal，挂在 `.layout-page` **外面**。本文件大部分亮色覆盖写成
+   `.layout-page[data-theme="light"] …`，那些选择器进不到 portal 里，于是暗色默认的
+   白色文字漏进亮色弹窗 —— 标签变成白底白字（插件设置弹窗实测到）。
+   下面这批 body 级选择器就是为了让 portal 也吃到亮色，取值与 `.layout-page` 版一致。 */
+body[data-theme="light"] .ant-typography {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+body[data-theme="light"] .ant-typography.ant-typography-secondary {
+  color: rgba(26, 26, 46, 0.5) !important;
+}
+
+body[data-theme="light"] .ant-divider-inner-text {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+body[data-theme="light"] .ant-tabs-tab {
+  color: rgba(26, 26, 46, 0.55) !important;
+}
+
+body[data-theme="light"] .ant-tabs-tab-active {
+  color: #2563eb !important;
+}
+
+body[data-theme="light"] .ant-tabs-ink-bar {
+  background: #2563eb !important;
+}
+
+body[data-theme="light"] .ant-table {
+  color: rgba(26, 26, 46, 0.85);
+}
+
+body[data-theme="light"] .ant-table-thead > tr > th {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+  color: rgba(26, 26, 46, 0.7) !important;
+}
+
+body[data-theme="light"] .ant-table-tbody > tr > td {
+  border-bottom-color: rgba(0, 0, 0, 0.06) !important;
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+body[data-theme="light"] .ant-table-tbody > tr:hover > td {
+  background: rgba(0, 0, 0, 0.03) !important;
+}
+
+body[data-theme="light"] .ant-input-number {
+  background: #ffffff !important;
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+body[data-theme="light"] .ant-input-number-input {
+  color: rgba(26, 26, 46, 0.85) !important;
+}
+
+body[data-theme="light"] .ant-alert-description {
+  color: rgba(26, 26, 46, 0.65) !important;
+}
+
+body[data-theme="light"] .ant-badge-status-text {
+  color: rgba(26, 26, 46, 0.85) !important;
 }
 
 /* Alert */
