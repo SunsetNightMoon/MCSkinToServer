@@ -34,6 +34,8 @@ export interface CapabilityDeps {
   siteUrlResolver: SiteUrlResolver;
   eventBus: PluginEventBus;
   tokenService: TokenService;
+  /** 站点 Yggdrasil RSA 公钥（PEM）；未生成时返回 null */
+  publicKeyPem: () => string | null;
   cache?: CachePort;
   rateLimiter?: RateLimiterPort;
   now: () => Date;
@@ -234,6 +236,9 @@ export function createCapabilities(deps: CapabilityDeps, manifest: PluginManifes
       async publicOrigin() {
         return deps.siteUrlResolver.originSync();
       },
+      async publicKeyPem() {
+        return deps.publicKeyPem();
+      },
     },
 
     logger: {
@@ -263,6 +268,13 @@ export function createCapabilities(deps: CapabilityDeps, manifest: PluginManifes
       }
       if (bindingHandlers) {
         throw new Error(`[plugin:${manifest.id}] ctx.binding() 只能登记一次（重复登记会让绑定页不知道该用哪一份）`);
+      }
+      // claim 会往页面放一个输入框，和 endpoints/binding 一样必须先在 manifest 声明过
+      if (typeof handlers.claim === 'function' && !manifest.binding?.input) {
+        throw new Error(
+          `[plugin:${manifest.id}] 登记了 claim()，但 manifest 的 binding 没声明 input。` +
+            '请加上 { "binding": { "subject": "…", "input": { "label": "…", "pattern": "…" } } } —— 玩家会在页面上看到输入框，超管必须能在启用前看清它。',
+        );
       }
       bindingHandlers = handlers;
     },

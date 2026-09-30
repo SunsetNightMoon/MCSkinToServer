@@ -21,6 +21,12 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
        bound_at TEXT NOT NULL
      )`,
   );
+  // 第四批契约加了 status 列；共用库上老表可能已存在，ALTER 撞重复列就跳过
+  try {
+    await ctx.db.run(`ALTER TABLE ${table} ADD COLUMN status TEXT`);
+  } catch {
+    /* 列已存在 */
+  }
 
   ctx.events.on('profile.renamed', (payload) => {
     renameEvents += 1;
@@ -29,7 +35,13 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
 
   ctx.route({ method: 'GET', path: '/ping', auth: 'public' }, async (_req, res) => {
     const greeting = (await ctx.settings.get<string>('GREETING')) ?? 'hi';
-    res.json({ ok: true, plugin: ctx.pluginId, greeting, origin: await ctx.site.publicOrigin() });
+    res.json({
+      ok: true,
+      plugin: ctx.pluginId,
+      greeting,
+      origin: await ctx.site.publicOrigin(),
+      hasPublicKey: (await ctx.site.publicKeyPem()) !== null,
+    });
   });
 
   ctx.route({ method: 'POST', path: '/issue', auth: 'user' }, async (req, res) => {
@@ -62,20 +74,38 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
       return;
     }
     await ctx.db.run(
-      `INSERT INTO ${table} (subject, remote, bound_at) VALUES (${ph(0)}, ${ph(1)}, ${ph(2)})
-       ON CONFLICT (subject) DO UPDATE SET remote = excluded.remote`,
+      `INSERT INTO ${table} (subject, remote, bound_at, status) VALUES (${ph(0)}, ${ph(1)}, ${ph(2)}, 'active')
+       ON CONFLICT (subject) DO UPDATE SET remote = excluded.remote, status = 'active'`,
       [consumed.subject, remote, new Date().toISOString()],
     );
     bindings.push({ subject: consumed.subject, remote });
     res.json({ ok: true, subject: consumed.subject });
   });
 
+  // 服务器实测到该远端身份真的登进来了 → 把网页侧的待确认申请签发为生效（签证模型）
+  ctx.hook({ method: 'POST', path: '/confirm', auth: 'hmac' }, async (req, res) => {
+    const remote = String(req.body['remote'] ?? '');
+    if (remote === '') {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: '缺少 remote' });
+      return;
+    }
+    await ctx.db.run(
+      `UPDATE ${table} SET status = 'active', bound_at = ${ph(0)} WHERE remote = ${ph(1)} AND status = 'pending'`,
+      [new Date().toISOString(), remote],
+    );
+    const rows = await ctx.db.query<{ subject: unknown }>(
+      `SELECT subject FROM ${table} WHERE remote = ${ph(0)}`,
+      [remote],
+    );
+    res.json({ ok: rows.length > 0, subject: rows.length > 0 ? String(rows[0]!['subject']) : null });
+  });
+
   // ---- 通用绑定页（账号设置区）：核心完成会话鉴权 + 角色归属校验，这里只管数据 ----
   ctx.binding({
     async list(actor) {
       // subject='profile'：actor.profileId 一定是当前账号名下已验属的活跃角色
-      const rows = await ctx.db.query<{ remote: unknown; bound_at: unknown }>(
-        `SELECT remote, bound_at FROM ${table} WHERE subject = ${ph(0)}`,
+      const rows = await ctx.db.query<{ remote: unknown; bound_at: unknown; status: unknown }>(
+        `SELECT remote, bound_at, status FROM ${table} WHERE subject = ${ph(0)}`,
         [actor.profileId],
       );
       return {
@@ -83,9 +113,27 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
           id: String(r.remote),
           fields: [{ label: '远端身份', value: String(r.remote) }],
           boundAt: String(r.bound_at),
+          status: (r.status === 'pending' ? 'pending' : 'active') as 'pending' | 'active',
         })),
         instructions: `在游戏里输入 /demo link {{code}} 完成绑定（角色 ${actor.profileName}）`,
       };
+    },
+    async claim(actor) {
+      // value 已由核心按 manifest 的 pattern 校验过；这里只处理业务冲突
+      const existing = await ctx.db.query<{ subject: unknown; status: unknown }>(
+        `SELECT subject, status FROM ${table} WHERE remote = ${ph(0)}`,
+        [actor.value],
+      );
+      const hit = existing[0];
+      if (hit && String(hit.subject) !== String(actor.profileId)) {
+        return { message: `该远端身份已被占用（状态：${String(hit.status)}）` };
+      }
+      await ctx.db.run(
+        `INSERT INTO ${table} (subject, remote, bound_at, status) VALUES (${ph(0)}, ${ph(1)}, ${ph(2)}, 'pending')
+         ON CONFLICT (subject) DO UPDATE SET remote = excluded.remote, status = 'pending'`,
+        [actor.profileId, actor.value, new Date().toISOString()],
+      );
+      return { message: '申请已记录，进服后自动生效' };
     },
     async issue(actor) {
       const ttl = Number((await ctx.settings.get('LINK_TTL_SECONDS')) ?? 300) * 1000;

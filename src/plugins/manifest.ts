@@ -170,8 +170,39 @@ export function validateManifest(raw: unknown, issues: ManifestIssue[]): Manifes
   if (binding !== undefined) {
     if (!isRecord(binding)) {
       fail('binding', '必须是对象（形如 { "subject": "profile" }）');
-    } else if (typeof binding['subject'] !== 'string' || !BINDING_SUBJECTS.has(binding['subject'])) {
-      fail('binding.subject', `必须是 ${[...BINDING_SUBJECTS].join(' / ')}`);
+    } else {
+      if (typeof binding['subject'] !== 'string' || !BINDING_SUBJECTS.has(binding['subject'])) {
+        fail('binding.subject', `必须是 ${[...BINDING_SUBJECTS].join(' / ')}`);
+      }
+      const input = binding['input'];
+      if (input !== undefined) {
+        if (!isRecord(input)) {
+          fail('binding.input', '必须是对象（形如 { "label": "XUID", "pattern": "^[0-9]{6,21}$" }）');
+        } else {
+          const label = input['label'];
+          if (typeof label !== 'string' || label.trim() === '' || label.length > 64) {
+            fail('binding.input.label', '必填，非空且不超过 64 字符（绑定页输入框的标题）');
+          }
+          const pattern = input['pattern'];
+          if (pattern !== undefined) {
+            if (typeof pattern !== 'string' || pattern.length > 128) {
+              fail('binding.input.pattern', '须为不超过 128 字符的字符串');
+            } else {
+              try {
+                new RegExp(pattern);
+              } catch (err) {
+                fail('binding.input.pattern', `不是合法正则：${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+          }
+          for (const field of ['hint', 'placeholder'] as const) {
+            const value = input[field];
+            if (value !== undefined && (typeof value !== 'string' || value.length > 200)) {
+              fail(`binding.input.${field}`, '须为不超过 200 字符的字符串');
+            }
+          }
+        }
+      }
     }
   }
 

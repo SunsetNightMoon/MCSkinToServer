@@ -14,6 +14,7 @@ import { AppError } from '../errors.js';
 import {
   PLUGIN_API_VERSION,
   type PluginBindingActor,
+  type PluginBindingInput,
   type PluginBindingListResult,
   type PluginBindingRow,
   type PluginEntry,
@@ -68,6 +69,8 @@ export interface PluginHostDeps {
   tokenService: TokenService;
   /** 绑定页要用它校验「这个 profileId 是不是当前登录账号的角色」——插件拿不到仓储，归属判定只能由核心做 */
   profileRepository: ProfileRepository;
+  /** 站点 Yggdrasil RSA 公钥（PEM）：经 ctx.site.publicKeyPem() 给插件做验签类功能 */
+  publicKeyPem: () => string | null;
   cache?: CachePort;
   rateLimiter?: RateLimiterPort;
   pluginDir: string;
@@ -353,6 +356,7 @@ export class PluginHost {
           siteUrlResolver: this.deps.siteUrlResolver,
           eventBus: this.eventBus,
           tokenService: this.deps.tokenService,
+          publicKeyPem: this.deps.publicKeyPem,
           cache: this.deps.cache,
           rateLimiter: this.deps.rateLimiter,
           now: this.deps.now,
@@ -569,6 +573,54 @@ export class PluginHost {
         })().catch(next);
       },
     );
+
+    // 申请制入口：玩家往页面提交一个值（如 XUID）。pattern 在核心预校验 ——
+    // 声明里写了格式，插件就不该再为「页面被塞了脏值」写防御代码。
+    router.post(
+      '/binding/claim',
+      async (req, res, next) => {
+        await authed(req, res, next);
+      },
+      (req: Request, res: Response, next: NextFunction) => {
+        void (async () => {
+          const handlers = caps.bindingHandlers;
+          if (!handlers) {
+            notReady(res);
+            return;
+          }
+          if (typeof handlers.claim !== 'function') {
+            throw new AppError('NOT_IMPLEMENTED', `插件 ${manifest.id} 未开放网页侧申请（claim）`);
+          }
+          const body = (req.body ?? {}) as Record<string, unknown>;
+          const value = String(body['value'] ?? '').trim();
+          if (value === '' || value.length > 128) {
+            throw new AppError('VALIDATION_ERROR', 'value 必须是 1-128 个字符');
+          }
+          const pattern = manifest.binding?.input?.pattern;
+          if (pattern && !new RegExp(pattern).test(value)) {
+            throw new AppError('VALIDATION_ERROR', `输入格式不符合要求：${manifest.binding?.input?.hint ?? pattern}`);
+          }
+          const actor = await actorOf(req, String(body['profileId'] ?? ''));
+          const rl = await caps.authenticator.consumeRateLimit(
+            manifest.id,
+            `claim:${actor.userId}|${actor.ip}`,
+            10,
+            60_000,
+          );
+          if (!rl.allowed) {
+            res.setHeader('Retry-After', Math.ceil(rl.resetAfterMs / 1000));
+            res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: '提交申请过于频繁，请稍后再试' });
+            return;
+          }
+          const result = await handlers.claim({ ...actor, value });
+          const message =
+            result && typeof result === 'object' && typeof result.message === 'string'
+              ? { message: result.message }
+              : {};
+          res.json({ ok: true, ...message });
+        })().catch(next);
+      },
+    );
   }
 
   /** 玩家侧「绑定」区用：当前启用且实现了绑定能力的插件目录 */
@@ -582,6 +634,8 @@ export class PluginHost {
         description: item.manifest.description,
         subject: item.manifest.binding.subject,
         revocable: typeof item.capabilities.bindingHandlers.revoke === 'function',
+        claimable: typeof item.capabilities.bindingHandlers.claim === 'function',
+        input: item.manifest.binding.input,
       });
     }
     return list.sort((a, b) => a.pluginId.localeCompare(b.pluginId));
@@ -709,6 +763,8 @@ export interface PluginBindingCatalogEntry {
   description?: string;
   subject: 'account' | 'profile';
   revocable: boolean;
+  claimable: boolean;
+  input?: PluginBindingInput;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -749,7 +805,15 @@ function assertBindingListResult(pluginId: string, value: unknown): PluginBindin
     });
     const boundAtRaw = raw['boundAt'];
     const boundAt = typeof boundAtRaw === 'string' ? { boundAt: boundAtRaw } : {};
-    rows.push({ id, fields, ...boundAt });
+    const statusRaw = raw['status'];
+    let status: { status: 'pending' | 'active' } | Record<string, never> = {};
+    if (statusRaw !== undefined && statusRaw !== null) {
+      if (statusRaw !== 'pending' && statusRaw !== 'active') {
+        bad(`bindings[${i}].status 只能是 'pending' 或 'active'`);
+      }
+      status = { status: statusRaw as 'pending' | 'active' };
+    }
+    rows.push({ id, fields, ...boundAt, ...status });
   });
   const instructionsRaw = value['instructions'];
   const instructions = typeof instructionsRaw === 'string' ? { instructions: instructionsRaw } : {};

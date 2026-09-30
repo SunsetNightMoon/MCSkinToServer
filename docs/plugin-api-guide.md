@@ -154,13 +154,49 @@ ctx.binding({
   缺了或不属于这个账号的请求根本到不了插件；`subject='account'` 时 `profileId` 恒为 null。
 - 核心提供的入口（面板的「对外入口」台账会替你把这三行摊出来）：
   `GET /api/plugins/<id>/binding`、`POST …/binding/issue`、`POST …/binding/revoke`，全部登录用户鉴权；
+  声明了 `input` 并登记 `claim()` 再加一行 `POST …/binding/claim`；
   另有 `GET /api/bindings` 供页面发现「哪些启用的插件有绑定能力」。
-- **返回形态由核心校验**：`list()` 必须回 `{ bindings: [{ id, fields: [{label,value}], boundAt? }], instructions? }`，
+- **返回形态由核心校验**：`list()` 必须回 `{ bindings: [{ id, fields: [{label,value}], boundAt?, status? }], instructions? }`
+  （`status` 可选 `'pending' | 'active'`，页面渲染成「待确认 / 已生效」），
   `issue()` 必须回 `{ code, expiresAt }`。不合契约直接报 `PLUGIN_BAD_RESULT` 并指名你的插件 ——
   宁可报错，也不让页面渲染出半坏列表让你猜哪行错了。
-- `issue` 按 用户+IP 限 10 次/分钟（核心做的，不用你自己写）。
+- `issue` 与 `claim` 各按 用户+IP 限 10 次/分钟（核心做的，不用你自己写）。
 - 一个实用细节：钩子侧（`/hooks/…`）只有 `profileId`，**查不到角色名字** —— 名字在 `issue` 时刻是齐的，
   把它塞进令牌的 `data`，消费时就能带回来（上面的例子就是这么把 `profileName` 传给 `/bind` 的）。
+
+### 申请制与签发状态（签证模型）：`claim()`
+
+有些绑定的可信证据不在网页侧，而在**远端服务器观测到该身份真实出现的那一刻**（典型：基岩 XUID
+由 Floodgate 在进服时实测，微软背书、在线服不可伪造）。这类流程走「申请 → 进服签发」两步：
+
+```json
+"binding": {
+  "subject": "profile",
+  "input": { "label": "XUID", "pattern": "^[0-9]{6,21}$", "hint": "进服被拦时屏幕上会显示你的 XUID" }
+}
+```
+
+```ts
+ctx.binding({
+  async list(actor) { /* 行可带 status: 'pending' | 'active' */ },
+  async claim(actor) {
+    // actor.value 已由核心按 pattern 校验过；这里写「待确认」记录即可
+    return { message: '申请已记录，进服后自动生效' };  // 文案原样显示给玩家（作者语言，框架不翻译）
+  },
+  // 服务器侧伴生插件实测到该 XUID 进服时调你的 hooks 端点，把 pending 翻成 active
+});
+```
+
+- 没声明 `input` 就登记 `claim()` → **拒载**：输入框会出现在玩家页面上，超管必须先在 manifest 看到它。
+- 安全口径：申请只是**意愿**（站号主人想绑这个远端身份），进服观测才是**持有证明**；两者都齐才签发。
+  残余风险是「知道别人 XUID 的人抢先申请」——把进服时观测到的游戏昵称一并记录并显示在绑定行上，
+  本人一眼可辨、可自助解绑；要绝对严格就只留 `issue` 码制（床站插件用 `BIND_MODE` 开关提供两档）。
+
+### `ctx.site.publicKeyPem()`：验「签证是否真实存在」
+
+站点有一把 Yggdrasil RSA 私钥（签发 textures 用）。插件可以读到**公钥**：伴生插件把玩家带来的
+textures property（value + signature）发回你的 hooks 端点，你用公钥验签——只有本站签得出的才过。
+私钥永远不经插件 API 出手；站点尚未生成密钥时返回 `null`。
 
 ## 5. 一次性码：为什么必须用 `ctx.tokens`
 

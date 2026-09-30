@@ -230,6 +230,7 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
         siteUrlResolver,
         tokenService,
         profileRepository,
+        publicKeyPem: () => rsaKeyPair.publicKeyPem,
         cache: cacheLayer.cache,
         rateLimiter: cacheLayer.rateLimiter,
         pluginDir: config.plugins.dir,

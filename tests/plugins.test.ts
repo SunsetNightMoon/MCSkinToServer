@@ -140,6 +140,7 @@ async function startHttp(
         siteUrlResolver: siteUrl,
         tokenService,
         profileRepository,
+        publicKeyPem: () => rsaKeyPair.publicKeyPem,
         pluginDir,
         now: () => new Date(),
       })
@@ -636,7 +637,7 @@ for (const c of cases) {
     // PostgreSQL 用例共用同一个库：启停意图存在 system_settings 里，前面用例留下的
     // 「demo_link 已启用」会在本用例 boot 时自动加载进目录。开头先把要用的插件归零，
     // 结尾再复位 —— 断言「目录为空」才不是在赌这台机器上次跑干净了。
-    for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult', 'demo_binding_undeclared']) {
+    for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult', 'demo_binding_undeclared', 'demo_binding_claim_no_input']) {
       await ctx.host!.disable(id, admin.userId).catch(() => undefined);
     }
     t.after(async () => {
@@ -661,6 +662,16 @@ for (const c of cases) {
     assert.ok(entry, `目录里应有 demo_link：${catalog.text}`);
     assert.equal(entry.subject, 'profile', '页面据此决定是否给角色选择器');
     assert.equal(entry.revocable, true, '登记了 revoke 才有解绑按钮');
+    assert.equal(entry.claimable, true, '登记了 claim 才有申请输入框');
+    assert.equal(
+      (entry.input as { pattern?: string }).pattern,
+      '^[0-9]{6,21}$',
+      '目录要把 input 声明带给页面（前端按它做即时格式提示）',
+    );
+
+    // 站点公钥经 ctx.site.publicKeyPem() 暴露（夹具把它报在 /ping 里）——伴生插件验签证用
+    const ping = await call(ctx, '/api/plugins/demo_link/ping');
+    assert.equal(ping.json.hasPublicKey, true, '测试台装配了真实 RSA 密钥对，公钥必须可读');
 
     // ---- issue：归属判定在核心，不在插件 ----
     const anonIssue = await call(ctx, '/api/plugins/demo_link/binding/issue', { method: 'POST' });
@@ -746,6 +757,75 @@ for (const c of cases) {
     assert.equal(afterRevoke.status, 200, afterRevoke.text);
     assert.deepEqual(afterRevoke.json.bindings, [], '解绑后列表应回到空');
 
+    // ---- 申请制（claim）：网页提交值 → 待确认 → 服务器实测进服时签发 ----
+    const claimBadPattern = await call(ctx, '/api/plugins/demo_link/binding/claim', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId, value: 'not-a-number' }),
+    });
+    assert.equal(claimBadPattern.status, 400, `pattern 由核心预校验：${claimBadPattern.text}`);
+    const claimForeign = await call(ctx, '/api/plugins/demo_link/binding/claim', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: other.profileId, value: '1234567890' }),
+    });
+    assert.equal(claimForeign.status, 403, 'claim 同样吃核心的归属校验');
+    const claimed = await call(ctx, '/api/plugins/demo_link/binding/claim', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId, value: '1234567890' }),
+    });
+    assert.equal(claimed.status, 200, claimed.text);
+    assert.equal(typeof claimed.json.message, 'string', '插件回执文案原样透传');
+    const pendingList = await call(
+      ctx,
+      `/api/plugins/demo_link/binding?profileId=${admin.profileId}`,
+      { headers: userAuth },
+    );
+    assert.equal(pendingList.json.bindings[0]?.status, 'pending', '申请后应是待确认');
+
+    const confirmPath = '/api/plugins/demo_link/hooks/confirm';
+    const cts = String(Date.now());
+    const cnonce = `nc-${Date.now()}`;
+    const cbody = { remote: '1234567890' };
+    const csign = sign(
+      canonicalString({ timestamp: cts, nonce: cnonce, method: 'POST', path: confirmPath, body: cbody }),
+      HOOK_SECRET,
+    );
+    const confirmed = await call(ctx, confirmPath, {
+      method: 'POST',
+      headers: {
+        ...jsonHeaders,
+        'X-MCSTS-Timestamp': cts,
+        'X-MCSTS-Nonce': cnonce,
+        'X-MCSTS-Signature': csign,
+      },
+      body: JSON.stringify(cbody),
+    });
+    assert.equal(confirmed.status, 200, confirmed.text);
+    assert.equal(confirmed.json.ok, true);
+    assert.equal(confirmed.json.subject, admin.profileId, '签发要返回申请落在哪个角色');
+    const activeList = await call(
+      ctx,
+      `/api/plugins/demo_link/binding?profileId=${admin.profileId}`,
+      { headers: userAuth },
+    );
+    assert.equal(activeList.json.bindings[0]?.status, 'active', '进服确认后应签发为生效');
+    await call(ctx, '/api/plugins/demo_link/binding/revoke', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId, bindingId: '1234567890' }),
+    });
+
+    // 没登记 claim 的插件：claim 端点 501（demo_binding_badresult 只有 list/issue）
+    await ctx.host!.enable('demo_binding_badresult', admin.userId);
+    const claimUnsupported = await call(ctx, '/api/plugins/demo_binding_badresult/binding/claim', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ value: '123456' }),
+    });
+    assert.equal(claimUnsupported.status, 501, `未登记 claim 不该有得提交：${claimUnsupported.text}`);
+
     // ---- 声明了 binding 却没登记实现：503 说明原因，而不是无声 404 ----
     await ctx.host!.enable('demo_binding_missing', admin.userId);
     const missingList = await call(ctx, '/api/plugins/demo_binding_missing/binding', {
@@ -787,6 +867,17 @@ for (const c of cases) {
       String((undeclaredEnable.json as { message?: string }).message ?? ''),
       /没有声明 binding/,
       undeclaredEnable.text,
+    );
+    // 没声明 input 就登记 claim()：同一条「声明可核」也管输入框
+    const claimNoInputEnable = await call(ctx, '/api/admin/plugins/demo_binding_claim_no_input/enable', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+    });
+    assert.equal(claimNoInputEnable.status, 500, '未声明 input 就登记 claim 必须拒载');
+    assert.match(
+      String((claimNoInputEnable.json as { message?: string }).message ?? ''),
+      /binding 没声明 input/,
+      claimNoInputEnable.text,
     );
     const catalogFinal = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
     assert.ok(

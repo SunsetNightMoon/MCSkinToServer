@@ -1310,6 +1310,11 @@
     "empty": "还没有绑定",
     "boundAt": "绑定于 {{time}}",
     "revoke": "解绑",
-    "revokeConfirm": "确定解除这条绑定吗？"
+    "revokeConfirm": "确定解除这条绑定吗？",
+    "claimSubmit": "提交申请",
+    "claimDone": "申请已提交",
+    "claimInvalid": "输入格式不正确",
+    "statusPending": "待确认",
+    "statusActive": "已生效"
   }
 }

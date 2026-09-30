@@ -1,6 +1,6 @@
 import { compatFetch as fetch } from '../../utils/apiCompat'
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Popconfirm, Select, Space, Spin, Typography, message } from 'antd'
+import { Alert, Button, Input, Popconfirm, Select, Space, Spin, Tag, Typography, message } from 'antd'
 import { LinkOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/authStore'
@@ -22,6 +22,8 @@ interface BindingCatalogEntry {
   description?: string
   subject: 'account' | 'profile'
   revocable: boolean
+  claimable?: boolean
+  input?: BindingInput
 }
 
 interface BindingField {
@@ -33,6 +35,14 @@ interface BindingRow {
   id: string
   fields: BindingField[]
   boundAt?: string
+  status?: 'pending' | 'active'
+}
+
+interface BindingInput {
+  label: string
+  hint?: string
+  pattern?: string
+  placeholder?: string
 }
 
 interface ProfileInfo {
@@ -126,6 +136,7 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
   const [busy, setBusy] = useState(false)
   const [issued, setIssued] = useState<{ code: string; expiresAt: string } | null>(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
+  const [claimValue, setClaimValue] = useState('')
 
   // 角色被删/换页后 profileId 可能失效：回到第一个可用角色，而不是抱着旧 id 发请求
   useEffect(() => {
@@ -184,6 +195,40 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
       const body = (await res.json()) as { code: string; expiresAt: string }
       setNowTick(Date.now())
       setIssued(body)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitClaim = async () => {
+    const value = claimValue.trim()
+    if (value === '') return
+    if (entry.input?.pattern) {
+      try {
+        if (!new RegExp(entry.input.pattern).test(value)) {
+          message.warning(t('bindings.claimInvalid'))
+          return
+        }
+      } catch {
+        /* pattern 已由后端校验过可编译；这里坏正则交给后端报错 */
+      }
+    }
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/plugins/${entry.pluginId}/binding/claim`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          entry.subject === 'profile' ? { profileId, value } : { value },
+        ),
+      })
+      if (!res.ok) throw new Error(await readError(res))
+      const body = (await res.json()) as { message?: string }
+      message.success(body.message ?? t('bindings.claimDone'))
+      setClaimValue('')
+      await load()
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err))
     } finally {
@@ -316,6 +361,31 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
           )}
         </Space>
 
+        {entry.claimable && entry.input && (
+          <Space.Compact style={{ width: '100%' }}>
+            <Input
+              value={claimValue}
+              onChange={(e) => setClaimValue(e.target.value)}
+              placeholder={entry.input.placeholder ?? entry.input.label}
+              maxLength={128}
+              disabled={entry.subject === 'profile' && !profileId}
+              onPressEnter={() => void submitClaim()}
+            />
+            <Button
+              loading={busy}
+              disabled={entry.subject === 'profile' && !profileId}
+              onClick={() => void submitClaim()}
+            >
+              {t('bindings.claimSubmit')}
+            </Button>
+          </Space.Compact>
+        )}
+        {entry.claimable && entry.input?.hint && (
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+            {entry.input.hint}
+          </Typography.Paragraph>
+        )}
+
         {(rows ?? []).map((row) => (
           <div
             key={row.id}
@@ -332,6 +402,11 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
           >
             <Space direction="vertical" size={2}>
               <Space wrap size={16}>
+                {row.status && (
+                  <Tag color={row.status === 'pending' ? 'orange' : 'green'}>
+                    {row.status === 'pending' ? t('bindings.statusPending') : t('bindings.statusActive')}
+                  </Tag>
+                )}
                 {row.fields.map((field, i) => (
                   <span key={i} style={{ fontSize: 13 }}>
                     <Typography.Text type="secondary">{field.label}：</Typography.Text>

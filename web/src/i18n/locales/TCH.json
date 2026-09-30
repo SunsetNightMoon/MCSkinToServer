@@ -1310,6 +1310,11 @@
     "empty": "還沒有綁定",
     "boundAt": "綁定於 {{time}}",
     "revoke": "解綁",
-    "revokeConfirm": "確定解除這條綁定嗎？"
+    "revokeConfirm": "確定解除這條綁定嗎？",
+    "claimSubmit": "提交申請",
+    "claimDone": "申請已提交",
+    "claimInvalid": "輸入格式不正確",
+    "statusPending": "待確認",
+    "statusActive": "已生效"
   }
 }

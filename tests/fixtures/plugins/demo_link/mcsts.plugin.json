@@ -7,7 +7,10 @@
   "main": "index.ts",
   "author": "MCSTS tests",
   "description": "验证 ctx 的全部能力：路由鉴权、HMAC 回调、一次性令牌原子消费、事件订阅、设置读写、通用绑定页",
-  "binding": { "subject": "profile" },
+  "binding": {
+    "subject": "profile",
+    "input": { "label": "远端身份（数字）", "pattern": "^[0-9]{6,21}$", "hint": "6-21 位数字" }
+  },
   "requires": [
     {
       "id": "geyser",
@@ -32,6 +35,14 @@
       "auth": "hmac",
       "note": "服务器实测身份 + 玩家码 → 绑定",
       "rateLimit": { "max": 30, "windowMs": 60000 }
+    },
+    {
+      "kind": "hooks",
+      "method": "POST",
+      "path": "/confirm",
+      "auth": "hmac",
+      "note": "服务器实测到远端身份进服 → 把待确认申请签发为生效",
+      "rateLimit": { "max": 60, "windowMs": 60000 }
     }
   ]
 }

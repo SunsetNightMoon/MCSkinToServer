@@ -1,0 +1,9 @@
+{
+  "id": "demo_binding_claim_no_input",
+  "name": "夹具：未声明 input 就登记 claim",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "main": "index.ts",
+  "description": "声明可核：claim 会往玩家页面放输入框，manifest 没声明 binding.input 就登记 → 拒载",
+  "binding": { "subject": "account" }
+}

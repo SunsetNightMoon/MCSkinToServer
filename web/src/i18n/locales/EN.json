@@ -1310,6 +1310,11 @@
     "empty": "Nothing bound yet",
     "boundAt": "Bound at {{time}}",
     "revoke": "Unbind",
-    "revokeConfirm": "Remove this binding?"
+    "revokeConfirm": "Remove this binding?",
+    "claimSubmit": "Submit request",
+    "claimDone": "Request submitted",
+    "claimInvalid": "Input format is invalid",
+    "statusPending": "Pending",
+    "statusActive": "Active"
   }
 }

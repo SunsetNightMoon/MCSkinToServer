@@ -1310,6 +1310,11 @@
     "empty": "まだ連携していません",
     "boundAt": "連携日時 {{time}}",
     "revoke": "解除",
-    "revokeConfirm": "この連携を解除しますか？"
+    "revokeConfirm": "この連携を解除しますか？",
+    "claimSubmit": "申請を送信",
+    "claimDone": "申請を送信しました",
+    "claimInvalid": "入力形式が正しくありません",
+    "statusPending": "確認待ち",
+    "statusActive": "有効"
   }
 }
