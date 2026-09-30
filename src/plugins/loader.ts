@@ -71,6 +71,8 @@ export interface PluginHostDeps {
   profileRepository: ProfileRepository;
   /** 站点 Yggdrasil RSA 公钥（PEM）：经 ctx.site.publicKeyPem() 给插件做验签类功能 */
   publicKeyPem: () => string | null;
+  /** 角色当前素材的签名纹理 property（ctx.textures）：复用核心 Yggdrasil 构建链路 */
+  buildTextureProperty: (profileId: string) => Promise<import('./api.js').PluginTextureProperty | null>;
   cache?: CachePort;
   rateLimiter?: RateLimiterPort;
   pluginDir: string;
@@ -357,6 +359,7 @@ export class PluginHost {
           eventBus: this.eventBus,
           tokenService: this.deps.tokenService,
           publicKeyPem: this.deps.publicKeyPem,
+          buildTextureProperty: this.deps.buildTextureProperty,
           cache: this.deps.cache,
           rateLimiter: this.deps.rateLimiter,
           now: this.deps.now,

@@ -281,6 +281,23 @@ export interface PluginSite {
   publicKeyPem(): Promise<string | null>;
 }
 
+/** 站点 Yggdrasil 签名链产出的纹理 property（与启动器 hasJoined 同一条构建链路） */
+export interface PluginTextureProperty {
+  /** base64 的 textures JSON（含 SKIN/CAPE 的 url 与 model） */
+  value: string;
+  /** RSA-SHA1 签名（base64）；站点无私钥时为 null */
+  signature: string | null;
+}
+
+/** 纹理能力：给伴生端（如基岩服务器）取「某角色当前皮肤/披风」的签名 property */
+export interface PluginTextures {
+  /**
+   * 构建指定角色当前生效素材的纹理 property；角色不存在返回 null。
+   * 被拒素材与预留角色已在仓储层排除；角色没皮肤时 value 里就没有 SKIN 项，由调用方决定回落。
+   */
+  buildProperty(profileId: string): Promise<PluginTextureProperty | null>;
+}
+
 export interface PluginContext {
   readonly pluginId: string;
   /** 拼出带前缀的表名：ctx.table('bindings') → 'plugin_bedrock_link_bindings' */
@@ -288,6 +305,7 @@ export interface PluginContext {
   db: PluginDb;
   settings: PluginSettings;
   tokens: PluginTokens;
+  textures: PluginTextures;
   events: PluginEvents;
   site: PluginSite;
   logger: PluginLogger;

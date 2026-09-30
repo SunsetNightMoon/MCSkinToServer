@@ -14,6 +14,7 @@ import type {
   PluginHandler,
   PluginManifest,
   PluginRouteOptions,
+  PluginTextureProperty,
   PluginTokenRow,
 } from './api.js';
 import type { PluginEventBus } from './events.js';
@@ -36,6 +37,8 @@ export interface CapabilityDeps {
   tokenService: TokenService;
   /** 站点 Yggdrasil RSA 公钥（PEM）；未生成时返回 null */
   publicKeyPem: () => string | null;
+  /** 角色当前素材的签名纹理 property；角色不存在返回 null（bootstrap 用核心纹理链路装配） */
+  buildTextureProperty: (profileId: string) => Promise<PluginTextureProperty | null>;
   cache?: CachePort;
   rateLimiter?: RateLimiterPort;
   now: () => Date;
@@ -151,6 +154,10 @@ export function createCapabilities(deps: CapabilityDeps, manifest: PluginManifes
         if (typeof raw !== 'string' || raw === '') return null;
         return readSecret(deps.secretBox, raw);
       },
+    },
+
+    textures: {
+      buildProperty: (profileId: string) => deps.buildTextureProperty(profileId),
     },
 
     tokens: {

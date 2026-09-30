@@ -27,6 +27,7 @@
     { "kind": "router", "method": "GET", "path": "/ping", "auth": "public", "note": "回显当前设置" },
     { "kind": "router", "method": "POST", "path": "/issue", "auth": "user", "note": "给当前角色发一枚一次性码" },
     { "kind": "router", "method": "GET", "path": "/bindings", "auth": "user", "note": "列出本站已发生的绑定" },
+    { "kind": "router", "method": "GET", "path": "/tex", "auth": "user", "note": "回显 ctx.textures 的构建结果" },
     { "kind": "router", "method": "GET", "path": "/renames", "auth": "admin", "note": "改名事件计数" },
     {
       "kind": "hooks",

@@ -141,6 +141,17 @@ async function startHttp(
         tokenService,
         profileRepository,
         publicKeyPem: () => rsaKeyPair.publicKeyPem,
+        buildTextureProperty: async (profileId: string) => {
+          const state = await profileRepository.findTextureState(profileId);
+          if (!state) return null;
+          const { buildForProfile } = await import('../src/yggdrasil/buildForProfile.js');
+          const prop = buildForProfile(
+            new TextureProfileBuilder(rsaKeyPair.privateKeyPem),
+            state,
+            new AssetUrlResolver(storage),
+          );
+          return { value: prop.value, signature: prop.signature ?? null };
+        },
         pluginDir,
         now: () => new Date(),
       })
@@ -672,6 +683,21 @@ for (const c of cases) {
     // 站点公钥经 ctx.site.publicKeyPem() 暴露（夹具把它报在 /ping 里）——伴生插件验签证用
     const ping = await call(ctx, '/api/plugins/demo_link/ping');
     assert.equal(ping.json.hasPublicKey, true, '测试台装配了真实 RSA 密钥对，公钥必须可读');
+
+    // ctx.textures.buildProperty：角色不存在 → null；存在 → 签名 property（无皮肤时 textures 为空对象）
+    const texUnknown = await call(ctx, `/api/plugins/demo_link/tex?profileId=00000000-0000-0000-0000-000000000000`, {
+      headers: userAuth,
+    });
+    assert.equal(texUnknown.status, 200, texUnknown.text);
+    assert.equal(texUnknown.json.property, null, '查不到的角色应回 null 而不是报错');
+    const texMine = await call(ctx, `/api/plugins/demo_link/tex?profileId=${admin.profileId}`, {
+      headers: userAuth,
+    });
+    assert.equal(texMine.status, 200, texMine.text);
+    assert.equal(typeof texMine.json.property?.value, 'string');
+    assert.equal(typeof texMine.json.property?.signature, 'string', '测试台有私钥，property 必须已签名');
+    const payload = JSON.parse(Buffer.from(texMine.json.property.value, 'base64').toString('utf8'));
+    assert.equal(payload.profileName, admin.name, 'value 里的身份要和角色对得上');
 
     // ---- issue：归属判定在核心，不在插件 ----
     const anonIssue = await call(ctx, '/api/plugins/demo_link/binding/issue', { method: 'POST' });

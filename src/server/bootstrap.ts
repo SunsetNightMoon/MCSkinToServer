@@ -45,6 +45,7 @@ import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
 import { recordExistingEnvironment } from '../setup/setupService.js';
 import { createApp } from './app.js';
 import { PluginHost } from '../plugins/loader.js';
+import { buildForProfile } from '../yggdrasil/buildForProfile.js';
 import { PluginImporter } from '../plugins/importer.js';
 
 /**
@@ -231,6 +232,12 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
         tokenService,
         profileRepository,
         publicKeyPem: () => rsaKeyPair.publicKeyPem,
+        buildTextureProperty: async (profileId) => {
+          const state = await profileRepository.findTextureState(profileId);
+          if (!state) return null;
+          const prop = buildForProfile(textureBuilder, state, assetUrlResolver);
+          return { value: prop.value, signature: prop.signature ?? null };
+        },
         cache: cacheLayer.cache,
         rateLimiter: cacheLayer.rateLimiter,
         pluginDir: config.plugins.dir,

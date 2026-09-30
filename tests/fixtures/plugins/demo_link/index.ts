@@ -61,6 +61,11 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
     res.json({ bindings: await ctx.db.query(`SELECT subject, remote FROM ${table}`) });
   });
 
+  ctx.route({ method: 'GET', path: '/tex', auth: 'user' }, async (req, res) => {
+    const profileId = String(req.query['profileId'] ?? '');
+    res.json({ property: await ctx.textures.buildProperty(profileId) });
+  });
+
   ctx.route({ method: 'GET', path: '/renames', auth: 'admin' }, (_req, res) => {
     res.json({ renameEvents });
   });
