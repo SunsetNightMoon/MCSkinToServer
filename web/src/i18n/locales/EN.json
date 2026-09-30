@@ -1275,6 +1275,21 @@
     "logPlugin": "Plugin",
     "logAction": "Action",
     "logDetail": "Detail",
+    "actionDiscover": "Discovered",
+    "actionEnable": "Enabled",
+    "actionDisable": "Disabled",
+    "actionLoad": "Loaded",
+    "actionUnload": "Unloaded",
+    "actionError": "Error",
+    "actionRotateSecret": "Rotated secret",
+    "actionImport": "Imported",
+    "kindRouter": "Site route",
+    "kindHooks": "Machine hook",
+    "authPublic": "Public",
+    "authUser": "Signed-in user",
+    "authAdmin": "Admin",
+    "authSuper": "Super admin",
+    "authHmac": "Signed (HMAC)",
     "loadFailed": "Failed to load the plugin list"
   }
 }

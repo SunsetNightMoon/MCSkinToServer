@@ -176,3 +176,46 @@ test('后端 /api/admin 端点必须被前端兼容层认出', () => {
       missing.map(([name, file]) => `/api/admin/${name}（${file}）`).join('、'),
   );
 });
+
+/**
+ * 四语言语言包键位必须一一对应。
+ *
+ * 本站的界面文字全部走 i18next，缺一个键就退化成直接把 key 名印在界面上
+ * （或者按 fallback 显示另一种语言）。这类洞只有跑到那个语言、那个分支才看得见，
+ * 靠肉眼验收抓不完 —— 而键位集合是纯结构信息，可以直接比。
+ *
+ * 基线取 SCH（简体中文，主语言）；其余三份必须与它**完全相同**：不缺、不多、不重复。
+ */
+test('四语言语言包键位必须完全一致', () => {
+  const dir = path.join(ROOT, 'web', 'src', 'i18n', 'locales');
+  const flatten = (value: unknown, prefix = ''): string[] => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return [prefix];
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+      typeof child === 'object' && child !== null && !Array.isArray(child)
+        ? flatten(child, `${prefix}${key}.`)
+        : [`${prefix}${key}`],
+    );
+  };
+  const load = (file: string): string[] => {
+    const parsed = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as unknown;
+    return flatten(parsed).filter((key) => key !== '');
+  };
+
+  const base = load('SCH.json');
+  const baseSet = new Set(base);
+  assert.equal(base.length, baseSet.size, 'SCH.json 里出现重复键');
+  assert.ok(baseSet.size > 500, `只扫到 ${baseSet.size} 个键：解析方式或目录变了，这条守卫已失效`);
+
+  for (const file of ['TCH.json', 'EN.json', 'JP.json']) {
+    const keys = load(file);
+    assert.equal(keys.length, new Set(keys).size, `${file} 里出现重复键`);
+    const set = new Set(keys);
+    const missing = base.filter((key) => !set.has(key));
+    const extra = keys.filter((key) => !baseSet.has(key));
+    assert.deepEqual(
+      [missing, extra],
+      [[], []],
+      `${file} 与 SCH.json 键位不一致：缺 ${missing.slice(0, 8).join(', ')}｜多 ${extra.slice(0, 8).join(', ')}`,
+    );
+  }
+});

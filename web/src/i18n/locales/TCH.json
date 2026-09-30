@@ -1275,6 +1275,21 @@
     "logPlugin": "外掛",
     "logAction": "動作",
     "logDetail": "詳情",
+    "actionDiscover": "發現",
+    "actionEnable": "啟用",
+    "actionDisable": "停用",
+    "actionLoad": "載入",
+    "actionUnload": "卸載",
+    "actionError": "出錯",
+    "actionRotateSecret": "輪換金鑰",
+    "actionImport": "匯入",
+    "kindRouter": "站點路由",
+    "kindHooks": "機器回調",
+    "authPublic": "公開",
+    "authUser": "登入使用者",
+    "authAdmin": "管理員",
+    "authSuper": "超級管理員",
+    "authHmac": "簽名校驗",
     "loadFailed": "讀取外掛清單失敗"
   }
 }

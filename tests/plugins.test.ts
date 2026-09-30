@@ -29,6 +29,8 @@ import { loadOrCreateKeyPair } from '../src/yggdrasil/keys.js';
 import { createApp, type AppDependencies } from '../src/server/app.js';
 import type { AppConfig } from '../src/config.js';
 import { PluginHost } from '../src/plugins/loader.js';
+import { PluginRegistry } from '../src/plugins/registry.js';
+import type { PluginManifest } from '../src/plugins/api.js';
 import { PluginImporter } from '../src/plugins/importer.js';
 import { canonicalString, sign } from '../src/plugins/hmac.js';
 import { goodRepo, startFakeGitHub } from './support/fakeGitHub.js';
@@ -645,5 +647,52 @@ test('plugins: manifest 校验拒绝非法 id 与 API 版本不匹配', async ()
     if (!second.ok) assert.match(JSON.stringify(second.issues), /API v99/);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * 启停台账的留存期：15 天。
+ *
+ * 这张表存在 `system_settings` 的单个键里，条目数还有上限 —— 不剪时间，
+ * 两周前的记录会把「刚才那次启用有没有成」挤出面板。它是排障工具，不是审计档案。
+ */
+test('plugins: 启停台账最多留 15 天', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mcsts-plugin-log-'));
+  const db = new SqliteConnection(join(dir, 't.db'));
+  await runMigrations(db, join(SCHEMA_DIR, 'sqlite'));
+  try {
+    let clock = new Date('2026-04-01T00:00:00.000Z');
+    const registry = new PluginRegistry(new SettingRepository(db), () => new Date(clock));
+    const manifest = {
+      id: 'log_probe',
+      name: '台账探针',
+      version: '0.1.0',
+      apiVersion: 1,
+      main: 'index.ts',
+    } as PluginManifest;
+
+    await registry.discovered([manifest]);
+    assert.equal((await registry.read()).log.length, 1, '发现时记一条');
+
+    // 14 天 23 小时：还在留存期内，不能被剪
+    clock = new Date('2026-04-15T23:00:00.000Z');
+    await registry.setEnabled('log_probe', true, 'actor-1');
+    assert.ok(
+      (await registry.read()).log.some((item) => item.action === 'discover'),
+      '未满 15 天的记录要留着',
+    );
+
+    // 超期之后，任何一次写入都要把过期的整表清掉
+    clock = new Date('2026-04-20T00:00:00.000Z');
+    await registry.setEnabled('log_probe', false, 'actor-1');
+    const log = (await registry.read()).log;
+    assert.ok(
+      !log.some((item) => item.action === 'discover'),
+      `超过 15 天的记录要被剪掉，实际剩 ${JSON.stringify(log.map((i) => i.action))}`,
+    );
+    assert.ok(log.every((item) => item.action === 'enable' || item.action === 'disable'));
+  } finally {
+    await db.close().catch(() => undefined);
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 });

@@ -1275,6 +1275,21 @@
     "logPlugin": "插件",
     "logAction": "动作",
     "logDetail": "详情",
+    "actionDiscover": "发现",
+    "actionEnable": "启用",
+    "actionDisable": "停用",
+    "actionLoad": "加载",
+    "actionUnload": "卸载",
+    "actionError": "出错",
+    "actionRotateSecret": "轮换密钥",
+    "actionImport": "导入",
+    "kindRouter": "站点路由",
+    "kindHooks": "机器回调",
+    "authPublic": "公开",
+    "authUser": "登录用户",
+    "authAdmin": "管理员",
+    "authSuper": "超级管理员",
+    "authHmac": "签名校验",
     "loadFailed": "读取插件列表失败"
   }
 }

@@ -11,6 +11,15 @@ import type { PluginManifest } from './api.js';
 
 const STATE_KEY = 'PLUGINS_STATE';
 const LOG_LIMIT = 60;
+/**
+ * 启停台账的最大留存期：15 天。
+ *
+ * 这张表是**排障用的**（「刚才那次启用有没有成」「这插件是谁什么时候装的」），
+ * 不是审计档案。超过两周的启停记录已经没有可行动的信息，留着只会把最近的挤下去
+ * —— 尤其在这套记录只存 `system_settings` 一个键、条目数还有上限的前提下。
+ * 真要长期审计，那该是数据库表与另一套决定，不是把这里当日志盘用。
+ */
+const LOG_RETENTION_MS = 15 * 24 * 60 * 60 * 1000;
 
 /** hooks 入口的服务器密钥：由框架托管，不让每个作者自己发明键名 */
 export const HOOK_SECRET_KEY = 'HOOK_SECRET';
@@ -179,6 +188,14 @@ export class PluginRegistry {
     actor = 'system',
   ): void {
     state.log.unshift({ at: this.now().toISOString(), actor, action, pluginId, detail });
-    if (state.log.length > LOG_LIMIT) state.log.length = LOG_LIMIT;
+    // 条数上限之外再加**时间上限**（见 LOG_RETENTION_MS）。按时间整表过滤而不是只削尾部：
+    // 站点重启、时钟回拨都可能让旧记录夹在新记录前面，只削尾巴会漏。
+    const cutoff = this.now().getTime() - LOG_RETENTION_MS;
+    state.log = state.log
+      .filter((item) => {
+        const at = Date.parse(item.at);
+        return Number.isFinite(at) && at >= cutoff;
+      })
+      .slice(0, LOG_LIMIT);
   }
 }

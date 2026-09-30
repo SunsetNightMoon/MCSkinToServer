@@ -1275,6 +1275,21 @@
     "logPlugin": "プラグイン",
     "logAction": "操作",
     "logDetail": "詳細",
+    "actionDiscover": "発見",
+    "actionEnable": "有効化",
+    "actionDisable": "無効化",
+    "actionLoad": "読み込み",
+    "actionUnload": "アンロード",
+    "actionError": "エラー",
+    "actionRotateSecret": "鍵のローテート",
+    "actionImport": "導入",
+    "kindRouter": "サイトルート",
+    "kindHooks": "機械コールバック",
+    "authPublic": "公開",
+    "authUser": "ログインユーザー",
+    "authAdmin": "管理者",
+    "authSuper": "スーパー管理者",
+    "authHmac": "署名検証",
     "loadFailed": "プラグイン一覧の取得に失敗"
   }
 }

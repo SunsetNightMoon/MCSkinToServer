@@ -94,6 +94,37 @@ const STATE_BADGE: Record<PluginStatus['state'], 'success' | 'default' | 'error'
   invalid: 'warning',
 }
 
+/**
+ * 文案归属的分界线：**框架自己的字进多语言，作者写的字原样透传。**
+ *
+ * 台账的 `action`、入口表的 `kind` / `auth` 都是框架定义的枚举，翻不翻是本站的责任；
+ * 而 manifest 里的 name/description/label/hint、`requires` 的文字、插件自己回的错误消息，
+ * 是**作者写的**，框架既不知道它的语义边界，也不该替它翻译 —— 要出多语言版本，
+ * 由作者在自己的 manifest 里决定（本站只负责把它原样摊出来）。
+ * 查不到的值回落到原文，将来加枚举也不会渲染成空白。
+ */
+const ACTION_KEYS: Record<string, string> = {
+  discover: 'plugins.actionDiscover',
+  enable: 'plugins.actionEnable',
+  disable: 'plugins.actionDisable',
+  load: 'plugins.actionLoad',
+  unload: 'plugins.actionUnload',
+  error: 'plugins.actionError',
+  'rotate-secret': 'plugins.actionRotateSecret',
+  import: 'plugins.actionImport',
+}
+const KIND_KEYS: Record<string, string> = {
+  router: 'plugins.kindRouter',
+  hooks: 'plugins.kindHooks',
+}
+const AUTH_KEYS: Record<string, string> = {
+  public: 'plugins.authPublic',
+  user: 'plugins.authUser',
+  admin: 'plugins.authAdmin',
+  super: 'plugins.authSuper',
+  hmac: 'plugins.authHmac',
+}
+
 /** 卡片只到「能判断要不要点开」为止；依赖与入口的明细都在设置弹窗里 */
 function hasRequires(plugin: PluginStatus) {
   return (plugin.manifest?.requires ?? []).length > 0
@@ -101,6 +132,11 @@ function hasRequires(plugin: PluginStatus) {
 
 export function PluginManagement() {
   const { t } = useTranslation()
+  /** 框架枚举 → 当前语言；没登记的（将来新值）原样显示，不留空白 */
+  const enumLabel = (map: Record<string, string>, value: string): string => {
+    const key = map[value]
+    return key ? t(key) : value
+  }
   const [statuses, setStatuses] = useState<PluginStatus[]>([])
   const [log, setLog] = useState<LogEntry[]>([])
   const [hookSecretSet, setHookSecretSet] = useState<Record<string, boolean>>({})
@@ -316,14 +352,14 @@ export function PluginManagement() {
       rowKey={(row) => `${row.kind}-${row.method}-${row.path}`}
       dataSource={plugin.manifest?.endpoints ?? []}
       columns={[
-        { title: t('plugins.endpointKind'), dataIndex: 'kind', width: 88 },
+        { title: t('plugins.endpointKind'), dataIndex: 'kind', width: 96, render: (value: string) => enumLabel(KIND_KEYS, value) },
         { title: t('plugins.endpointMethod'), dataIndex: 'method', width: 80 },
         {
           title: t('plugins.endpointPath'),
           dataIndex: 'path',
           render: (value: string, row) => (row.kind === 'hooks' ? `/api/plugins/${plugin.id}/hooks${value}` : `/api/plugins/${plugin.id}${value}`),
         },
-        { title: t('plugins.endpointAuth'), dataIndex: 'auth', width: 88 },
+        { title: t('plugins.endpointAuth'), dataIndex: 'auth', width: 104, render: (value: string) => enumLabel(AUTH_KEYS, value) },
         { title: t('plugins.endpointNote'), dataIndex: 'note' },
       ]}
     />
@@ -462,7 +498,12 @@ export function PluginManagement() {
             columns={[
               { title: t('plugins.logAt'), dataIndex: 'at', width: 190 },
               { title: t('plugins.logPlugin'), dataIndex: 'pluginId', width: 140 },
-              { title: t('plugins.logAction'), dataIndex: 'action', width: 120 },
+              {
+                title: t('plugins.logAction'),
+                dataIndex: 'action',
+                width: 140,
+                render: (value: string) => enumLabel(ACTION_KEYS, value),
+              },
               { title: t('plugins.logDetail'), dataIndex: 'detail' },
             ]}
           />
