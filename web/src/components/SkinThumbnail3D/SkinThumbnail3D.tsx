@@ -38,8 +38,8 @@ export function SkinThumbnail3D({
   const viewerRef = useRef<SkinViewer | null>(null)
   const mountedRef = useRef(true)
 
-  // 用URL生成唯一缓存key
-  const cacheKey = `thumb_${skinUrl}_${capeUrl || ''}_${modelType}_${width}x${height}`
+  // 用URL生成唯一缓存键；thumb_v2_ 前缀用于作废旧版「固定等待 600ms」留下的空白缓存
+  const cacheKey = `thumb_v2_${skinUrl}_${capeUrl || ''}_${modelType}_${width}x${height}`
 
   useEffect(() => {
     mountedRef.current = true
@@ -79,7 +79,6 @@ export function SkinThumbnail3D({
           canvas,
           width: w,
           height: h,
-          skin: skinUrl,
           model: modelType as any,
           enableControls: false,
         })
@@ -107,14 +106,14 @@ export function SkinThumbnail3D({
           if (!viewer || !mountedRef.current) return
 
           try {
+            // 真正等纹理加载完成再截图，避免「固定延时」竞态截到空画布
+            await viewer.loadSkin(skinUrl)
+
             // 加载披风
             if (capeUrl) {
               await viewer.loadCape(capeUrl)
               viewer.playerWrapper.rotation.y = Math.PI - 0.17
             }
-
-            // 等待纹理加载完成
-            await new Promise(r => setTimeout(r, 600))
 
             if (!mountedRef.current || !viewer) return
 
