@@ -96,10 +96,17 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [replace, setReplace] = useState(false)
+  /**
+   * 失败原因留在弹窗里，而不是只弹一条三秒就消失的 toast：
+   * 预览/安装要打好几个 GitHub 请求，失败文案很长（限流、缺标记、清单不符…），
+   * 实测 toast 一闪而过，超管根本来不及看清是上游不通还是仓库不合规。
+   */
+  const [failure, setFailure] = useState<string | null>(null)
 
   const reset = () => {
     setPreview(null)
     setReplace(false)
+    setFailure(null)
   }
 
   const doPreview = async () => {
@@ -110,9 +117,11 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
     const result = await post<{ preview: PreviewResult }>('/api/admin/plugins/import/preview', values)
     setBusy(false)
     if (!result.ok) {
-      message.error(result.message)
+      setFailure(result.message)
+      message.error(t('plugins.importPreviewFailed'))
       return
     }
+    setFailure(null)
     setPreview(result.data.preview)
   }
 
@@ -127,9 +136,11 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
     })
     setBusy(false)
     if (!result.ok) {
-      message.error(result.message)
+      setFailure(result.message)
+      message.error(t('plugins.importInstallFailed'))
       return
     }
+    setFailure(null)
     message.success(t('plugins.importDone', { id: result.data.id, files: result.data.files }))
     reset()
     props.onImported()
@@ -191,6 +202,18 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
           </Form.Item>
         </Space>
       </Form>
+
+      {failure && (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          onClose={() => setFailure(null)}
+          style={{ marginBottom: 12 }}
+          message={t('plugins.importFailedTitle')}
+          description={failure}
+        />
+      )}
 
       {preview && (
         <>

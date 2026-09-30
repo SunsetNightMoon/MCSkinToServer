@@ -1240,7 +1240,8 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - 新增 `tests/plugins.test.ts` 两项（双方言共 4 条）：**导入端到端**（空目录 → 预览标记通过 → 安装 3 个文件 → 只到「发现」不自动启用 → 台账留 import 记录 → 启用 → 装进来的插件真的能服务请求 → `.mcsts-import.json` 记的来源正确），以及**重载 stale 判定**。另补台账（enable/load/disable/unload 不混记）、设置读回当前值、int 空串落成 0 的回归。
 - 夹具 `tests/fixtures/plugins/demo_link` 的 manifest 补了一个 int 设置项，才让「清空数字框」这条路径可测。
 - 浏览器实测（隔离测试实例 :3010 + vite :5174，暗色与亮色各一遍）：卡片三控件、设置弹窗三页签、密钥一次性弹窗、重载提示、导入弹窗对真实 GitHub 的拒绝原因（`插件目录里找不到 mcsts.plugin.json`）均按预期显示。
-- 真实 GitHub 冒烟：tag→commit sha 解析与 recursive tree 列举都通，停在正确的判断上（该仓库没有 manifest）。**导入成功路径的端到端由上面那条测试覆盖**；真网络下的「真的装上一个插件」还缺一个带识别代号标记的公开仓库（本机无 gh、SSH key 未挂账号、HTTPS 令牌不可读，建不出来）。
+- 真实 GitHub 冒烟：在一个真实公开仓库（`SunsetNightMoon/spellcardavive`，tag `v0.1.0`）上跑完整链路 —— 预览显示「识别代号已核对」、tag 解析成 commit sha、4 个文件 8.1 KB 带 blob；安装落盘并写出 `.mcsts-import.json`（仓库/tag/sha/谁/何时/逐文件哈希）；**只到「发现」不自动启用**；面板启用后 `GET /api/plugins/smoke_ping/ping` 真的由装进来的代码回包；在面板改该插件的设置项（问候语）后 `/ping` 立刻反映新值。
+- 同一次实测还暴露两处：① 上游偶发不通时导入返回 502 且**原因只有一条 3 秒就消失的 toast**，长文案根本来不及看 —— 失败原因改为留在弹窗内的可关闭 Alert；② 该 502 的文案带出了 `err.cause`（`Connect Timeout Error … UND_ERR_CONNECT_TIMEOUT`），与「仓库不合规」的 400 分得开。
 
 ## 背景：重制动机（原 README「结论摘要」）
 
