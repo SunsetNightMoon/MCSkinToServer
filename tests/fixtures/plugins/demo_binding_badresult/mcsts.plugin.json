@@ -1,0 +1,9 @@
+{
+  "id": "demo_binding_badresult",
+  "name": "夹具：绑定返回形态违背契约",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "main": "index.ts",
+  "description": "核心必须把不合契约的返回收口成 PLUGIN_BAD_RESULT 报错，而不是让页面渲染半坏列表",
+  "binding": { "subject": "account" }
+}

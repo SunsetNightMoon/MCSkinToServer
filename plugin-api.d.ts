@@ -37,6 +37,67 @@ export interface PluginEndpointSpec {
   rateLimit?: { max: number; windowMs: number };
 }
 
+/** ============ 通用绑定页（账号设置区）============ */
+
+/**
+ * 绑定主体：
+ * - `profile`：每个角色一条绑定，页面给角色选择器，核心验属后把 profileId/profileName 交给插件；
+ * - `account`：整个账号一条，插件收到的 profileId 恒为 null。
+ */
+export interface PluginBindingSpec {
+  subject: 'account' | 'profile';
+}
+
+/** 核心完成会话鉴权与角色归属校验之后交给处理器的操作者 */
+export interface PluginBindingActor {
+  userId: string;
+  profileId: string | null;
+  /** profileId 对应角色的当前名字；subject='account' 时为 null */
+  profileName: string | null;
+  role: 'user' | 'admin' | 'super_admin';
+  ip: string;
+}
+
+export interface PluginBindingField {
+  label: string;
+  value: string;
+}
+
+/** 绑定列表里的一行。id 是解绑句柄，必须在本插件内唯一（例如 XUID） */
+export interface PluginBindingRow {
+  id: string;
+  /** 页面按声明顺序渲染的键值对 */
+  fields: PluginBindingField[];
+  /** ISO 时间，页面显示「何时绑定」 */
+  boundAt?: string;
+}
+
+export interface PluginBindingListResult {
+  bindings: PluginBindingRow[];
+  /** 给玩家的游戏内操作说明；页面会把其中的 {{code}} 替换成刚生成的码 */
+  instructions?: string;
+}
+
+export interface PluginBindingIssueResult {
+  /** 展示给玩家的短码。绑定类流程建议直接用 ctx.tokens.issue() 返回的 token */
+  code: string;
+  /** ISO 过期时间，页面据此做倒计时 */
+  expiresAt: string;
+}
+
+/**
+ * 通用绑定页的三处理函数，经 `ctx.binding()` 登记。
+ *
+ * 页面路由（/api/plugins/<id>/binding 一族）与发现目录都由核心提供，插件只登记行为；
+ * 返回值形态由核心在运行时校验 —— 契约违背会明确报错，而不是渲染出半坏页面。
+ */
+export interface PluginBindingHandlers {
+  list(actor: PluginBindingActor): PluginBindingListResult | Promise<PluginBindingListResult>;
+  issue(actor: PluginBindingActor): PluginBindingIssueResult | Promise<PluginBindingIssueResult>;
+  /** 不登记则页面不提供解绑按钮（有些绑定只许管理员清） */
+  revoke?(actor: PluginBindingActor & { bindingId: string }): void | Promise<void>;
+}
+
 export interface PluginManifest {
   /** 小写字母开头，允许数字与下划线，长度 2-32；它同时是你的表前缀 */
   id: string;
@@ -53,6 +114,11 @@ export interface PluginManifest {
   settings?: PluginSettingSpec[];
   /** 你要暴露的 HTTP 入口。注册未声明的路径会被拒载 —— 声明与行为必须一致 */
   endpoints?: PluginEndpointSpec[];
+  /**
+   * 声明「这个插件要在账号设置区的通用绑定页出现」。
+   * 没声明却调用 `ctx.binding()` → 拒载（与 endpoints 同一套「声明可核」逻辑）。
+   */
+  binding?: PluginBindingSpec;
 }
 
 export interface PluginRequest {
@@ -180,6 +246,11 @@ export interface PluginContext {
    * 签名串：HMAC-SHA256(secret, ts + "\n" + nonce + "\n" + METHOD + "\n" + 完整路径 + "\n" + sha256hex(body))
    */
   hook(options: PluginRouteOptions, handler: PluginHandler): void;
+  /**
+   * 接入账号设置区的通用绑定页；manifest 必须先声明 `binding`，否则拒载。
+   * 一个插件只能登记一次；`revoke` 不登记就没有解绑按钮。
+   */
+  binding(handlers: PluginBindingHandlers): void;
 }
 
 /** setup 返回的清理函数：插件被停用时调用 */

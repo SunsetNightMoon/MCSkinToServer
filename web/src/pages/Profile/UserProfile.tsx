@@ -16,6 +16,7 @@ import {
   type EmailChangeRequestResult,
 } from '../../services/accountSecurityService'
 import { usePageTitle } from '../../hooks/usePageTitle'
+import { AccountBindings } from './AccountBindings'
 import { useTranslation } from 'react-i18next'
 // 密码长度口径：与后端（8-128 位）保持一致，见 utils/passwordPolicy.ts 的说明
 import { MIN_PASSWORD_LENGTH } from '../../utils/passwordPolicy'
@@ -1117,6 +1118,9 @@ export function UserProfile() {
           <div>{t('profile.afterAdding')}</div>
         </div>
       </div>
+
+      {/* 通用绑定页（P6 第三批）：只有装了绑定插件才显示，没装时不留空块 */}
+      <AccountBindings profiles={profiles} />
 
       {/* 功能区 + 危险区 */}
       <div style={{

@@ -1285,11 +1285,31 @@
     "actionImport": "导入",
     "kindRouter": "站点路由",
     "kindHooks": "机器回调",
+    "kindBinding": "绑定页",
+    "bindingListNote": "列出当前绑定；入口由核心提供，插件只登记 ctx.binding()",
+    "bindingIssueNote": "生成一次性绑定码；核心按 用户+IP 限 10 次/分钟",
+    "bindingRevokeNote": "网页侧自助解绑；仅当插件登记了 revoke 才存在这个入口",
     "authPublic": "公开",
     "authUser": "登录用户",
     "authAdmin": "管理员",
     "authSuper": "超级管理员",
     "authHmac": "签名校验",
     "loadFailed": "读取插件列表失败"
+  },
+  "bindings": {
+    "title": "账号绑定",
+    "subtitle": "由插件启用的身份绑定：在这里管理你的角色与外部身份的对应关系",
+    "pickProfile": "选择角色",
+    "refresh": "刷新",
+    "noProfile": "账号下没有可绑定的角色",
+    "loadFailed": "读取绑定失败",
+    "generate": "生成绑定码",
+    "codeHint": "把这串码带到游戏里，你绑定的入口会消费它（一次性，用过即失效）",
+    "codePlaceholder": "绑定码",
+    "remain": "剩余 {{time}}",
+    "empty": "还没有绑定",
+    "boundAt": "绑定于 {{time}}",
+    "revoke": "解绑",
+    "revokeConfirm": "确定解除这条绑定吗？"
   }
 }

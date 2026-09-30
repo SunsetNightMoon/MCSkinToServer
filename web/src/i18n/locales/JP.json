@@ -1285,11 +1285,31 @@
     "actionImport": "導入",
     "kindRouter": "サイトルート",
     "kindHooks": "機械コールバック",
+    "kindBinding": "連携ページ",
+    "bindingListNote": "現在の連携一覧；エンドポイントはコアが提供し、プラグインは ctx.binding() を登録するだけ",
+    "bindingIssueNote": "使い捨て連携コードの発行；コアがユーザー+IP あたり 10 回/分に制限する",
+    "bindingRevokeNote": "Web 側でセルフ解除；プラグインが revoke を登録した場合のみこのエンドポイントが存在する",
     "authPublic": "公開",
     "authUser": "ログインユーザー",
     "authAdmin": "管理者",
     "authSuper": "スーパー管理者",
     "authHmac": "署名検証",
     "loadFailed": "プラグイン一覧の取得に失敗"
+  },
+  "bindings": {
+    "title": "アカウント連携",
+    "subtitle": "プラグインが有効にする身分連携：キャラクターと外部身分の対応をここで管理します",
+    "pickProfile": "キャラクターを選択",
+    "refresh": "更新",
+    "noProfile": "連携できるキャラクターがありません",
+    "loadFailed": "連携情報の取得に失敗",
+    "generate": "連携コードを発行",
+    "codeHint": "このコードをゲーム内に持ち込んでください。連携先が一度だけ使用します（使い捨て）",
+    "codePlaceholder": "連携コード",
+    "remain": "残り {{time}}",
+    "empty": "まだ連携していません",
+    "boundAt": "連携日時 {{time}}",
+    "revoke": "解除",
+    "revokeConfirm": "この連携を解除しますか？"
   }
 }

@@ -51,6 +51,7 @@ MCSTS 只提供**插件接口**。是否安装某个插件、装哪一个，是�
     { "key": "GREETING", "type": "string", "label": "问候语", "default": "hi" },
     { "key": "SERVER_SECRET", "type": "secret", "label": "共享密钥", "hint": "填进 Java 服侧伴生插件" }
   ],
+  "binding": { "subject": "profile" },
   "endpoints": [
     { "kind": "router", "method": "GET", "path": "/ping", "auth": "public", "note": "健康探针" },
     { "kind": "hooks",  "method": "POST", "path": "/bind", "auth": "hmac", "note": "服务器实测身份 + 玩家码 → 绑定",
@@ -101,6 +102,7 @@ export default setup;
 | `ctx.events` | 订阅生命周期事件 | 只读通知，**不能改写核心决定** |
 | `ctx.route()` | 网页侧入口 `/api/plugins/<id><path>` | 鉴权复用站点会话 |
 | `ctx.hook()` | 机器回调 `/api/plugins/<id>/hooks<path>` | `auth:'hmac'` 由 MCSTS 校验签名 |
+| `ctx.binding()` | 接入账号设置区的**通用绑定页** | manifest 要先声明 `binding`，见下 |
 | `ctx.site` | 站点标题 / 对外根 | 只读 |
 | `ctx.logger` | 带 `[plugin:<id>]` 前缀的日志 | — |
 
@@ -115,6 +117,50 @@ export default setup;
 `ctx.events.on(name, handler)` 收到的是「已经发生的事」：`user.registered`、`profile.renamed`、`profile.deleted`、`account.purged`。MCSTS **不 await** 你的处理结果，也不会因为你的返回值改变已完成的业务决定。
 
 这是刻意的：可返回覆盖值的拦截器会让插件顺序影响结果，排查成本指数级上升。需要改变行为，请走显式入口。
+
+### 通用绑定页（`ctx.binding()`）
+
+「玩家在网页上生成一次性码、到别处交给服务器消费」是绑定类插件共同的动作。MCSTS 把这块页面做进了
+账号设置区（登录用户的「账号绑定」），插件只登记行为，**不写任何前端代码**：
+
+```ts
+ctx.binding({
+  // 列出当前主体的绑定。核心已验过 actor.profileId 属于这个登录账号（subject='profile' 时），
+  // 插件不需要、也没有能力再去查归属 —— 这是结构上挡住的，不是靠作者自觉
+  async list(actor) {
+    return {
+      bindings: [{ id: '2535449773834232', fields: [{ label: 'XUID', value: '2535449773834232' }], boundAt: '2026-09-30T06:02:24Z' }],
+      instructions: '进服后输入 /bedrock link {{code}}',   // {{code}} 由页面替换成实际码
+    };
+  },
+  // 生成短码。绑定流程建议直接返回 ctx.tokens.issue() 的结果
+  async issue(actor) {
+    const t = await ctx.tokens.issue({ subject: actor.profileId!, ttlMs: 300_000, data: { profileName: actor.profileName } });
+    return { code: t.token, expiresAt: t.expiresAt };
+  },
+  // 不登记就没有解绑按钮（有些绑定只许管理员清）
+  async revoke(actor) {
+    await ctx.db.run(`DELETE FROM ${table} WHERE xuid = ${ph(0)} AND profile_id = ${ph(1)}`, [actor.bindingId, actor.profileId]);
+  },
+});
+```
+
+规则与约定：
+
+- **manifest 必须先声明** `"binding": { "subject": "profile" }`（或 `"account"`）。没声明就调
+  `ctx.binding()` → 拒载，和未声明的 endpoints 同一条承诺；声明了却没登记实现 → 入口回 503 说明原因，
+  而不是无声 404。
+- `subject='profile'`：页面给角色选择器，核心把**验过归属**的 `profileId`/`profileName` 交给你的三个函数，
+  缺了或不属于这个账号的请求根本到不了插件；`subject='account'` 时 `profileId` 恒为 null。
+- 核心提供的入口（面板的「对外入口」台账会替你把这三行摊出来）：
+  `GET /api/plugins/<id>/binding`、`POST …/binding/issue`、`POST …/binding/revoke`，全部登录用户鉴权；
+  另有 `GET /api/bindings` 供页面发现「哪些启用的插件有绑定能力」。
+- **返回形态由核心校验**：`list()` 必须回 `{ bindings: [{ id, fields: [{label,value}], boundAt? }], instructions? }`，
+  `issue()` 必须回 `{ code, expiresAt }`。不合契约直接报 `PLUGIN_BAD_RESULT` 并指名你的插件 ——
+  宁可报错，也不让页面渲染出半坏列表让你猜哪行错了。
+- `issue` 按 用户+IP 限 10 次/分钟（核心做的，不用你自己写）。
+- 一个实用细节：钩子侧（`/hooks/…`）只有 `profileId`，**查不到角色名字** —— 名字在 `issue` 时刻是齐的，
+  把它塞进令牌的 `data`，消费时就能带回来（上面的例子就是这么把 `profileName` 传给 `/bind` 的）。
 
 ## 5. 一次性码：为什么必须用 `ctx.tokens`
 
@@ -161,7 +207,7 @@ MCSTS 无法主动连你的 Minecraft 服务器，所以方向是**入站**：Ja
 
 **两条独立证据，缺一不可**：
 
-1. **玩家授权** —— 他在 MCSTS 网页（已登录）点「生成绑定码」，拿到 8 位码；
+1. **玩家授权** —— 他在 MCSTS 账号设置区的「账号绑定」（已登录）选角色点「生成绑定码」，拿到 8 位码 —— 这一步的页面由核心提供，插件登记 `ctx.binding()` 即可（见 §4）；
 2. **服务器实测** —— 他进基岩服执行 `/bedrock link <码>`，伴生插件从 Floodgate 取该连接的**真实 XUID**，带签名回调 MCSTS。
 
 只有码没有签名 → 任何人都能自报 XUID；只有签名没有码 → 拿到服务器密钥的人可以随意给人绑定。两者同时成立才写绑定。

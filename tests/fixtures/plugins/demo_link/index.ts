@@ -11,6 +11,9 @@ const bindings: { subject: string; remote: string }[] = [];
 
 const setup: PluginSetup = async (ctx: PluginContext) => {
   const table = ctx.table('bindings');
+  // 占位符两边不一样（SQLite 是 ?，PG 是 $1）：作者只需要看 ctx.db.dialect，
+  // 不必读核心源码 —— 这正是接口该提供的信息
+  const ph = (i: number): string => (ctx.db.dialect === 'postgres' ? `$${i + 1}` : '?');
   await ctx.db.exec(
     `CREATE TABLE IF NOT EXISTS ${table} (
        subject TEXT PRIMARY KEY,
@@ -58,10 +61,6 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
       res.status(400).json({ error: 'VALIDATION_ERROR', message: '码无效或缺少远端身份' });
       return;
     }
-    // 占位符两边不一样（SQLite 是 ?，PG 是 $1）：作者只需要看 ctx.db.dialect，
-    // 不必读核心源码 —— 这正是接口该提供的信息
-    const ph = (i: number): string =>
-      ctx.db.dialect === 'postgres' ? `$${i + 1}` : '?';
     await ctx.db.run(
       `INSERT INTO ${table} (subject, remote, bound_at) VALUES (${ph(0)}, ${ph(1)}, ${ph(2)})
        ON CONFLICT (subject) DO UPDATE SET remote = excluded.remote`,
@@ -69,6 +68,43 @@ const setup: PluginSetup = async (ctx: PluginContext) => {
     );
     bindings.push({ subject: consumed.subject, remote });
     res.json({ ok: true, subject: consumed.subject });
+  });
+
+  // ---- 通用绑定页（账号设置区）：核心完成会话鉴权 + 角色归属校验，这里只管数据 ----
+  ctx.binding({
+    async list(actor) {
+      // subject='profile'：actor.profileId 一定是当前账号名下已验属的活跃角色
+      const rows = await ctx.db.query<{ remote: unknown; bound_at: unknown }>(
+        `SELECT remote, bound_at FROM ${table} WHERE subject = ${ph(0)}`,
+        [actor.profileId],
+      );
+      return {
+        bindings: rows.map((r) => ({
+          id: String(r.remote),
+          fields: [{ label: '远端身份', value: String(r.remote) }],
+          boundAt: String(r.bound_at),
+        })),
+        instructions: `在游戏里输入 /demo link {{code}} 完成绑定（角色 ${actor.profileName}）`,
+      };
+    },
+    async issue(actor) {
+      const ttl = Number((await ctx.settings.get('LINK_TTL_SECONDS')) ?? 300) * 1000;
+      const issued = await ctx.tokens.issue({
+        subject: String(actor.profileId),
+        ttlMs: ttl,
+        data: { by: actor.userId },
+      });
+      return { code: issued.token, expiresAt: issued.expiresAt };
+    },
+    async revoke(actor) {
+      // 解绑是玩家本人（网页侧）的操作；profileId 已由核心验属，这里连它一起当条件
+      await ctx.db.run(
+        `DELETE FROM ${table} WHERE subject = ${ph(0)} AND remote = ${ph(1)}`,
+        [actor.profileId, actor.bindingId],
+      );
+      const at = bindings.findIndex((b) => b.subject === actor.profileId && b.remote === actor.bindingId);
+      if (at >= 0) bindings.splice(at, 1);
+    },
   });
 
   return () => {

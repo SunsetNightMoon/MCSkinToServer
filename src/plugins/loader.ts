@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { DatabaseConnection } from '../types.js';
 import type { SettingRepository } from '../repositories/settingRepository.js';
+import type { ProfileRepository } from '../repositories/profileRepository.js';
 import { SecretBox } from '../util/secretBox.js';
 import type { SiteUrlResolver } from '../site/siteUrl.js';
 import type { CachePort, RateLimiterPort } from '../cache/types.js';
@@ -12,6 +13,9 @@ import { requireAuth, requireRole } from '../server/middleware.js';
 import { AppError } from '../errors.js';
 import {
   PLUGIN_API_VERSION,
+  type PluginBindingActor,
+  type PluginBindingListResult,
+  type PluginBindingRow,
   type PluginEntry,
   type PluginManifest,
   type PluginRequest,
@@ -62,6 +66,8 @@ export interface PluginHostDeps {
   secretBox?: SecretBox;
   siteUrlResolver: SiteUrlResolver;
   tokenService: TokenService;
+  /** 绑定页要用它校验「这个 profileId 是不是当前登录账号的角色」——插件拿不到仓储，归属判定只能由核心做 */
+  profileRepository: ProfileRepository;
   cache?: CachePort;
   rateLimiter?: RateLimiterPort;
   pluginDir: string;
@@ -445,7 +451,140 @@ export class PluginHost {
       const method = options.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
       (router[method] as (p: string, ...h: unknown[]) => void)(path, ...chain);
     }
+    // 绑定页的三入口由核心提供：插件在 manifest 声明了就挂，形态校验也在核心做。
+    // 声明了却没登记实现时路由照样在（回 503 说明原因），否则症状是无声 404，作者找不到线索。
+    if (manifest.binding) this.attachBindingRoutes(router, manifest, caps, authed);
     return router;
+  }
+
+  private attachBindingRoutes(
+    router: Router,
+    manifest: PluginManifest,
+    caps: PluginCapabilities,
+    authed: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+  ): void {
+    const subject = manifest.binding!.subject;
+    const notReady = (res: Response): void => {
+      res.status(503).json({
+        error: 'PLUGIN_UNAVAILABLE',
+        message: `插件 ${manifest.id} 在 manifest 声明了 binding，但没有调用 ctx.binding() 登记实现`,
+      });
+    };
+    /**
+     * 归属判定全部在核心：插件收到的 profileId 一定属于当前会话账号，
+     * 「拿别人的 profileId 绑/解绑」在结构上不可能发生，而不是靠每个作者记得查。
+     */
+    const actorOf = async (req: Request, profileIdRaw: string): Promise<PluginBindingActor> => {
+      const user = req.context;
+      if (!user) throw new AppError('TOKEN_INVALID', '未登录');
+      let profileId: string | null = null;
+      let profileName: string | null = null;
+      if (subject === 'profile') {
+        if (profileIdRaw === '') {
+          throw new AppError('VALIDATION_ERROR', '这个绑定按角色绑定，请在页面上选择角色');
+        }
+        const profile = await this.deps.profileRepository.findById(profileIdRaw);
+        if (!profile || profile.userId !== user.userId) {
+          throw new AppError('FORBIDDEN', '该角色不属于当前登录账号');
+        }
+        if (profile.status !== 'active') {
+          throw new AppError('PROFILE_RESERVED', '预留角色不能作为绑定主体');
+        }
+        profileId = profile.id;
+        profileName = profile.name;
+      }
+      return { userId: user.userId, profileId, profileName, role: user.role, ip: req.ip ?? '' };
+    };
+
+    router.get(
+      '/binding',
+      async (req, res, next) => {
+        await authed(req, res, next);
+      },
+      (req: Request, res: Response, next: NextFunction) => {
+        void (async () => {
+          const handlers = caps.bindingHandlers;
+          if (!handlers) {
+            notReady(res);
+            return;
+          }
+          const actor = await actorOf(req, String(req.query['profileId'] ?? ''));
+          const result = assertBindingListResult(manifest.id, await handlers.list(actor));
+          res.json({ pluginId: manifest.id, subject, ...result });
+        })().catch(next);
+      },
+    );
+
+    // 生成码是绑定流程里唯一能被刷的入口（一次 issue 一行令牌），按 用户+IP 限 10 次/分钟
+    router.post(
+      '/binding/issue',
+      async (req, res, next) => {
+        await authed(req, res, next);
+      },
+      (req: Request, res: Response, next: NextFunction) => {
+        void (async () => {
+          const handlers = caps.bindingHandlers;
+          if (!handlers) {
+            notReady(res);
+            return;
+          }
+          const actor = await actorOf(req, String((req.body ?? {})['profileId'] ?? ''));
+          const rl = await caps.authenticator.consumeRateLimit(
+            manifest.id,
+            `${actor.userId}|${actor.ip}`,
+            10,
+            60_000,
+          );
+          if (!rl.allowed) {
+            res.setHeader('Retry-After', Math.ceil(rl.resetAfterMs / 1000));
+            res.status(429).json({ error: 'TOO_MANY_REQUESTS', message: '生成绑定码过于频繁，请稍后再试' });
+            return;
+          }
+          res.json(assertBindingIssueResult(manifest.id, await handlers.issue(actor)));
+        })().catch(next);
+      },
+    );
+
+    router.post(
+      '/binding/revoke',
+      async (req, res, next) => {
+        await authed(req, res, next);
+      },
+      (req: Request, res: Response, next: NextFunction) => {
+        void (async () => {
+          const handlers = caps.bindingHandlers;
+          if (!handlers) {
+            notReady(res);
+            return;
+          }
+          if (typeof handlers.revoke !== 'function') {
+            throw new AppError('NOT_IMPLEMENTED', `插件 ${manifest.id} 未开放网页侧自助解绑`);
+          }
+          const body = (req.body ?? {}) as Record<string, unknown>;
+          const bindingId = String(body['bindingId'] ?? '');
+          if (bindingId === '') throw new AppError('VALIDATION_ERROR', '缺少 bindingId');
+          const actor = await actorOf(req, String(body['profileId'] ?? ''));
+          await handlers.revoke({ ...actor, bindingId });
+          res.json({ ok: true });
+        })().catch(next);
+      },
+    );
+  }
+
+  /** 玩家侧「绑定」区用：当前启用且实现了绑定能力的插件目录 */
+  bindingCatalog(): PluginBindingCatalogEntry[] {
+    const list: PluginBindingCatalogEntry[] = [];
+    for (const [id, item] of this.loaded) {
+      if (!item.manifest.binding || !item.capabilities.bindingHandlers) continue;
+      list.push({
+        pluginId: id,
+        name: item.manifest.name,
+        description: item.manifest.description,
+        subject: item.manifest.binding.subject,
+        revocable: typeof item.capabilities.bindingHandlers.revoke === 'function',
+      });
+    }
+    return list.sort((a, b) => a.pluginId.localeCompare(b.pluginId));
   }
 
   private hmacGate(pluginId: string) {
@@ -562,6 +701,78 @@ function readMaybeSecret(box: SecretBox | undefined, raw: unknown): string {
 function headerOf(req: Request, name: string): string | undefined {
   const value = req.headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
+}
+
+export interface PluginBindingCatalogEntry {
+  pluginId: string;
+  name: string;
+  description?: string;
+  subject: 'account' | 'profile';
+  revocable: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 绑定页契约的运行时校验。
+ *
+ * 形态校验放在核心而不是让页面容错插件的任意返回，是因为「界面在撒谎」比报错更难排查：
+ * 页面拿到缺字段的行会渲染出半坏的列表，玩家以为绑定丢了，其实只是某行少个 label。
+ * 违背契约一律 `PLUGIN_BAD_RESULT` 明确报错，文案指名是哪个插件。
+ */
+function assertBindingListResult(pluginId: string, value: unknown): PluginBindingListResult {
+  // 用函数声明而不是箭头 const：只有声明式 never 函数能参与控制流收窄（本仓库 TS 版本 <5.7）
+  function bad(why: string): never {
+    throw new AppError('PLUGIN_BAD_RESULT', `插件 ${pluginId} 的 list() 返回形态不符合绑定契约：${why}`);
+  }
+  if (!isRecord(value) || !Array.isArray(value['bindings'])) bad('缺少 bindings 数组');
+  const bindings = value['bindings'] as unknown[];
+  const seen = new Set<string>();
+  const rows: PluginBindingRow[] = [];
+  bindings.forEach((raw, i) => {
+    if (!isRecord(raw)) bad(`bindings[${i}] 必须是对象`);
+    const id = String(raw['id'] ?? '');
+    if (id === '') bad(`bindings[${i}].id 必须是非空字符串（它是解绑句柄）`);
+    if (seen.has(id)) bad(`bindings[${i}].id 重复：${id}`);
+    seen.add(id);
+    if (!Array.isArray(raw['fields'])) bad(`bindings[${i}].fields 必须是数组`);
+    const fields = (raw['fields'] as unknown[]).map((f, j) => {
+      if (!isRecord(f)) bad(`bindings[${i}].fields[${j}] 必须是对象`);
+      const label = f['label'];
+      const val = f['value'];
+      if (typeof label !== 'string' || typeof val !== 'string') {
+        bad(`bindings[${i}].fields[${j}] 必须是 { label: string, value: string }`);
+      }
+      return { label, value: val };
+    });
+    const boundAtRaw = raw['boundAt'];
+    const boundAt = typeof boundAtRaw === 'string' ? { boundAt: boundAtRaw } : {};
+    rows.push({ id, fields, ...boundAt });
+  });
+  const instructionsRaw = value['instructions'];
+  const instructions = typeof instructionsRaw === 'string' ? { instructions: instructionsRaw } : {};
+  return { bindings: rows, ...instructions };
+}
+
+function assertBindingIssueResult(
+  pluginId: string,
+  value: unknown,
+): { code: string; expiresAt: string } {
+  function bad(why: string): never {
+    throw new AppError('PLUGIN_BAD_RESULT', `插件 ${pluginId} 的 issue() 返回形态不符合绑定契约：${why}`);
+  }
+  if (!isRecord(value)) bad('必须返回对象');
+  const code = value['code'];
+  const expiresAt = value['expiresAt'];
+  if (typeof code !== 'string' || code.trim() === '' || code.length > 64) {
+    bad('code 必须是非空且不超过 64 字符的字符串');
+  }
+  if (typeof expiresAt !== 'string' || Number.isNaN(Date.parse(expiresAt))) {
+    bad('expiresAt 必须是可解析的时间字符串（页面用它做倒计时）');
+  }
+  return { code, expiresAt };
 }
 
 /** 供 bootstrap 判定「这个子系统到底要不要建」 */

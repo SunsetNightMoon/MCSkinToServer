@@ -41,7 +41,7 @@ import { PluginImportModal } from './PluginImportModal'
  */
 
 interface EndpointSpec {
-  kind: 'router' | 'hooks'
+  kind: 'router' | 'hooks' | 'binding'
   method: string
   path: string
   auth: string
@@ -76,6 +76,8 @@ interface PluginStatus {
     requires?: { id: string; label: string; note?: string }[]
     settings?: SettingSpec[]
     endpoints?: EndpointSpec[]
+    /** 声明了绑定页能力：入口由核心提供（GET /binding + issue + revoke） */
+    binding?: { subject: 'account' | 'profile' }
   }
 }
 
@@ -116,6 +118,7 @@ const ACTION_KEYS: Record<string, string> = {
 const KIND_KEYS: Record<string, string> = {
   router: 'plugins.kindRouter',
   hooks: 'plugins.kindHooks',
+  binding: 'plugins.kindBinding',
 }
 const AUTH_KEYS: Record<string, string> = {
   public: 'plugins.authPublic',
@@ -343,14 +346,24 @@ export function PluginManagement() {
     </Space>
   )
 
-  const renderEndpointsTab = (plugin: PluginStatus) => (
+  const renderEndpointsTab = (plugin: PluginStatus) => {
+    // 绑定页入口由核心提供（插件只登记 ctx.binding()），不在 manifest 的 endpoints 里；
+    // 但它是超管按下启用前该看见的 HTTP 面，所以台账替它把三行摊出来。
+    const bindingRows: EndpointSpec[] = plugin.manifest?.binding
+      ? [
+          { kind: 'binding', method: 'GET', path: '/binding', auth: 'user', note: t('plugins.bindingListNote') },
+          { kind: 'binding', method: 'POST', path: '/binding/issue', auth: 'user', note: t('plugins.bindingIssueNote') },
+          { kind: 'binding', method: 'POST', path: '/binding/revoke', auth: 'user', note: t('plugins.bindingRevokeNote') },
+        ]
+      : []
+    return (
     <Table<EndpointSpec>
       size="small"
       pagination={false}
       // 窄屏（手机后台、半屏分栏）下宁可让表格自己横向滚，也不要裁掉「用途」
       scroll={{ x: 'max-content' }}
       rowKey={(row) => `${row.kind}-${row.method}-${row.path}`}
-      dataSource={plugin.manifest?.endpoints ?? []}
+      dataSource={[...(plugin.manifest?.endpoints ?? []), ...bindingRows]}
       columns={[
         { title: t('plugins.endpointKind'), dataIndex: 'kind', width: 96, render: (value: string) => enumLabel(KIND_KEYS, value) },
         { title: t('plugins.endpointMethod'), dataIndex: 'method', width: 80 },
@@ -363,7 +376,8 @@ export function PluginManagement() {
         { title: t('plugins.endpointNote'), dataIndex: 'note' },
       ]}
     />
-  )
+    )
+  }
 
   const renderRequiresTab = (plugin: PluginStatus) => (
     <Space direction="vertical" style={{ width: '100%' }} size={8}>
@@ -531,7 +545,12 @@ export function PluginManagement() {
           <Tabs
             items={[
               { key: 'settings', label: t('plugins.settings'), children: renderSettingsTab(detail) },
-              { key: 'endpoints', label: `${t('plugins.endpoints')} (${(detail.manifest?.endpoints ?? []).length})`, children: renderEndpointsTab(detail) },
+              {
+                key: 'endpoints',
+                // 计数要含绑定页三行：表格里有几行，标签上就是几，别让「(2)」和五行表对不上
+                label: `${t('plugins.endpoints')} (${(detail.manifest?.endpoints ?? []).length + (detail.manifest?.binding ? 3 : 0)})`,
+                children: renderEndpointsTab(detail),
+              },
               { key: 'requires', label: `${t('plugins.externalRequires')} (${(detail.manifest?.requires ?? []).length})`, children: renderRequiresTab(detail) },
             ]}
           />

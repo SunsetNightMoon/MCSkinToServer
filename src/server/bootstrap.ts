@@ -229,6 +229,7 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
         secretBox: secretBox ?? undefined,
         siteUrlResolver,
         tokenService,
+        profileRepository,
         cache: cacheLayer.cache,
         rateLimiter: cacheLayer.rateLimiter,
         pluginDir: config.plugins.dir,

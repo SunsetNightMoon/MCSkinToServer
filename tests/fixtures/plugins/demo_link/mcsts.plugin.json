@@ -6,7 +6,8 @@
   "mcsts": ">=2-26.3.8",
   "main": "index.ts",
   "author": "MCSTS tests",
-  "description": "验证 ctx 的全部能力：路由鉴权、HMAC 回调、一次性令牌原子消费、事件订阅、设置读写",
+  "description": "验证 ctx 的全部能力：路由鉴权、HMAC 回调、一次性令牌原子消费、事件订阅、设置读写、通用绑定页",
+  "binding": { "subject": "profile" },
   "requires": [
     {
       "id": "geyser",

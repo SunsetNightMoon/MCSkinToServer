@@ -1285,11 +1285,31 @@
     "actionImport": "Imported",
     "kindRouter": "Site route",
     "kindHooks": "Machine hook",
+    "kindBinding": "Binding page",
+    "bindingListNote": "List current bindings; the endpoints are provided by the core, the plugin only registers ctx.binding()",
+    "bindingIssueNote": "Issue a one-time binding code; rate-limited by the core to 10/min per user+IP",
+    "bindingRevokeNote": "Self-service unbind from the web; this endpoint exists only if the plugin registers revoke",
     "authPublic": "Public",
     "authUser": "Signed-in user",
     "authAdmin": "Admin",
     "authSuper": "Super admin",
     "authHmac": "Signed (HMAC)",
     "loadFailed": "Failed to load the plugin list"
+  },
+  "bindings": {
+    "title": "Account bindings",
+    "subtitle": "Identity bindings enabled by plugins: manage how your profiles map to external identities here",
+    "pickProfile": "Pick a profile",
+    "refresh": "Refresh",
+    "noProfile": "No profile available to bind",
+    "loadFailed": "Failed to load bindings",
+    "generate": "Generate binding code",
+    "codeHint": "Take this code into the game; the endpoint you bind to consumes it (one-time, void after use)",
+    "codePlaceholder": "binding code",
+    "remain": "{{time}} left",
+    "empty": "Nothing bound yet",
+    "boundAt": "Bound at {{time}}",
+    "revoke": "Unbind",
+    "revokeConfirm": "Remove this binding?"
   }
 }

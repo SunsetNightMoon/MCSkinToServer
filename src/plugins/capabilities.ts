@@ -7,6 +7,7 @@ import type { CachePort, RateLimiterPort } from '../cache/types.js';
 import { phAt } from '../db/rows.js';
 import type { TokenService } from '../auth/tokens.js';
 import type {
+  PluginBindingHandlers,
   PluginContext,
   PluginEndpointSpec,
   PluginEventName,
@@ -48,6 +49,8 @@ export interface PluginCapabilities {
   ctx: PluginContext;
   manifest: PluginManifest;
   registered: RegisteredRoute[];
+  /** ctx.binding() 登记的处理函数；未登记时绑定页对该插件不可见 */
+  bindingHandlers?: PluginBindingHandlers;
   /** 该插件订阅过的事件名（卸载时精确摘除） */
   subscribedEvents: PluginEventName[];
   authenticator: PluginHookAuthenticator;
@@ -72,6 +75,7 @@ function issuePlainToken(): string {
 export function createCapabilities(deps: CapabilityDeps, manifest: PluginManifest): PluginCapabilities {
   const registered: RegisteredRoute[] = [];
   const subscribedEvents: PluginEventName[] = [];
+  let bindingHandlers: PluginBindingHandlers | undefined;
   const authenticator = new PluginHookAuthenticator(deps.cache, deps.rateLimiter);
   const settingSpecs = new Map((manifest.settings ?? []).map((spec) => [spec.key, spec]));
   const declared = new Set(
@@ -247,18 +251,38 @@ export function createCapabilities(deps: CapabilityDeps, manifest: PluginManifes
       assertDeclared(declared, 'hooks', options, manifest.id);
       registered.push({ kind: 'hooks', options, handler });
     },
+
+    binding(handlers) {
+      // 与 endpoints 同一套「声明可核」：绑定页会把这个插件摆到玩家面前，
+      // 超管必须能在按下启用之前从 manifest 看到这个意图。
+      if (!manifest.binding) {
+        throw new Error(
+          `[plugin:${manifest.id}] 调用了 ctx.binding()，但 mcsts.plugin.json 没有声明 binding 字段。` +
+            '请加上 { "binding": { "subject": "account" 或 "profile" } } —— 声明与实际行为一致是对超管的承诺。',
+        );
+      }
+      if (bindingHandlers) {
+        throw new Error(`[plugin:${manifest.id}] ctx.binding() 只能登记一次（重复登记会让绑定页不知道该用哪一份）`);
+      }
+      bindingHandlers = handlers;
+    },
   };
 
   return {
     ctx,
     manifest,
     registered,
+    // getter：登记发生在 setup 里，构造期读到的永远是 undefined
+    get bindingHandlers() {
+      return bindingHandlers;
+    },
     subscribedEvents,
     authenticator,
     dispose: async () => {
       for (const name of subscribedEvents) deps.eventBus.unsubscribeAll([name]);
       subscribedEvents.length = 0;
       registered.length = 0;
+      bindingHandlers = undefined;
     },
   };
 }

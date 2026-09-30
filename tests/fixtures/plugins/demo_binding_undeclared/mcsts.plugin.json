@@ -1,0 +1,8 @@
+{
+  "id": "demo_binding_undeclared",
+  "name": "夹具：未声明就登记绑定",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "main": "index.ts",
+  "description": "声明可核：manifest 没写 binding 却调用 ctx.binding()，必须拒载并把原因留在状态里"
+}

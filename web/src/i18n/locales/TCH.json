@@ -1285,11 +1285,31 @@
     "actionImport": "匯入",
     "kindRouter": "站點路由",
     "kindHooks": "機器回調",
+    "kindBinding": "綁定頁",
+    "bindingListNote": "列出目前綁定；入口由核心提供，外掛只登記 ctx.binding()",
+    "bindingIssueNote": "產生一次性綁定碼；核心按 使用者+IP 限 10 次/分鐘",
+    "bindingRevokeNote": "網頁側自助解綁；僅當外掛登記了 revoke 才存在這個入口",
     "authPublic": "公開",
     "authUser": "登入使用者",
     "authAdmin": "管理員",
     "authSuper": "超級管理員",
     "authHmac": "簽名校驗",
     "loadFailed": "讀取外掛清單失敗"
+  },
+  "bindings": {
+    "title": "帳號綁定",
+    "subtitle": "由外掛啟用的身分綁定：在這裡管理你的角色與外部身分的對應關係",
+    "pickProfile": "選擇角色",
+    "refresh": "重新整理",
+    "noProfile": "帳號下沒有可綁定的角色",
+    "loadFailed": "讀取綁定失敗",
+    "generate": "產生綁定碼",
+    "codeHint": "把這串碼帶到遊戲裡，你綁定的入口會消費它（一次性，用過即失效）",
+    "codePlaceholder": "綁定碼",
+    "remain": "剩餘 {{time}}",
+    "empty": "還沒有綁定",
+    "boundAt": "綁定於 {{time}}",
+    "revoke": "解綁",
+    "revokeConfirm": "確定解除這條綁定嗎？"
   }
 }

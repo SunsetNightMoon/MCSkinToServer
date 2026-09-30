@@ -1265,6 +1265,41 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
   全门控 **438/438 pass**。浏览器实测简中界面下台账动作列显示「加载 / 启用 / 导入 / 发现」，
   入口表显示「站点路由 / 登录用户」。
 
+## P6 第三批：通用绑定页与 ctx.binding，官方第一个插件在外部仓库跑通（仅 Dev，未推 master）
+
+用户口径：站点本体做**通用绑定页**（收进账号设置区），基岩版身份绑定作为**官方第一个插件**
+放到独立仓库 `SunsetNightMoon/Bedrock-Link-Java` —— 插件本体不再进本站 git，投放通道从
+「spellcard 本地对练」升级为「真实仓库 + 面板 GitHub 导入可装」。
+
+- **接口（只加不改，`PLUGIN_API_VERSION` 仍为 1）**：manifest 新增 `binding: { subject: 'account' | 'profile' }`；
+  `ctx.binding()` 登记 `list/issue/revoke?` 三处理函数。页面路由（`GET /api/plugins/<id>/binding`、
+  `POST …/binding/issue`、`POST …/binding/revoke`）与玩家侧发现目录（`GET /api/bindings`）全部由核心提供。
+  目录刻意不挂在 `/api/plugins/` 下：那族路径第一段被分发器当插件 id，`bindings` 恰好是合法 id 形态。
+- **归属判定收在核心**：`subject='profile'` 时核心先验「profileId 属于当前会话账号且非预留」，
+  插件收到的 actor 永远干净 —— 「拿别人的角色绑/解」在结构上不可能，不依赖作者自觉。
+  `PluginHostDeps` 因此新增 `profileRepository`（本批唯一新接缝）。
+- **声明可核同口径**：没声明 `binding` 就调 `ctx.binding()` → 拒载；声明了没登记实现 → 入口 503 说原因，
+  而不是无声 404。返回形态由核心运行时校验（新错误码 `PLUGIN_BAD_RESULT`，500）：
+  宁可报错也不让页面渲染半坏列表。`issue` 按 用户+IP 限 10 次/分钟。
+- **对练收获（写进 guide §4）**：钩子侧只有 profileId、查不到角色名 —— 名字在 `issue` 时刻是齐的，
+  塞进 `ctx.tokens` 的 `data` 带过去即可，不需要新 API。这是接口设计想要的性质：组合原语而不是加口子。
+- **面板**：设置弹窗「对外入口」把绑定三行替作者摊出来（类型「绑定页」、鉴权「登录用户」），
+  计数与表格行数一致（肉眼验收抓到「(2)」对五行表）。
+- **前端**：`AccountBindings` 收进个人中心（目录为空整块隐藏）；角色选择器、大码 + 倒计时、
+  `{{code}}` 就地替换、绑定行键值对 + 复制、解绑二次确认；四语言各 14+4 键（零漂移守卫通过）。
+- **夹具**：`demo_link` 加登记绑定页；新增 `demo_binding_undeclared`（未声明即拒载）、
+  `demo_binding_missing`（声明未实现 503）、`demo_binding_badresult`（形态违约报错）。
+  新用例开头把共用 PG 库里残留的启用意图归零、结尾复位 —— 断言不再赌「这台机器上次跑干净了」。
+- **官方插件 `bedrock_link` v1.0.0**（外部仓库，只 import `plugin-api.d.ts`）：双证据绑定
+  （网页一次性码 + 服务器 HMAC 实测 XUID）、XUID/角色双向唯一、冲突拒绝不自动改绑、
+  事件跟随改名/删角色/销号、`/hooks/lookup` 供伴生插件查绑定。
+- **E2E（独立测试台 :3010 + 前端 :5174，外部仓库真实代码拷贝）**：注册→提超管→scan→启用→生成服务器密钥→
+  页面出码 `YYLS2GHK`（倒计时 4:55）→ 假服侧签名消费 → 列表出现 XUID 行 → lookup `bound:true` /
+  未绑 `bound:false` → 换 XUID 重绑被拒（`该角色已绑定另一个基岩身份`）、旧码重放被拒 → 网页解绑回到空态；
+  亮/暗双主题截图（`.shots/binding-*.png`、`panel-binding-endpoints.png`）。
+- 验收：双端 `tsc` 零错误、web 构建通过；SQLite **440 用例 / 334 pass / 0 fail / 106 skipped**，
+  全门控（PG+Redis+Mailpit）**440/440 pass**。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

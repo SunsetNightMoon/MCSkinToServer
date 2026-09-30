@@ -53,6 +53,13 @@ export function createPluginRouter(deps: PluginRouteDependencies): Router {
   const manifestOf = (host: PluginHost, id: string): PluginManifest | undefined =>
     (host.statusesSync().find((item) => item.id === id) ?? {}).manifest;
 
+  // ---- 玩家侧「绑定」区：只回「哪些启用的插件实现了绑定能力」，不含任何管理信息 ----
+  // 刻意不挂在 /api/plugins/ 下：那一族路径的第一段被分发器当作插件 id，
+  // 而 `bindings` 恰好也是合法的 id 形态 —— 放进去会得到一个永远 404 的端点。
+  router.get('/api/bindings', auth, async (_req, res) => {
+    res.json({ bindings: requireHost().bindingCatalog() });
+  });
+
   router.get('/api/admin/plugins', auth, superAdmin, async (_req, res) => {
     const host = requireHost();
     const statuses = await host.listStatuses();

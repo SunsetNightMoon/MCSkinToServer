@@ -139,6 +139,7 @@ async function startHttp(
         settings: settingRepository,
         siteUrlResolver: siteUrl,
         tokenService,
+        profileRepository,
         pluginDir,
         now: () => new Date(),
       })
@@ -264,6 +265,8 @@ for (const c of cases) {
     const ctx = await startHttp(t, db, { withHost: false });
     const ping = await call(ctx, '/api/plugins/demo_link/ping');
     assert.equal(ping.status, 404, '没启用插件系统时这个路径不该存在');
+    const cat = await call(ctx, '/api/bindings', { headers: auth((await register(ctx)).token) });
+    assert.equal(cat.status, 501, `未启用时绑定页目录回 501 说明原因：${cat.status} ${cat.text}`);
     const admin = await call(ctx, '/api/admin/plugins', { headers: auth((await register(ctx)).token) });
     // 普通用户先被角色门槛挡住；面板因此不会把插件清单泄露给非超管
     assert.ok(admin.status === 401 || admin.status === 403, `status=${admin.status}`);
@@ -617,6 +620,180 @@ for (const c of cases) {
     assert.ok(
       after.json.renameEvents > before.json.renameEvents,
       `改名事件必须送到插件：before=${before.json.renameEvents} after=${after.json.renameEvents}`,
+    );
+  });
+
+  test(`plugins: 通用绑定页 —— 核心验属、统一入口与形态契约（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    const ctx = await startHttp(t, db, { withHost: true });
+    const admin = await register(ctx);
+    await promoteSuper(ctx, admin.userId);
+    const other = await register(ctx);
+
+    const userAuth = auth(admin.token);
+    const jsonHeaders = { 'content-type': 'application/json' };
+
+    // PostgreSQL 用例共用同一个库：启停意图存在 system_settings 里，前面用例留下的
+    // 「demo_link 已启用」会在本用例 boot 时自动加载进目录。开头先把要用的插件归零，
+    // 结尾再复位 —— 断言「目录为空」才不是在赌这台机器上次跑干净了。
+    for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult', 'demo_binding_undeclared']) {
+      await ctx.host!.disable(id, admin.userId).catch(() => undefined);
+    }
+    t.after(async () => {
+      for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult']) {
+        await ctx.host!.disable(id, admin.userId).catch(() => undefined);
+      }
+    });
+
+    // ---- 发现目录：玩家侧「绑定」区靠它决定显示什么 ----
+    const anonCatalog = await call(ctx, '/api/bindings');
+    assert.equal(anonCatalog.status, 401, '目录含插件名与描述，未登录不该给');
+    const emptyCatalog = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
+    assert.equal(emptyCatalog.status, 200, emptyCatalog.text);
+    assert.deepEqual(emptyCatalog.json.bindings, [], '启用的绑定插件为零时目录为空');
+
+    await ctx.host!.enable('demo_link', admin.userId);
+    await ctx.host!.setHookSecret('demo_link', HOOK_SECRET, admin.userId);
+    const catalog = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
+    const entry = (catalog.json.bindings as Record<string, unknown>[]).find(
+      (item) => item.pluginId === 'demo_link',
+    );
+    assert.ok(entry, `目录里应有 demo_link：${catalog.text}`);
+    assert.equal(entry.subject, 'profile', '页面据此决定是否给角色选择器');
+    assert.equal(entry.revocable, true, '登记了 revoke 才有解绑按钮');
+
+    // ---- issue：归属判定在核心，不在插件 ----
+    const anonIssue = await call(ctx, '/api/plugins/demo_link/binding/issue', { method: 'POST' });
+    assert.equal(anonIssue.status, 401);
+    const noProfile = await call(ctx, '/api/plugins/demo_link/binding/issue', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({}),
+    });
+    assert.equal(noProfile.status, 400, `subject=profile 缺 profileId 必须 400：${noProfile.text}`);
+    const foreignProfile = await call(ctx, '/api/plugins/demo_link/binding/issue', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: other.profileId }),
+    });
+    assert.equal(foreignProfile.status, 403, '拿别人的角色必须被核心挡住，插件根本看不到这次调用');
+
+    const issued = await call(ctx, '/api/plugins/demo_link/binding/issue', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId }),
+    });
+    assert.equal(issued.status, 200, issued.text);
+    assert.match(issued.json.code, /^[A-Z2-9]{8}$/, '绑定页要显示能在游戏里手输的短码');
+    assert.ok(!Number.isNaN(Date.parse(issued.json.expiresAt)), 'expiresAt 供页面倒计时');
+
+    // ---- 服务器侧消费码（复用 HMAC 链路）→ 绑定出现在列表里 ----
+    const bindPath = '/api/plugins/demo_link/hooks/bind';
+    const ts = String(Date.now());
+    const nonce = `np-${Date.now()}`;
+    const body = { token: issued.json.code, remote: 'xuid-page-1' };
+    const signature = sign(
+      canonicalString({ timestamp: ts, nonce, method: 'POST', path: bindPath, body }),
+      HOOK_SECRET,
+    );
+    const bound = await call(ctx, bindPath, {
+      method: 'POST',
+      headers: {
+        ...jsonHeaders,
+        'X-MCSTS-Timestamp': ts,
+        'X-MCSTS-Nonce': nonce,
+        'X-MCSTS-Signature': signature,
+      },
+      body: JSON.stringify(body),
+    });
+    assert.equal(bound.status, 200, bound.text);
+
+    const list = await call(
+      ctx,
+      `/api/plugins/demo_link/binding?profileId=${admin.profileId}`,
+      { headers: userAuth },
+    );
+    assert.equal(list.status, 200, list.text);
+    assert.equal(list.json.pluginId, 'demo_link');
+    assert.equal(list.json.subject, 'profile');
+    const row = (list.json.bindings as Record<string, unknown>[]).find(
+      (item) => item.id === 'xuid-page-1',
+    );
+    assert.ok(row, `列表里应有刚绑定的行：${list.text}`);
+    const fields = row.fields as { label: string; value: string }[];
+    assert.equal(fields[0]?.value, 'xuid-page-1', 'fields 是页面渲染的键值对');
+    assert.equal(typeof row.boundAt, 'string');
+    assert.match(String(list.json.instructions), /{{code}}/, '指令文案带 {{code}} 占位，页面负责替换');
+
+    // ---- 解绑：只有网页侧能自助；revoke 没登记 / 缺参都有明确回话 ----
+    const noBindingId = await call(ctx, '/api/plugins/demo_link/binding/revoke', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId }),
+    });
+    assert.equal(noBindingId.status, 400, `缺 bindingId 必须 400：${noBindingId.text}`);
+    const revoked = await call(ctx, '/api/plugins/demo_link/binding/revoke', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId, bindingId: 'xuid-page-1' }),
+    });
+    assert.equal(revoked.status, 200, revoked.text);
+    const afterRevoke = await call(
+      ctx,
+      `/api/plugins/demo_link/binding?profileId=${admin.profileId}`,
+      { headers: userAuth },
+    );
+    assert.equal(afterRevoke.status, 200, afterRevoke.text);
+    assert.deepEqual(afterRevoke.json.bindings, [], '解绑后列表应回到空');
+
+    // ---- 声明了 binding 却没登记实现：503 说明原因，而不是无声 404 ----
+    await ctx.host!.enable('demo_binding_missing', admin.userId);
+    const missingList = await call(ctx, '/api/plugins/demo_binding_missing/binding', {
+      headers: userAuth,
+    });
+    assert.equal(missingList.status, 503, `声明未实现要 503 带说明：${missingList.text}`);
+    assert.match(String(missingList.json.message), /ctx\.binding/, '报错要指名插件没登记实现');
+    const catalogAfterMissing = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
+    assert.ok(
+      !(catalogAfterMissing.json.bindings as Record<string, unknown>[]).some(
+        (item) => item.pluginId === 'demo_binding_missing',
+      ),
+      '没有实现的插件不该出现在玩家侧目录里',
+    );
+
+    // ---- 返回形态违背契约：核心收口成 PLUGIN_BAD_RESULT，页面不会渲染半坏列表 ----
+    await ctx.host!.enable('demo_binding_badresult', admin.userId);
+    const badList = await call(ctx, '/api/plugins/demo_binding_badresult/binding', {
+      headers: userAuth,
+    });
+    assert.equal(badList.status, 500, `list() 返回不合契约要报错而不是渲染半坏页面：${badList.text}`);
+    assert.equal(badList.json.error, 'PLUGIN_BAD_RESULT');
+    assert.match(String(badList.json.message), /list\(\).*bindings\[0\]\.id/, '文案要指名哪个插件哪个函数哪一行数据');
+    const badIssue = await call(ctx, '/api/plugins/demo_binding_badresult/binding/issue', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({}),
+    });
+    assert.equal(badIssue.status, 500, badIssue.text);
+    assert.match(String(badIssue.json.message), /issue\(\) 返回形态/, 'issue 的形态校验与 list 分开报错');
+
+    // ---- 没声明 binding 就调 ctx.binding()：拒载（声明可核对绑定页同样生效）----
+    const undeclaredEnable = await call(ctx, '/api/admin/plugins/demo_binding_undeclared/enable', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+    });
+    assert.equal(undeclaredEnable.status, 500, '未声明就登记绑定必须拒载');
+    assert.match(
+      String((undeclaredEnable.json as { message?: string }).message ?? ''),
+      /没有声明 binding/,
+      undeclaredEnable.text,
+    );
+    const catalogFinal = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
+    assert.ok(
+      !(catalogFinal.json.bindings as Record<string, unknown>[]).some(
+        (item) => item.pluginId === 'demo_binding_undeclared',
+      ),
+      '拒载的插件不该进目录',
     );
   });
 }

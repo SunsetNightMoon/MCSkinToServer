@@ -25,6 +25,7 @@ const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const AUTHS = new Set(['public', 'user', 'admin', 'super', 'hmac']);
 const KINDS = new Set(['router', 'hooks']);
 const SETTING_TYPES = new Set(['string', 'int', 'bool', 'secret']);
+const BINDING_SUBJECTS = new Set(['account', 'profile']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -165,6 +166,15 @@ export function validateManifest(raw: unknown, issues: ManifestIssue[]): Manifes
     }
   }
 
+  const binding = raw['binding'];
+  if (binding !== undefined) {
+    if (!isRecord(binding)) {
+      fail('binding', '必须是对象（形如 { "subject": "profile" }）');
+    } else if (typeof binding['subject'] !== 'string' || !BINDING_SUBJECTS.has(binding['subject'])) {
+      fail('binding.subject', `必须是 ${[...BINDING_SUBJECTS].join(' / ')}`);
+    }
+  }
+
   if (issues.length > 0) return { ok: false, issues };
 
   const m = raw as unknown as PluginManifest;
@@ -182,6 +192,7 @@ export function validateManifest(raw: unknown, issues: ManifestIssue[]): Manifes
       requires: m.requires,
       settings: m.settings,
       endpoints: m.endpoints,
+      binding: m.binding,
     },
   };
 }
@@ -195,5 +206,6 @@ export function manifestFingerprint(manifest: PluginManifest): string {
     endpoints: manifest.endpoints ?? [],
     settings: manifest.settings ?? [],
     requires: manifest.requires ?? [],
+    binding: manifest.binding ?? null,
   });
 }
