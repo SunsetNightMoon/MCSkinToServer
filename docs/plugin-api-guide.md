@@ -217,7 +217,9 @@ MCSTS 无法主动连你的 Minecraft 服务器，所以方向是**入站**：Ja
 - 绑定存**角色 UUID**，不存角色名（角色有 30 天改名冷却与名称池，存名字会让改名静默打断绑定）；订阅 `profile.renamed` / `profile.deleted` / `account.purged` 跟随。
 - 一个 XUID 只绑一个角色、一个角色只绑一个 XUID；两个方向的唯一性都要处理「历史数据已冲突」的情况 —— 冲突时**不要任选一条**，一律拒绝并记日志。
 - 解绑只允许网页侧（玩家本人）操作；服务器侧不许单方面解绑。
-- 皮肤落地：MCSTS 已有 RSA 签名的纹理输出，`lookup` 类端点可以直接把 `value` / `signature` 交给伴生插件塞进 profile properties，不需要另写 Geyser skin provider。
+- 皮肤落地要分两个方向说清楚（此前这里写过「把 value/signature 塞进 profile properties 就够了」，**那半句是错的**，已订正）：
+  - **Java 侧玩家看基岩绑定者的皮肤**：MCSTS 的 RSA 签名纹理输出走标准 textures property，伴生插件把绑定角色的 `value`/`signature` 塞进该连接的 GameProfile 即可，与其他外置登录皮肤同一条链路；
+  - **基岩客户端自己穿戴站点皮肤**：基岩版不渲染 Java 的 textures property，也**没有披风支持**（基岩版客户端限制，不是本站限制）。要让基岩客户端穿上站点皮肤，必须取回皮肤图经 Geyser 的皮肤接口推送到基岩侧（SkinRestorer 一类扩展走的正是这条路），并会覆盖客户端自带皮肤；披风在基岩客户端无法显示，Java 侧玩家仍可见。
 
 ## 8. 发布与导入（GitHub）
 
