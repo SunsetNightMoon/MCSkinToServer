@@ -1233,11 +1233,14 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 ### 验收（数字均为实际输出）
 
 - 后端与前端 `tsc` 零错误，web 生产构建通过。
-- SQLite 基线：**434 用例 / 330 pass / 0 fail / 104 skipped**（第一批是 418/315/103）。
-- 全门控（PG + Redis + Mailpit）：**434/434 pass / 0 fail / 0 skipped**。
-- 新增 `tests/pluginImport.test.ts` 14 项：预览清单与标记核对、安装落盘与来源记录、缺标记拒装、标记与 manifest 不一致拒装、二进制文件整包拒、manifest 校验问题原样带出、tag 重打后安装中止、非法仓库名/子目录/未知 tag、monorepo 子目录只取该目录、清单截断即拒、同名已装须显式替换、下载内容与清单不符即中止、上游不通与仓库不合规分码。
-- 新增守卫：`tests/repoHygiene.test.ts`「后端 /api/admin 端点必须被前端兼容层认出」；`tests/plugins.test.ts` 台账（enable/load/disable/unload 不混记）+ 设置读回当前值 + int 空串落成 0 的回归 + 重载 stale 判定。
+- SQLite 基线：**436 用例 / 331 pass / 0 fail / 105 skipped**（第一批是 418/315/103）。
+- 全门控（PG + Redis + Mailpit）：**436/436 pass / 0 fail / 0 skipped**。
+- 新增 `tests/pluginImport.test.ts` 14 项：预览清单与标记核对、安装落盘与来源记录、缺标记拒装、标记与 manifest 不一致拒装、二进制文件整包拒、manifest 校验问题原样带出、tag 重打后安装中止、非法仓库名/子目录/未知 tag、monorepo 子目录只取该目录、清单截断即拒、同名已装须显式替换、下载内容与清单不符即中止、上游不通与仓库不合规分码。假 GitHub 端点抽到 `tests/support/fakeGitHub.ts`，两个测试文件共用。
+- 新增守卫：`tests/repoHygiene.test.ts`「后端 /api/admin 端点必须被前端兼容层认出」—— 实测把白名单里那行删掉，守卫立刻报出 `/api/admin/plugins（plugins.ts）`。
+- 新增 `tests/plugins.test.ts` 两项（双方言共 4 条）：**导入端到端**（空目录 → 预览标记通过 → 安装 3 个文件 → 只到「发现」不自动启用 → 台账留 import 记录 → 启用 → 装进来的插件真的能服务请求 → `.mcsts-import.json` 记的来源正确），以及**重载 stale 判定**。另补台账（enable/load/disable/unload 不混记）、设置读回当前值、int 空串落成 0 的回归。
+- 夹具 `tests/fixtures/plugins/demo_link` 的 manifest 补了一个 int 设置项，才让「清空数字框」这条路径可测。
 - 浏览器实测（隔离测试实例 :3010 + vite :5174，暗色与亮色各一遍）：卡片三控件、设置弹窗三页签、密钥一次性弹窗、重载提示、导入弹窗对真实 GitHub 的拒绝原因（`插件目录里找不到 mcsts.plugin.json`）均按预期显示。
+- 真实 GitHub 冒烟：tag→commit sha 解析与 recursive tree 列举都通，停在正确的判断上（该仓库没有 manifest）。**导入成功路径的端到端由上面那条测试覆盖**；真网络下的「真的装上一个插件」还缺一个带识别代号标记的公开仓库（本机无 gh、SSH key 未挂账号、HTTPS 令牌不可读，建不出来）。
 
 ## 背景：重制动机（原 README「结论摘要」）
 

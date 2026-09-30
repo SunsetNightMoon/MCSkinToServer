@@ -29,7 +29,9 @@ import { loadOrCreateKeyPair } from '../src/yggdrasil/keys.js';
 import { createApp, type AppDependencies } from '../src/server/app.js';
 import type { AppConfig } from '../src/config.js';
 import { PluginHost } from '../src/plugins/loader.js';
+import { PluginImporter } from '../src/plugins/importer.js';
 import { canonicalString, sign } from '../src/plugins/hmac.js';
+import { goodRepo, startFakeGitHub } from './support/fakeGitHub.js';
 
 /**
  * 插件系统（P6 第一批）验收。
@@ -89,12 +91,18 @@ interface HttpCtx {
   baseUrl: string;
   db: DatabaseConnection;
   host?: PluginHost;
+  importer?: PluginImporter;
 }
 
 async function startHttp(
   t: TestContext,
   db: DatabaseConnection,
-  opts: { withHost: boolean; pluginDir?: string },
+  opts: {
+    withHost: boolean;
+    pluginDir?: string;
+    /** 给了就同时建一个指向假 GitHub 的导入器，用来跑「预览→安装→启用→入口」全链路 */
+    importerBases?: { apiBase: string; rawBase: string };
+  },
 ): Promise<HttpCtx> {
   const dir = await mkdtemp(join(tmpdir(), 'mcsts-plugin-http-'));
   const config: AppConfig = {
@@ -122,14 +130,23 @@ async function startHttp(
     tokens: tokenService,
     sessions: new MinecraftSessionRepository(db),
   });
+  const pluginDir = opts.pluginDir ?? FIXTURE_DIR;
   const host = opts.withHost
     ? new PluginHost({
         db,
         settings: settingRepository,
         siteUrlResolver: siteUrl,
         tokenService,
-        pluginDir: opts.pluginDir ?? FIXTURE_DIR,
+        pluginDir,
         now: () => new Date(),
+      })
+    : undefined;
+  const importer = opts.importerBases
+    ? new PluginImporter({
+        pluginDir,
+        now: () => new Date(),
+        apiBase: opts.importerBases.apiBase,
+        rawBase: opts.importerBases.rawBase,
       })
     : undefined;
   const deps: AppDependencies = {
@@ -160,6 +177,7 @@ async function startHttp(
     }),
     settings: settingRepository,
     plugins: host,
+    pluginImporter: importer,
   };
   if (host) await host.boot();
   const server = createApp(deps).listen(0, '127.0.0.1');
@@ -171,7 +189,7 @@ async function startHttp(
     await new Promise<void>((r) => server.close(() => r()));
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   });
-  return { baseUrl: `http://127.0.0.1:${port}`, db, host };
+  return { baseUrl: `http://127.0.0.1:${port}`, db, host, importer };
 }
 
 let seq = 0;
@@ -395,6 +413,87 @@ for (const c of cases) {
 
     // 但插件确实还活着：setup 重跑过，入口照常服务
     assert.equal((await call(ctx, '/api/plugins/demo_link/ping')).status, 200);
+  });
+
+  /**
+   * 导入的全链路：空目录 → 预览 → 安装 → 启用 → 入口真的能服务。
+   *
+   * 单独成一条是因为 `tests/pluginImport.test.ts` 只验导入器自己的判断，
+   * 而「装完之后站点能不能用起来」跨了四五个接缝（路由、扫描、台账、加载器）。
+   * 用户口径是「需要得知实际使用是否可行才可以正式投放仓库」，这条就是那个答案。
+   */
+  test(`plugins: 导入端到端 —— 预览→安装→启用→入口可用（${c.label}）`, { skip: c.skip }, async (t) => {
+    const db = await c.setup(t);
+    const sandbox = await mkdtemp(join(tmpdir(), 'mcsts-import-e2e-'));
+    const pluginsDir = join(sandbox, 'plugins');
+    await mkdir(pluginsDir, { recursive: true });
+
+    const repo = goodRepo('import_e2e');
+    const gh = await startFakeGitHub(repo);
+    t.after(() => gh.close());
+
+    const ctx = await startHttp(t, db, {
+      withHost: true,
+      pluginDir: pluginsDir,
+      importerBases: { apiBase: gh.apiBase, rawBase: gh.rawBase },
+    });
+    const admin = await register(ctx);
+    await promoteSuper(ctx, admin.userId);
+    const json = { 'content-type': 'application/json' };
+
+    // 起点：插件目录是空的，一个都没有
+    assert.equal((await ctx.host!.listStatuses()).length, 0, '测试实例应当从空目录开始');
+
+    const preview = await call(ctx, '/api/admin/plugins/import/preview', {
+      method: 'POST',
+      headers: { ...json, ...auth(admin.token) },
+      body: JSON.stringify({ repo: 'acme/demo-plugin', tag: 'v0.1.0' }),
+    });
+    assert.equal(preview.status, 200, preview.text);
+    assert.equal(preview.json.preview.manifest.id, 'import_e2e');
+    assert.equal(preview.json.preview.marker.ok, true, '识别代号标记应当核对通过');
+
+    // 没带 sha 就不给装：预览与安装之间必须钉住同一份 commit
+    const blind = await call(ctx, '/api/admin/plugins/import', {
+      method: 'POST',
+      headers: { ...json, ...auth(admin.token) },
+      body: JSON.stringify({ repo: 'acme/demo-plugin', tag: 'v0.1.0' }),
+    });
+    assert.equal(blind.status, 400, '缺 sha 的安装请求要被拒');
+
+    const install = await call(ctx, '/api/admin/plugins/import', {
+      method: 'POST',
+      headers: { ...json, ...auth(admin.token) },
+      body: JSON.stringify({ repo: 'acme/demo-plugin', tag: 'v0.1.0', sha: preview.json.preview.sha }),
+    });
+    assert.equal(install.status, 200, install.text);
+    assert.equal(install.json.files, 3, 'manifest + 入口 + README');
+
+    const imported = (await ctx.host!.listStatuses()).find((item) => item.id === 'import_e2e');
+    assert.equal(imported?.state, 'disabled', '导入只到「发现」，不自动启用');
+    assert.ok(
+      (await ctx.host!.log()).some((item) => item.action === 'import' && item.pluginId === 'import_e2e'),
+      '台账要留下导入记录',
+    );
+
+    const enable = await call(ctx, '/api/admin/plugins/import_e2e/enable', {
+      method: 'POST',
+      headers: { ...json, ...auth(admin.token) },
+    });
+    assert.equal(enable.status, 200, enable.text);
+
+    const ping = await call(ctx, '/api/plugins/import_e2e/ping');
+    assert.equal(ping.status, 200, ping.text);
+    assert.equal(ping.json.plugin, 'import_e2e', '装进来的插件要真能服务请求');
+
+    // 来源记录跟着落盘，面板与事后排查都靠它
+    const provenance = JSON.parse(
+      await readFile(join(pluginsDir, 'import_e2e', '.mcsts-import.json'), 'utf8'),
+    ) as { repo: string; tag: string; sha: string };
+    assert.deepEqual(
+      [provenance.repo, provenance.tag, provenance.sha],
+      ['acme/demo-plugin', 'v0.1.0', preview.json.preview.sha],
+    );
   });
 
   test(`plugins: 端到端 —— 码 + HMAC 两条证据才成立（${c.label}）`, { skip: c.skip }, async (t) => {

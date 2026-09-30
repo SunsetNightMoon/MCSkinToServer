@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { createServer } from 'node:http';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,119 +6,15 @@ import { after, test } from 'node:test';
 
 import { PluginImporter, PLUGIN_MARKER_DIR } from '../src/plugins/importer.js';
 import { AppError } from '../src/errors.js';
+import { goodRepo, IMPORT_ENTRY, manifestJson, markerJson, startFakeGitHub, type FakeRepo } from './support/fakeGitHub.js';
 
 /**
  * GitHub 导入器（P6 第二批）验收。
  *
- * 这里不打真网络：用一个内存假 GitHub 端点把「仓库」演出来，
+ * 这里不打真网络：假 GitHub 端点在 `tests/support/fakeGitHub.ts`，
  * 因为要验的正是导入器**自己**的判断 —— 标记核对、清单校验、体积上限、
- * tag→sha 固定、逐字节核对。真实仓库能不能装，取决于这些判断在真实响应上是否成立，
- * 而响应形状是 GitHub 公开且稳定的。
+ * tag→sha 固定、逐字节核对。（真实网络只做一次冒烟确认，见开发日志。）
  */
-
-function blobSha(content: string): string {
-  const buf = Buffer.from(content, 'utf8');
-  return createHash('sha1').update(`blob ${buf.length}\u0000`, 'utf8').update(buf).digest('hex');
-}
-
-interface FakeRepo {
-  /** 仓库内路径 → 内容 */
-  files: Record<string, string>;
-  /** tag → commit sha */
-  tags: Record<string, string>;
-  /** 置为 true 时 tree 响应带 truncated */
-  truncated?: boolean;
-  /**
-   * raw 端点单独返回的内容（tree 仍按 `files` 报 sha）。
-   * 用来模拟「清单说一份、下载给另一份」：CDN 不一致或被改包。
-   */
-  overrideRaw?: Record<string, string>;
-  /** 请求计数，用来断言「预览不会偷偷多拉文件」 */
-  hits: string[];
-}
-
-function startFakeGitHub(repo: FakeRepo): Promise<{ apiBase: string; rawBase: string; close: () => void }> {
-  return new Promise((resolveStart) => {
-    const server = createServer((req, res) => {
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      const path = url.pathname;
-      repo.hits.push(path);
-      const send = (status: number, body: string, type = 'application/json') => {
-        res.writeHead(status, { 'content-type': type });
-        res.end(body);
-      };
-
-      // /repos/{owner}/{name}/commits/{tag}
-      const commit = /^\/repos\/([^/]+)\/([^/]+)\/commits\/(.+)$/.exec(path);
-      if (commit) {
-        const sha = repo.tags[decodeURIComponent(commit[3]!)];
-        if (!sha) return send(404, JSON.stringify({ message: 'No commit found' }));
-        return send(200, JSON.stringify({ sha }));
-      }
-
-      // /repos/{owner}/{name}/git/trees/{sha}
-      const trees = /^\/repos\/([^/]+)\/([^/]+)\/git\/trees\/([a-f0-9]+)$/.exec(path);
-      if (trees) {
-        const tree = Object.entries(repo.files).map(([p, content]) => ({
-          path: p,
-          mode: '100644',
-          type: 'blob',
-          sha: blobSha(content),
-          size: Buffer.byteLength(content, 'utf8'),
-        }));
-        return send(
-          200,
-          JSON.stringify({ sha: trees[3], tree, ...(repo.truncated ? { truncated: true } : {}) }),
-        );
-      }
-
-      // raw: /{owner}/{name}/{sha}/{path...}
-      const raw = /^\/([^/]+)\/([^/]+)\/[a-f0-9]+\/(.+)$/.exec(path);
-      if (raw) {
-        const key = decodeURIComponent(raw[3]!);
-        if (!(key in repo.files)) return send(404, 'Not Found', 'text/plain');
-        return send(200, repo.overrideRaw?.[key] ?? repo.files[key]!, 'text/plain');
-      }
-
-      send(404, JSON.stringify({ message: 'Not Found' }));
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      const port = typeof addr === 'object' && addr ? addr.port : 0;
-      resolveStart({
-        apiBase: `http://127.0.0.1:${port}`,
-        rawBase: `http://127.0.0.1:${port}`,
-        close: () => server.close(),
-      });
-    });
-  });
-}
-
-function manifestJson(id: string, extra: Record<string, unknown> = {}): string {
-  return JSON.stringify({
-    id,
-    name: `夹具：${id}`,
-    version: '0.1.0',
-    apiVersion: 1,
-    main: 'index.ts',
-    author: 'MCSTS tests',
-    description: '导入用例用的最小插件',
-    endpoints: [{ kind: 'router', method: 'GET', path: '/ping', auth: 'public', note: '回显' }],
-    ...extra,
-  });
-}
-
-function markerJson(id: string, repo: string, overrides: Record<string, unknown> = {}): string {
-  return JSON.stringify({
-    id,
-    name: `夹具：${id}`,
-    author: 'MCSTS tests',
-    repository: repo,
-    ...overrides,
-  });
-}
-
-const ENTRY = 'export default async function setup() { return async () => {} }\n';
 
 async function tempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'mcsts-import-'));
@@ -142,16 +36,6 @@ async function makeImporter(
     }),
     close: gh.close,
   };
-}
-
-function goodRepo(id = 'demo_import'): FakeRepo {
-  const files: Record<string, string> = {
-    'mcsts.plugin.json': manifestJson(id),
-    'index.ts': ENTRY,
-    'README.md': '# demo\n',
-    [`${PLUGIN_MARKER_DIR}/${id}.json`]: markerJson(id, 'acme/demo-plugin'),
-  };
-  return { files, tags: { 'v0.1.0': 'a'.repeat(40) }, hits: [] };
 }
 
 async function expectRejected(fn: () => Promise<unknown>, pattern: RegExp): Promise<string> {
@@ -324,7 +208,7 @@ test('导入：monorepo 子目录只取该目录，落盘路径不带前缀', as
     files: {
       'README.md': '# monorepo\n',
       'packages/skin/mcsts.plugin.json': manifestJson('skin_thing'),
-      'packages/skin/index.ts': ENTRY,
+      'packages/skin/index.ts': IMPORT_ENTRY,
       'packages/other/index.ts': 'export default 1\n',
       [`${PLUGIN_MARKER_DIR}/skin_thing.json`]: markerJson('skin_thing', 'acme/monorepo'),
     },
@@ -369,7 +253,7 @@ test('导入：已装过同名插件时必须显式确认替换，替换后不�
       /已经装在目录里/,
     );
     // 换一版内容再带 replace 安装
-    repo.files['index.ts'] = `${ENTRY}// v2\n`;
+    repo.files['index.ts'] = `${IMPORT_ENTRY}// v2\n`;
     repo.tags['v0.2.0'] = 'd'.repeat(40);
     const second = await importer.preview({ repo: 'acme/demo-plugin', tag: 'v0.2.0' });
     await importer.install({ repo: 'acme/demo-plugin', tag: 'v0.2.0' }, second.sha, 'u', true);
