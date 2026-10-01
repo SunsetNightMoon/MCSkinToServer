@@ -1595,6 +1595,22 @@ Host；BASE_URL 与 PUBLIC_BASE_URL 都没声明时只能吃兜底值。生产�
 `皮肤监视器：检测到 … 换肤，已重播全部视角` → Geyser `SessionSkinApplyEvent 已应用站点皮肤`。
 至此 jar ↔ 站点四条链路（lookup/confirm/verify/skin）在真服务器上全部走通。
 
+## 发版：v2-26.4.2 —— 插件框架收尾批合入 master（同季度迭代 +1）
+
+`v2-26.4.1` → **`v2-26.4.2`**（包内 semver 存 `26.4.2`），九文件逐处锚定。本批带入 master 的内容：
+
+- **P6 第六~八批**：`binding.issue=false` 契约与 `profile.reserved` 事件；登录限流归一到账号（主/备邮箱同桶）；
+  启动配置自检；GitHub 导入改为「贴仓库地址 + 版本自动识别」（语义化 tag 比较、无可用 tag 即拒、
+  `MCSTS_PLUGIN_MIRROR` 部署侧镜像、非 GitHub 主机点名拒绝）。
+- **插件开发指南订正到申请制签证模型**：§4/§5/§7 的码制示例全部改写为 claim/list/revoke 契约，
+  补 `profile.reserved` 释放语义、`/hooks/verify` 准入与皮肤/披风边界的真机订正；码制在核心的兼容地位照实写明。
+- **素材 URL 端口兜底修复**：未声明站点根时跟随实际监听端口（见上一节）。
+- 官方插件 `bedrock_link` v2.2.2 在一次性验证台 37 条断言全绿 + 面板肉眼验收 + #3 真服务器联线全绿；
+  其 manifest 的 `mcsts: ">=2-26.4.2"` 与本版本号对上（该字段仅展示，硬闸仍是 `apiVersion`，保持 1）。
+
+验收：SQLite 基线 **469 用例 / 362 pass / 0 fail / 107 skipped**；全门控 **469/469 pass / 0 fail / 0 skipped**；
+后端与 web 双端 `tsc` 零错误。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。
