@@ -1536,7 +1536,31 @@ claim 对「XUID 已 active 绑别人」「角色已 active 绑别 XUID」双向
 - `tests/configCheck.test.ts` 11/11、`tests/repoHygiene.test.ts` 5/5，后端 `tsc` 零错误。
 - 真网络：上述表格即实测输出；未认证限流打满后返回 403，被收成 `PLUGIN_IMPORT_UNREACHABLE`
   「限流或上游故障，请稍后重试；私有仓库需要配 MCSTS_GH_TOKEN」，符合既有错误契约。
-- SQLite 基线与面板肉眼验收仍待本机切回 Node 22（原因见上一节）。
+- SQLite 基线（Node 22）：**468 用例 / 361 pass / 0 fail / 107 skipped**；全门控（PG + Redis + Mailpit）：**468/468 pass / 0 fail / 0 skipped**。
+- 面板肉眼验收见下一节（与运行时验证一起做）。
+
+## 第八批再补充：装进来的插件在真站点上跑起来（Dev）
+
+导入链路绿了只说明「能装」；插件是跑在本站进程里的代码，所以另起一个**一次性站点**把 v2.2.2 真正跑了一遍：
+全新 SQLite 库 + 独立插件目录 + `MCSTS_PLUGIN_MIRROR`，走安装向导建超管，再用面板导入
+`https://github.com/SunsetNightMoon/Bedrock-Link-Java.git`（子目录 `site`），启用后驱动它的绑定页与四个
+HMAC 回调。脚本留在 `tmp/harness-start.sh` / `tmp/harness-e2e.mjs`（`tmp/` 不入库）。
+
+**37 条断言全绿**，覆盖：注册即带角色 → 绑定页初始为空且 instructions 带出面板设置的服务器地址 →
+码制入口 501（`binding.issue=false` 已退役）→ XUID 申请落 pending 且核心按 manifest pattern 预校验脏值 →
+`/hooks/lookup` 见 pending、`/hooks/confirm` 当场签发并记实测昵称、重复 confirm 幂等不覆盖昵称 →
+`/hooks/skin` 按 XUID 与按 profileId 两条入口都取到本站签出的 textures property，`/hooks/verify` 认它、
+改名 `name_mismatch`、改签 `bad_signature` → 错密钥 / 同 nonce 重放 / 时间窗外 / 缺签名头分别 403 且原因名准确 →
+跨账号读绑定页与跨账号申请被核心拒（归属校验在核心）→ 已 active 的 XUID 不能被别的角色抢 →
+网页解绑后 XUID 释放、新角色可再申请 → 停用后 hooks 404 且绑定目录不再列出、重新启用后数据还在。
+
+面板侧（浏览器肉眼）同一链路再过一遍：导入弹窗只有「仓库地址」一栏 + 可空子目录，预览给出
+「自动识别版本：owner/repo@v0.1.0 → sha · 扫过 1 个 tag · 4 个文件 · 8.1 KB」与逐文件 blob 前缀；
+安装只到「发现」，卡片上要再点「启用」；启用后 `/api/plugins/smoke_ping/ping` 由装进来的代码回包。
+粘非 GitHub 地址时弹窗内直接点名主机（`这个地址的主机是 gitee.com`）并指向 `MCSTS_PLUGIN_MIRROR`。
+
+**一处值得记的实测现象（不是缺陷）**：harness 与 rig 都没配 Redis，限流走进程内存，连跑脚本会先撞
+注册配额（5/5min）与 hooks 配额（60/min/插件+IP）—— 429 是限流器在干活，重跑前等窗口或重启进程即可。
 
 ## 背景：重制动机（原 README「结论摘要」）
 
