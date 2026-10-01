@@ -1484,6 +1484,54 @@ claim 对「XUID 已 active 绑别人」「角色已 active 绑别 XUID」双向
   后端读取的环境变量必须全部出现在 `.env.example` —— 新增的 `MCSTS_PLUGIN_MIRROR` 正是被它逼着登记的）。
 - 待另一边按新规范改造插件仓库（语义化 tag + `.mcsts-plugin/<id>.json`）后，再走一次真仓库端到端确认。
 
+## 第八批补充：官方插件仓库真机端到端实测，逼出两处诊断缺陷（Dev）
+
+### 测的是谁
+
+`https://github.com/SunsetNightMoon/Bedrock-Link-Java.git`（官方第一个插件，jar 伴生 + 站点侧 `site/`）。
+导入器不依赖数据库，所以本轮**绕开站点进程**直接驱动 `PluginImporter`，这也正好把「导入链路」与
+「装配链路」分开归因。
+
+### 结果：仓库本身已经合规
+
+| 检查 | 实际 |
+| --- | --- |
+| tag 列表 | `v2.2.2, v2.2.1, v2.2.0, v2.1.1, v2.1.0, v2.0.0, v1.0.1, v1.0.0, server-v0.1.28, server-v0.1.27`（10 个） |
+| 自动识别 | 选中 `v2.2.2` → commit `d84e9ce07f`；`server-v0.1.*` 这类伴生插件发布 tag 被正确忽略，没有混进版本号候选 |
+| tag 与 manifest 版本 | 一致（`v2.2.2` ↔ `2.2.2`） |
+| 识别代号标记 | `.mcsts-plugin/bedrock_link.json` 在仓库根，核对通过 |
+| 文件 | `site/` 下 3 个文本文件，28463 B（`index.ts` / `mcsts.plugin.json` / `plugin-api.d.ts`）；`server/` 里的 `.jar` 被子目录过滤掉，不参与导入 |
+| 安装 | 落盘成功 + `.mcsts-import.json` 记档（repo / tag / sha / 3 个文件的 blob sha / 谁装的），只到「发现」不启用 |
+
+**用法要点**（写进面板文案没意义，超管实际会撞）：插件住在 `site/` 子目录，所以「子目录」必须填 `site`。
+
+### 逼出来的两处缺陷（都已修，随本批提交）
+
+1. **根布局探测失败时报的是死路**。`dir` 留空时报 `插件目录里找不到 mcsts.plugin.json`，可清单里明明写着
+   `site/mcsts.plugin.json`。现在直接把 manifest 的真实位置报出来，并给出该填的值：
+   `仓库根里没有 mcsts.plugin.json：它在：site/mcsts.plugin.json —— 把「子目录」填成 site 再预览`。
+2. **失败文案指错主机**。原先 `upstream` 按 `apiBase` 算一次，所有失败都写成「无法访问 api.github.com」。
+   实测本机就是 `api.github.com` 通、`raw.githubusercontent.com` 被重置（`ECONNRESET` /
+   `UND_ERR_CONNECT_TIMEOUT`）—— 照旧文案会把人赶去修一条好好的链路。现在按**每个请求 URL 的宿主**点名，
+   并新增用例：清单域名通、文件域名不通时报的是 `raw.githubusercontent.com`。
+   （顺带确认 `MCSTS_PLUGIN_MIRROR` 的必要性：走 `https://gh-proxy.com` 前缀后同一套请求全链路通过。）
+
+### 顺带确认的一项口径（不是缺陷，但值得提一句）
+
+插件 manifest 写了 `"mcsts": ">=2-26.4.2"`，站点按**既有契约**只把它当展示字段（面板「需要站点」那一行，
+`docs/plugin-api-guide.md` 的字段表里就标注为「展示用」），真正硬拒的是 `apiVersion`
+（`插件要求 API v…；不匹配一律拒载`）。所以 26.4.1 的站装这个插件不会被版本区间拦住 ——
+这是设计如此，不是漏检。若今后要让 `mcsts` 也变成硬闸（例如按季度迭代号拦住依赖新接口的插件），
+那是接口口径的改变，需要单独拍板；本轮不动它。
+
+### 验收（数字均为实际输出）
+
+- `tests/pluginImport.test.ts` **24/24 全绿**（新增 2 项：manifest 位置提示、按请求主机点名）。
+- `tests/configCheck.test.ts` 11/11、`tests/repoHygiene.test.ts` 5/5，后端 `tsc` 零错误。
+- 真网络：上述表格即实测输出；未认证限流打满后返回 403，被收成 `PLUGIN_IMPORT_UNREACHABLE`
+  「限流或上游故障，请稍后重试；私有仓库需要配 MCSTS_GH_TOKEN」，符合既有错误契约。
+- SQLite 基线与面板肉眼验收仍待本机切回 Node 22（原因见上一节）。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

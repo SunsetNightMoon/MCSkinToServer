@@ -273,6 +273,9 @@ MCSTS 无法主动连你的 Minecraft 服务器，所以方向是**入站**：Ja
 除了手工把目录放进 `MCSTS_PLUGIN_DIR`，超管可以在面板点「从 GitHub 导入」。要让插件能被这条路径装上，仓库需要满足：
 
 **① 目录形态**：`mcsts.plugin.json` 与入口文件放在一起（仓库根，或 monorepo 的某个子目录）。
+住在子目录时，超管要在面板「子目录」里填上它（例：manifest 在 `site/mcsts.plugin.json` 就填 `site`）；
+没填时导入会直接把 manifest 的真实位置报出来，并给出该填的值。标记文件则**永远看仓库根**，
+所以伴生 jar、文档这些别的东西不妨碍导入。
 
 **② 识别代号标记**：仓库根必须有 `.mcsts-plugin/<id>.json`，内容形如
 

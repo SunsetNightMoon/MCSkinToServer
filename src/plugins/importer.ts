@@ -329,8 +329,6 @@ function allowedExtension(path: string): boolean {
 export class PluginImporter {
   private readonly apiBase: string;
   private readonly rawBase: string;
-  /** 错误文案里点名「实际打的是哪台主机」：配了镜像却还写着 GitHub 会把人带偏 */
-  private readonly upstream: string;
 
   constructor(private readonly deps: ImporterDeps) {
     // 镜像前缀把**完整请求 URL**（含协议与主机）拼在自己后面，这是 gh-proxy 一类的通用形态：
@@ -341,7 +339,18 @@ export class PluginImporter {
       mirror === '' ? base : `${mirror}/${base}`;
     this.apiBase = (deps.apiBase ?? viaMirror(API_BASE)).replace(/\/+$/, '');
     this.rawBase = (deps.rawBase ?? viaMirror(RAW_BASE)).replace(/\/+$/, '');
-    this.upstream = hostOf(this.apiBase) ?? this.apiBase;
+  }
+
+  /**
+   * 错误文案里点名「这一步实际打的是哪台主机」。
+   *
+   * 必须是**每个 URL 各算各的**：清单（api.github.com）与文件（raw.githubusercontent.com）
+   * 是两个域名，可达性常常不一样 —— 实测本机就是 api 通、raw 被重置。要是照着 apiBase
+   * 一口咬定「无法访问 api.github.com」，运维就会去修一条本来好好的链路。
+   * 配了镜像时这里显示的是镜像域名，同样一眼能看出该找谁。
+   */
+  private upstreamOf(url: string): string {
+    return hostOf(url) ?? hostOf(this.apiBase) ?? this.apiBase;
   }
 
   private async send(url: string, notFound: string): Promise<Response> {
@@ -351,6 +360,7 @@ export class PluginImporter {
     };
     if (this.deps.token) headers['authorization'] = `Bearer ${this.deps.token}`;
     const impl = this.deps.fetchImpl ?? fetch;
+    const upstream = this.upstreamOf(url);
     let res: Response;
     try {
       res = await impl(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
@@ -359,7 +369,7 @@ export class PluginImporter {
       // 而不是让它冒成 500「内部错误」（实测面板上就只剩这四个字，看不出根因）
       throw new AppError(
         'PLUGIN_IMPORT_UNREACHABLE',
-        `无法访问 ${this.upstream}：${describeNetworkError(err)}`,
+        `无法访问 ${upstream}：${describeNetworkError(err)}`,
         { cause: err instanceof Error ? err : undefined },
       );
     }
@@ -367,10 +377,10 @@ export class PluginImporter {
     if (res.status === 403 || res.status === 429 || res.status >= 500) {
       throw new AppError(
         'PLUGIN_IMPORT_UNREACHABLE',
-        `${this.upstream} 返回 ${res.status}（限流或上游故障），请稍后重试；私有仓库需要配 MCSTS_GH_TOKEN`,
+        `${upstream} 返回 ${res.status}（限流或上游故障），请稍后重试；私有仓库需要配 MCSTS_GH_TOKEN`,
       );
     }
-    if (!res.ok) fail(`${this.upstream} 返回 ${res.status}`, url.replace(/^https?:\/\//, ''));
+    if (!res.ok) fail(`${upstream} 返回 ${res.status}`, url.replace(/^https?:\/\//, ''));
     return res;
   }
 
@@ -471,7 +481,27 @@ export class PluginImporter {
     const manifestPath = joinPosix(src.dir, MANIFEST_FILE);
     const manifestEntry = blobs.find((item) => item.path === manifestPath);
     if (!manifestEntry) {
-      fail(`插件目录里找不到 ${MANIFEST_FILE}`, src.dir === '' ? MANIFEST_FILE : `${src.dir}/${MANIFEST_FILE}`);
+      // 实测最容易撞的就是这一条：插件住在 monorepo 的子目录里（jar 伴生插件就是这种布局），
+      // 而「插件目录里找不到 mcsts.plugin.json」不告诉人该填什么。清单已经整份在手，
+      // 就直接把 manifest 的真实位置报出来，并给出「子目录」该填的值。
+      const elsewhere = entries.filter(
+        (item) =>
+          item.type === 'blob' &&
+          (item.path === MANIFEST_FILE || item.path.endsWith(`/${MANIFEST_FILE}`)),
+      );
+      if (elsewhere.length > 0) {
+        fail(
+          `${src.dir === '' ? '仓库根里' : `子目录 ${src.dir}/ 里`}没有 ${MANIFEST_FILE}`,
+          `它在：${elsewhere
+            .slice(0, 3)
+            .map((item) => item.path)
+            .join('、')} —— 把「子目录」填成 ${elsewhere[0]!.path.slice(0, -MANIFEST_FILE.length - 1) || '（留空）'} 再预览`,
+        );
+      }
+      fail(
+        `插件目录里找不到 ${MANIFEST_FILE}`,
+        src.dir === '' ? MANIFEST_FILE : `${src.dir}/${MANIFEST_FILE}`,
+      );
     }
 
     const manifestContent = await this.buffer(

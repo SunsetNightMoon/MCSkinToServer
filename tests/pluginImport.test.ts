@@ -390,6 +390,33 @@ test('导入：非法子目录路径仍拒', async () => {
   }
 });
 
+test('导入：manifest 在子目录里却没填子目录时，直接报出它的位置与该填什么', async () => {
+  const dir = await tempDir();
+  const repo: FakeRepo = {
+    files: {
+      'README.md': '# monorepo\n',
+      'server/pom.xml': '<project/>\n',
+      'site/mcsts.plugin.json': manifestJson('skin_thing'),
+      'site/index.ts': IMPORT_ENTRY,
+      [`${PLUGIN_MARKER_DIR}/skin_thing.json`]: markerJson('skin_thing', 'acme/monorepo'),
+    },
+    tags: { 'v1.0.0': 'c'.repeat(40) },
+    hits: [],
+  };
+  const { importer, close } = await makeImporter(repo, dir);
+  try {
+    // 这是实测最容易撞的一屏：根目录没有 manifest，而人不知道插件住在 site/ 下
+    const message = await expectRejected(
+      () => importer.preview({ repoInput: 'acme/monorepo' }),
+      /仓库根里没有 mcsts\.plugin\.json/,
+    );
+    assert.match(message, /site\/mcsts\.plugin\.json/);
+    assert.match(message, /把「子目录」填成 site/);
+  } finally {
+    close();
+  }
+});
+
 test('导入：monorepo 子目录只取该目录，落盘路径不带前缀', async () => {
   const dir = await tempDir();
   const repo: FakeRepo = {
@@ -529,6 +556,34 @@ test('导入：错误文案点名实际请求的主机，配了镜像时不再�
       return true;
     },
   );
+});
+
+test('导入：清单域名通、文件域名不通时，文案点的是不通的那一个', async () => {
+  const dir = await tempDir();
+  const gh = await startFakeGitHub(goodRepo());
+  // 真实踩到的形态就是这样的：api.github.com 通，raw.githubusercontent.com 被重置。
+  // 文案若照 apiBase 写成「无法访问 api.github.com」，运维会去修一条本来好好的链路。
+  const importer = new PluginImporter({
+    pluginDir: dir,
+    now: () => new Date(),
+    apiBase: gh.apiBase,
+    rawBase: 'https://raw.githubusercontent.com',
+  });
+  try {
+    await assert.rejects(
+      () => importer.preview({ repoInput: 'acme/demo-plugin' }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.code, 'PLUGIN_IMPORT_UNREACHABLE');
+        assert.match(err.message, /raw\.githubusercontent\.com/);
+        assert.doesNotMatch(err.message, /无法访问 127\.0\.0\.1/);
+        return true;
+      },
+    );
+    assert.equal((await readdir(dir)).length, 0, '取不到文件时不该落任何东西');
+  } finally {
+    gh.close();
+  }
 });
 
 test('导入：下载内容与仓库清单不符就中止，不留半个插件目录', async () => {
