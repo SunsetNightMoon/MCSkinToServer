@@ -1300,6 +1300,41 @@ README 一路加到 182 行，绝大部分是**文档型**内容（反代配置�
 - 验收：双端 `tsc` 零错误、web 构建通过；SQLite **440 用例 / 334 pass / 0 fail / 106 skipped**，
   全门控（PG+Redis+Mailpit）**440/440 pass**。
 
+## 发版：v2-26.4.1 —— 插件框架五批合入 master（跨季度，迭代号重置）
+
+### 版本号
+
+2026-10-01 进入第四季度，按口径 `v2-<年>.<季>.<季内迭代>` **季度进一位、迭代号重置为 1**：
+`v2-26.3.8` → **`v2-26.4.1`**（包内 semver 存 `26.4.1`）。改动仍是九文件逐处锚定，不做全文替换：
+`package.json`、`web/package.json`、两份 `package-lock.json`（各 2 处）、
+`src/yggdrasil/metadata.ts` 的 `implementation.version`、四份 README 的版本行与口径行
+（口径句里的「季度 `4`」「迭代序号 `1`」也跟着走，否则解释文字与版本号自相矛盾）。
+
+**没被改到的 `26.3.8` 是故意的**：`docs/plugin-api-guide.md` 示例、`plugin-api.d.ts` 注释、
+`tests/fixtures/plugins/demo_link` 里的 `>=2-26.3.8` 是**插件声明的最低站点版本**，
+不是站点自己的版本 —— 要求 ≥26.3.8 的插件在 26.4.1 上依然成立，跟着站点号一起动反而是错的。
+
+### 这次合入 master 的内容（11 笔）
+
+P6 第一~五批的插件框架：接口与框架（默认关、发现不等于授权、声明可核、炸不穿）、
+面板收敛 + 单插件重载 + GitHub 导入、框架枚举多语言 + 台账 15 天留存、
+通用绑定页与 `ctx.binding`、绑定页申请制（claim / status 签发 / 站点公钥）、`ctx.textures`；
+外加一处前端修复（缩略图等纹理真正加载完再截图，杜绝空白缓存）与两处皮肤/披风口径订正。
+
+上面各批标题里的「仅 Dev，未推 master」自此过期，以本条为准 —— 不逐条回改，避免把历史叙述改成就时叙述。
+
+**放行的依据是实测可用**（用户判定）：插件在真机链路上跑通过，而不是因为测试绿了就发。
+边界照旧：`MCSTS_PLUGINS` 未设时连 `PluginHost` 都不建、`/api/plugins` 不存在，
+所以 master 上这套东西对不启用它的部署是零影响；插件本体一个都不在本仓库里。
+
+### 验收（数字均为实际输出）
+
+- 双端 `tsc` 零错误；web 生产构建通过。
+- SQLite 基线 **440 用例 / 334 pass / 0 fail / 106 skipped**；全门控（PG + Redis + Mailpit）**440/440 pass**。
+- 版本漂移守卫（`tests/repoHygiene.test.ts`「版本号：包内 semver 与对外的 v2- 代号必须同源」）通过：
+  它同时校验 semver 形状、`implementation.version` 同源、四语言 README 都带对外代号。
+- 本次只推 `master` 与 `Dev` 两个分支并打 tag `v2-26.4.1`；**便携包与 GitHub Release 未做**（未被要求）。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

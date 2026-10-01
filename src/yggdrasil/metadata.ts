@@ -50,7 +50,7 @@ export function buildMetadataDto(input: BuildMetadataInput): YggdrasilMetadataDt
     meta: {
       ...(serverName ? { serverName } : {}),
       ...(input.links ? { links: input.links } : {}),
-      implementation: { name: 'MCSTS', version: '2-26.3.8' },
+      implementation: { name: 'MCSTS', version: '2-26.4.1' },
       features: {},
     },
   };
