@@ -1202,6 +1202,10 @@
     }
   },
   "plugins": {
+    "systemOffTitle": "插件系统未启用",
+    "systemOffDesc": "本实例没有开启插件系统：这不是故障，也不是这个版本没有该功能 —— 它是一个默认关闭的开关。未开启时 /api/plugins 与玩家侧的 /api/bindings 都不存在。",
+    "systemOffRestart": "在站点的环境变量里加上上面这一行，然后重启后端：该开关决定要不要构造插件宿主，不能运行时切换。",
+    "systemOffSurface": "完整清单见站点根目录的 .env.example，接口与写法见 docs/plugin-api-guide.md。开启后仍然一个插件都不会自动启用：装进目录只算「发现」，要在这里按下启用。",
     "reload": "刷新",
     "reloadOne": "重载",
     "reloaded": "已重新加载该插件",
@@ -1288,6 +1292,7 @@
     "kindBinding": "绑定页",
     "bindingListNote": "列出当前绑定；入口由核心提供，插件只登记 ctx.binding()",
     "bindingIssueNote": "生成一次性绑定码；核心按 用户+IP 限 10 次/分钟",
+    "bindingClaimNote": "玩家提交申请值（如 XUID）；pattern 由核心按 manifest 声明预校验，限 10 次/分钟",
     "bindingRevokeNote": "网页侧自助解绑；仅当插件登记了 revoke 才存在这个入口",
     "authPublic": "公开",
     "authUser": "登录用户",

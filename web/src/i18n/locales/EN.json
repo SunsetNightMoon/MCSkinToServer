@@ -1202,6 +1202,10 @@
     }
   },
   "plugins": {
+    "systemOffTitle": "The plugin system is not enabled",
+    "systemOffDesc": "This instance has the plugin system switched off. That is neither a failure nor a missing feature: it is an opt-in flag, off by default. While it is off, /api/plugins and the player-facing /api/bindings do not exist at all.",
+    "systemOffRestart": "Add the line above to the site environment, then restart the backend - the flag decides whether the plugin host is constructed, so it cannot be toggled at runtime.",
+    "systemOffSurface": "The full list lives in .env.example at the site root; the API and how to write a plugin are in docs/plugin-api-guide.md. Enabling it still starts no plugin automatically: installing one only counts as discovery, and you enable it here.",
     "reload": "Reload",
     "reloadOne": "Reload plugin",
     "reloaded": "Plugin reloaded",
@@ -1288,6 +1292,7 @@
     "kindBinding": "Binding page",
     "bindingListNote": "List current bindings; the endpoints are provided by the core, the plugin only registers ctx.binding()",
     "bindingIssueNote": "Issue a one-time binding code; rate-limited by the core to 10/min per user+IP",
+    "bindingClaimNote": "Player submits a claim value (e.g. XUID); the core pre-validates it against the declared pattern, 10/min limit",
     "bindingRevokeNote": "Self-service unbind from the web; this endpoint exists only if the plugin registers revoke",
     "authPublic": "Public",
     "authUser": "Signed-in user",

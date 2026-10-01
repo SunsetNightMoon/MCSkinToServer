@@ -76,8 +76,8 @@ interface PluginStatus {
     requires?: { id: string; label: string; note?: string }[]
     settings?: SettingSpec[]
     endpoints?: EndpointSpec[]
-    /** 声明了绑定页能力：入口由核心提供（GET /binding + issue + revoke） */
-    binding?: { subject: 'account' | 'profile' }
+    /** 声明了绑定页能力：入口由核心提供（GET /binding + issue?/claim?/revoke） */
+    binding?: { subject: 'account' | 'profile'; input?: unknown; issue?: boolean }
   }
 }
 
@@ -147,13 +147,27 @@ export function PluginManagement() {
   const [drafts, setDrafts] = useState<Record<string, Record<string, string | number | boolean>>>({})
   const [detailId, setDetailId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  /**
+   * 后端明确回了「本实例未启用插件系统」。
+   * 这**不是故障**：以前它被当成加载失败，把一整串裸 JSON 弹成红色错误 toast，
+   * 部署者分不清「这个版本没有该功能」和「有功能但没开开关」——
+   * 生产上就是这么显示的（v2-26.4.1 上线后 `.env.example` 里漏写开关，见开发日志）。
+   */
+  const [systemOff, setSystemOff] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch('/api/admin/plugins')
+      if (res.status === 501) {
+        setSystemOff(true)
+        setStatuses([])
+        setLog([])
+        return
+      }
       if (!res.ok) throw new Error(await res.text())
       const body = await res.json()
+      setSystemOff(false)
       const list: PluginStatus[] = body.statuses ?? []
       // manifest 里的 settings 只有 key/label/default，**当前值**在另一个端点。
       // 不在这里合并，表单就永远显示成「什么都没配」—— 超管看不出实际配置是什么。
@@ -348,11 +362,17 @@ export function PluginManagement() {
 
   const renderEndpointsTab = (plugin: PluginStatus) => {
     // 绑定页入口由核心提供（插件只登记 ctx.binding()），不在 manifest 的 endpoints 里；
-    // 但它是超管按下启用前该看见的 HTTP 面，所以台账替它把三行摊出来。
-    const bindingRows: EndpointSpec[] = plugin.manifest?.binding
+    // 但它是超管按下启用前该看见的 HTTP 面，所以台账按声明替它摊出实际存在的行。
+    const binding = plugin.manifest?.binding
+    const bindingRows: EndpointSpec[] = binding
       ? [
           { kind: 'binding', method: 'GET', path: '/binding', auth: 'user', note: t('plugins.bindingListNote') },
-          { kind: 'binding', method: 'POST', path: '/binding/issue', auth: 'user', note: t('plugins.bindingIssueNote') },
+          ...(binding.issue === false
+            ? []
+            : [{ kind: 'binding' as const, method: 'POST', path: '/binding/issue', auth: 'user', note: t('plugins.bindingIssueNote') }]),
+          ...(binding.input
+            ? [{ kind: 'binding' as const, method: 'POST', path: '/binding/claim', auth: 'user', note: t('plugins.bindingClaimNote') }]
+            : []),
           { kind: 'binding', method: 'POST', path: '/binding/revoke', auth: 'user', note: t('plugins.bindingRevokeNote') },
         ]
       : []
@@ -389,6 +409,32 @@ export function PluginManagement() {
       ))}
     </Space>
   )
+
+  if (systemOff) {
+    return (
+      <div style={{ padding: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          message={t('plugins.systemOffTitle')}
+          description={
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <span>{t('plugins.systemOffDesc')}</span>
+              <Typography.Text code copyable={{ text: 'MCSTS_PLUGINS=1' }}>
+                MCSTS_PLUGINS=1
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('plugins.systemOffRestart')}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('plugins.systemOffSurface')}
+              </Typography.Text>
+            </Space>
+          }
+        />
+      </div>
+    )
+  }
 
   return (
     <div style={{ padding: 16 }}>
@@ -548,7 +594,7 @@ export function PluginManagement() {
               {
                 key: 'endpoints',
                 // 计数要含绑定页三行：表格里有几行，标签上就是几，别让「(2)」和五行表对不上
-                label: `${t('plugins.endpoints')} (${(detail.manifest?.endpoints ?? []).length + (detail.manifest?.binding ? 3 : 0)})`,
+                label: `${t('plugins.endpoints')} (${(detail.manifest?.endpoints ?? []).length + (detail.manifest?.binding ? 2 + (detail.manifest.binding.issue === false ? 0 : 1) + (detail.manifest.binding.input ? 1 : 0) : 0)})`,
                 children: renderEndpointsTab(detail),
               },
               { key: 'requires', label: `${t('plugins.externalRequires')} (${(detail.manifest?.requires ?? []).length})`, children: renderRequiresTab(detail) },

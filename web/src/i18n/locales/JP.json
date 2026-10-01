@@ -1202,6 +1202,10 @@
     }
   },
   "plugins": {
+    "systemOffTitle": "プラグインシステムは無効です",
+    "systemOffDesc": "このインスタンスではプラグインシステムがオフになっています。障害でも機能欠落でもなく、既定でオフの確認スイッチです。オフの間は /api/plugins もプレイヤー向けの /api/bindings も存在しません。",
+    "systemOffRestart": "上の行をサイトの環境変数に追加してバックエンドを再起動してください。このスイッチはプラグインホストを構築するかどうかを決めるものなので、実行中には切り替えられません。",
+    "systemOffSurface": "完全な一覧はサイト直下の .env.example、API と書き方は docs/plugin-api-guide.md にあります。有効化してもプラグインは自動で有効になりません：ディレクトリに入れるのは「発見」までで、有効化はここで行います。",
     "reload": "更新",
     "reloadOne": "再読み込み",
     "reloaded": "プラグインを再読み込みしました",
@@ -1288,6 +1292,7 @@
     "kindBinding": "連携ページ",
     "bindingListNote": "現在の連携一覧；エンドポイントはコアが提供し、プラグインは ctx.binding() を登録するだけ",
     "bindingIssueNote": "使い捨て連携コードの発行；コアがユーザー+IP あたり 10 回/分に制限する",
+    "bindingClaimNote": "プレイヤーが申請値（例：XUID）を送信；コアが manifest 宣言の pattern で事前検証、10 回/分制限",
     "bindingRevokeNote": "Web 側でセルフ解除；プラグインが revoke を登録した場合のみこのエンドポイントが存在する",
     "authPublic": "公開",
     "authUser": "ログインユーザー",

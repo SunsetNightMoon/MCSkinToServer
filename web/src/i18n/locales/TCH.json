@@ -1202,6 +1202,10 @@
     }
   },
   "plugins": {
+    "systemOffTitle": "外掛系統未啟用",
+    "systemOffDesc": "本實例沒有開啟外掛系統：這不是故障，也不是這個版本沒有該功能 —— 它是一個預設關閉的開關。未開啟時 /api/plugins 與玩家側的 /api/bindings 都不存在。",
+    "systemOffRestart": "在站點的環境變數裡加上上面這一行，然後重啟後端：該開關決定要不要建構外掛宿主，不能執行時切換。",
+    "systemOffSurface": "完整清單見站點根目錄的 .env.example，介面與寫法見 docs/plugin-api-guide.md。開啟後仍然一個外掛都不會自動啟用：放進目錄只算「發現」，要在這裡按下啟用。",
     "reload": "重新整理",
     "reloadOne": "重載",
     "reloaded": "已重新載入該外掛",
@@ -1288,6 +1292,7 @@
     "kindBinding": "綁定頁",
     "bindingListNote": "列出目前綁定；入口由核心提供，外掛只登記 ctx.binding()",
     "bindingIssueNote": "產生一次性綁定碼；核心按 使用者+IP 限 10 次/分鐘",
+    "bindingClaimNote": "玩家提交申請值（如 XUID）；pattern 由核心按 manifest 宣告預校驗，限 10 次/分鐘",
     "bindingRevokeNote": "網頁側自助解綁；僅當外掛登記了 revoke 才存在這個入口",
     "authPublic": "公開",
     "authUser": "登入使用者",

@@ -219,3 +219,55 @@ test('四语言语言包键位必须完全一致', () => {
     );
   }
 });
+
+/**
+ * 后端读的每一个环境变量都必须出现在 `.env.example` 里。
+ *
+ * `docs/deployment.md` 明写着「环境变量完整清单见 `.env.example`」—— 那句话是承诺，
+ * 而承诺靠人记住就一定会有漏的。实际漏过：插件系统的三个开关
+ * （`MCSTS_PLUGINS` / `MCSTS_PLUGIN_DIR` / `MCSTS_GH_TOKEN`）随 v2-26.4.1 上了线，
+ * 清单里却一个字都没有，于是生产上「插件管理」显示「未启用」，
+ * 部署者从配置面看不出这是没开、还是这个版本压根没有该功能。
+ *
+ * 这类遗漏对「以后做自动更新 / 能力探测」是致命的：那种东西只会读**声明出来的**配置面，
+ * 只活在开发者指南里的开关对它不存在。所以这里把清单变成机器校验的接口，而不是文档附录。
+ *
+ * 两种写法都要扫：`process.env.X`，以及 `src/config.ts` 里注入式对象的 `env['X']`
+ * （config.ts 拿的是传进来的 env，不写 process.env —— 只扫前者会漏掉绝大多数）。
+ */
+test('后端读取的环境变量必须全部出现在 .env.example', () => {
+  const names = new Map<string, string>();
+  const collect = (src: string, file: string, pattern: RegExp) => {
+    for (const hit of src.matchAll(pattern)) {
+      const name = hit[1] ?? hit[2] ?? '';
+      if (/^[A-Z][A-Z0-9_]{2,}$/.test(name) && !names.has(name)) names.set(name, file);
+    }
+  };
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return walk(full);
+      return entry.name.endsWith('.ts') ? [full] : [];
+    });
+
+  for (const file of walk(path.join(ROOT, 'src'))) {
+    const src = fs.readFileSync(file, 'utf8');
+    collect(src, path.relative(ROOT, file), /process\.env(?:\['([A-Za-z0-9_]+)'\]|\s*\.\s*([A-Za-z0-9_]+))/g);
+    if (file.endsWith(`${path.sep}config.ts`)) {
+      collect(src, path.relative(ROOT, file), /\benv(?:\['([A-Za-z0-9_]+)'\]|\s*\.\s*([A-Za-z0-9_]+))/g);
+    }
+  }
+
+  assert.ok(names.size >= 20, `只扫到 ${names.size} 个环境变量：正则或注入写法变了，这条守卫已失效`);
+  const doc = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
+  const documented = new Set(
+    [...doc.matchAll(/^\s*#?\s*([A-Za-z][A-Za-z0-9_]{2,})\s*=/gm)].map((m) => m[1] as string),
+  );
+  const missing = [...names].filter(([name]) => !documented.has(name));
+  assert.deepEqual(
+    missing.map(([name, file]) => `${name}（${file}）`),
+    [],
+    `这些变量后端会读，但 .env.example 里没有：部署者无从得知它们存在 —— ` +
+      missing.map(([name, file]) => `${name}（${file}）`).join('、'),
+  );
+});
