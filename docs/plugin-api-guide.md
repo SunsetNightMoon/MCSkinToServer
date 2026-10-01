@@ -120,7 +120,7 @@ export default setup;
 
 ### 通用绑定页（`ctx.binding()`）
 
-「玩家在网页上生成一次性码、到别处交给服务器消费」是绑定类插件共同的动作。MCSTS 把这块页面做进了
+「玩家在自己账号里对某个角色提交一个值（如 XUID）、由远端实测签发」是绑定类插件共同的动作。MCSTS 把这块页面做进了
 账号设置区（登录用户的「账号绑定」），插件只登记行为，**不写任何前端代码**：
 
 ```ts
@@ -129,14 +129,22 @@ ctx.binding({
   // 插件不需要、也没有能力再去查归属 —— 这是结构上挡住的，不是靠作者自觉
   async list(actor) {
     return {
-      bindings: [{ id: '2535449773834232', fields: [{ label: 'XUID', value: '2535449773834232' }], boundAt: '2026-09-30T06:02:24Z' }],
-      instructions: '进服后输入 /bedrock link {{code}}',   // {{code}} 由页面替换成实际码
+      bindings: [{
+        id: '2535449773834232',
+        fields: [{ label: 'XUID', value: '2535449773834232' }, { label: '角色', value: 'Steve' }],
+        boundAt: '2026-09-30T06:02:24Z',
+        status: 'pending',          // 'pending' 待确认 / 'active' 已生效
+      }],
+      instructions: '用基岩版加入服务器 bedrock.example.com:19132；被拦下的屏幕会显示你的 XUID，填进来提交申请，重新进服的那一刻签发。',
     };
   },
-  // 生成短码。绑定流程建议直接返回 ctx.tokens.issue() 的结果
-  async issue(actor) {
-    const t = await ctx.tokens.issue({ subject: actor.profileId!, ttlMs: 300_000, data: { profileName: actor.profileName } });
-    return { code: t.token, expiresAt: t.expiresAt };
+  // 玩家提交申请。manifest 的 binding.input.pattern 已由核心预校验，这里只写业务判定
+  async claim(actor) {
+    if (await alreadyActiveForOtherProfile(actor.value, actor.profileId)) {
+      return { message: '该 XUID 已绑定其他角色，无法申请' };   // message 原样显示给玩家
+    }
+    await insertPending(actor.value, actor.profileId, actor.profileName);
+    return { message: '申请已记录：重新进入基岩服务器的那一刻自动签发生效' };
   },
   // 不登记就没有解绑按钮（有些绑定只许管理员清）
   async revoke(actor) {
@@ -153,19 +161,19 @@ ctx.binding({
 - `subject='profile'`：页面给角色选择器，核心把**验过归属**的 `profileId`/`profileName` 交给你的三个函数，
   缺了或不属于这个账号的请求根本到不了插件；`subject='account'` 时 `profileId` 恒为 null。
 - 核心提供的入口（面板的「对外入口」台账会按声明替你把实际存在的行摊出来）：
-  `GET /api/plugins/<id>/binding`、`POST …/binding/issue`、`POST …/binding/revoke`，全部登录用户鉴权；
-  声明了 `input` 并登记 `claim()` 再加一行 `POST …/binding/claim`；
-  另有 `GET /api/bindings` 供页面发现「哪些启用的插件有绑定能力」（目录行含 `issuable/claimable/revocable`）。
-- **不走一次性码的插件写 `"binding": { "issue": false }`**：核心不再要求 `issue()`（登记了反而拒载——
-  那是永远跑不到的死代码），`POST …/binding/issue` 回 501，目录 `issuable:false`，
-  绑定页随之收起「生成绑定码」按钮。纯申请制（claim+远端观测签发）就该这么声明，别把码 UI 留给玩家迷惑。
+  `GET /api/plugins/<id>/binding`、`POST …/binding/claim`、`POST …/binding/revoke`，全部登录用户鉴权；
+  另有 `GET /api/bindings` 供页面发现「哪些启用的插件有绑定能力」（目录行含 `claimable/revocable`）。
+- **新插件请走申请制**：`"binding": { "issue": false }` + `claim()`，`POST …/binding/issue` 回 501，
+  此时登记 `issue()` 反而拒载（声明与实际行为必须一致，那是永远跑不到的死代码），绑定页不出现「生成绑定码」按钮。
+  核心为兼容旧插件仍保留码制默认（不写 `issue:false` 就必须登记 `issue()`），但官方插件自 v2.2.0 起已退役码制，
+  新设计不要再选它（理由见 §5）。
 - **返回形态由核心校验**：`list()` 必须回 `{ bindings: [{ id, fields: [{label,value}], boundAt?, status? }], instructions? }`
   （`status` 可选 `'pending' | 'active'`，页面渲染成「待确认 / 已生效」），
-  `issue()` 必须回 `{ code, expiresAt }`。不合契约直接报 `PLUGIN_BAD_RESULT` 并指名你的插件 ——
+  `claim()` 可回 `{ message }` 由页面原样显示。不合契约直接报 `PLUGIN_BAD_RESULT` 并指名你的插件 ——
   宁可报错，也不让页面渲染出半坏列表让你猜哪行错了。
-- `issue` 与 `claim` 各按 用户+IP 限 10 次/分钟（核心做的，不用你自己写）。
-- 一个实用细节：钩子侧（`/hooks/…`）只有 `profileId`，**查不到角色名字** —— 名字在 `issue` 时刻是齐的，
-  把它塞进令牌的 `data`，消费时就能带回来（上面的例子就是这么把 `profileName` 传给 `/bind` 的）。
+- `claim` 按 用户+IP 限 10 次/分钟（核心做的，不用你自己写）。
+- 一个实用细节：钩子侧（`/hooks/…`）只有 `profileId`，**查不到角色名字** —— 名字在 `claim` 时刻是齐的，
+  存进你自己的表（或令牌的 `data`），回调时就能带回来（上面的例子就是把 `profileName` 存表里）。
 
 ### 申请制与签发状态（签证模型）：`claim()`
 
@@ -205,21 +213,23 @@ ctx.binding({
 textures property（value + signature）发回你的 hooks 端点，你用公钥验签——只有本站签得出的才过。
 私钥永远不经插件 API 出手；站点尚未生成密钥时返回 `null`。
 
-## 5. 一次性码：为什么必须用 `ctx.tokens`
+## 5. 绑定契约：`ctx.binding()` 与申请制
 
-绑定这类流程需要「玩家在自己账号里生成一枚短码，到游戏里交给服务器消费」。自己实现很容易写成：
+绑定类流程的页面由核心提供（账号设置区的「账号绑定」），插件只登记三个回调：
 
-```
-查一下这枚码存在且没用过 → 标记已用 → 执行绑定     ← 错
-```
+- `list(actor)` —— 该角色当前的绑定行 + 一段给玩家看的说明文字；
+- `claim(actor & { value })` —— 玩家在页面上提交一个值（如 XUID）提出申请；
+- `revoke(actor & { bindingId })` —— 玩家本人在网页侧解绑。
 
-这是两个语句，中间有竞态：用户连打两次命令、或脚本并发，两条都能通过检查。`ctx.tokens.consume()` 把全部判定写进 `DELETE ... WHERE token_hash=? AND used_at IS NULL AND expires_at>? RETURNING ...`，靠数据库原子性定胜负 —— 只有一行被更新才算赢。
+核心替你把三件最容易写错的事做掉了：
 
-另外三条约定：
+- **归属**：`actor.profileId` 一定属于当前会话账号（核心查过库），「拿别人的 profileId 绑/解绑」在结构上不可能；
+- **格式**：manifest 里 `binding.input.pattern` 由核心预校验，插件不必为「页面被塞了脏值」写防御代码；
+- **状态机展示**：`status` 只认 `pending` / `active`，`fields` 是 `{label, value}` 列表，页面照原样渲染（插件作者写的文字不翻译，见 §0）。
 
-- 明文码**不入库**，库里只有 `sha256(明文)`；
-- 码是 8 位大写无歧义字母表（去掉了 I/O/0/1），因为要能在游戏里手输；
-- 消费失败一律返回 `null`，不区分「不存在 / 已用过 / 已过期」—— 否则这个端点会变成探测器。
+**官方插件自 v2.2.0 起退役了码制**（`bedrock_link` 改纯申请制），新插件默认也该这么选：申请制覆盖了同一件事且更强 —— 玩家的意愿由他在自己账号里提交申请表达，持有证明由服务器实测给出（见 §7），中间不再需要一枚能被抄走、能被截屏的短码。核心为兼容仍保留码制入口（不写 `issue:false` 时的默认形态），但别为新流程选它。
+
+若你的插件在**别的**场景确实需要一次性令牌（邀请、兑换之类），用 `ctx.tokens`，别自己写「查存在 → 标记已用」两句式消费：那中间有竞态，并发两条都能过检查。`ctx.tokens.consume()` 把判定写进一条带 `WHERE ... AND used_at IS NULL` 的原子语句，靠数据库定胜负；明文不入库（只有 sha256），消费失败一律返回 `null`（不区分不存在/已用/过期，否则端点变成探测器）。
 
 ## 6. 机器回调的签名（`auth: 'hmac'`）
 
@@ -238,28 +248,30 @@ MCSTS 无法主动连你的 Minecraft 服务器，所以方向是**入站**：Ja
 | `X-MCSTS-Nonce` | 8-64 位 `[A-Za-z0-9_-]`，窗口内不可重复 |
 | `X-MCSTS-Signature` | 上面的十六进制签名 |
 
-`完整路径` 是挂载后的路径（如 `/api/plugins/bedrock_link/hooks/bind`），不是 manifest 里那段 —— 否则一个合法签名可以换到别的路径上重放。`body` 按 JSON 文本参与哈希。
+`完整路径` 是挂载后的路径（如 `/api/plugins/bedrock_link/hooks/lookup`），不是 manifest 里那段 —— 否则一个合法签名可以换到别的路径上重放。`body` 按 JSON 文本参与哈希。
 
 密钥由超管在面板「服务器密钥」处生成，明文只显示一次；插件用 `ctx.settings.getSecret('HOOK_SECRET')` 读（键名固定 `HOOK_SECRET`，由框架托管，不用你在 settings 里声明）。
 
 未配 Redis 时 nonce 记录降级为进程内存：重启即清空、多实例各记各的。这不影响签名校验本身。
 
-## 7. 一个完整例子：基岩身份绑定（模式 A）
+## 7. 一个完整例子：基岩身份绑定（申请制签证）
 
-场景：Java 服务器用 MCSTS 外置登录（authlib-injector），玩家身份就是站点角色；Xbox 基岩玩家经 Geyser 进来时带的是 XUID，需要绑到某个角色才能穿 Java 侧皮肤。
+场景：Java 服务器用 MCSTS 外置登录（authlib-injector），玩家身份就是站点角色；Xbox 基岩玩家经 Geyser 进来时带的是 XUID，需要「签证」绑到某个角色才能进服并穿站点皮肤。官方插件 `bedrock_link` 就是照这个模型写的，可以直接抄它的仓库形态。
 
 **两条独立证据，缺一不可**：
 
-1. **玩家授权** —— 他在 MCSTS 账号设置区的「账号绑定」（已登录）选角色点「生成绑定码」，拿到 8 位码 —— 这一步的页面由核心提供，插件登记 `ctx.binding()` 即可（见 §4）；
-2. **服务器实测** —— 他进基岩服执行 `/bedrock link <码>`，伴生插件从 Floodgate 取该连接的**真实 XUID**，带签名回调 MCSTS。
+1. **意愿** —— 玩家在 MCSTS「账号绑定」页选角色、提交他的 XUID（进服被拦时屏幕上会显示），状态落 `pending`；这一步的页面由核心提供，插件只实现 `claim`；
+2. **持有** —— 他重新进基岩服的那一刻，Floodgate 对 Xbox 会话实测的 XUID 出现在进服事件里（在线服不可伪造），伴生插件带签名回调 `/hooks/confirm`，站点把这条 `pending` 签发为 `active` 并记录实测昵称（显示在绑定页上可辨伪）。
 
-只有码没有签名 → 任何人都能自报 XUID；只有签名没有码 → 拿到服务器密钥的人可以随意给人绑定。两者同时成立才写绑定。
+只有意愿没有持有 → 申请永远停在 `pending`；只有持有没有意愿 → `confirm` 查无此行，什么都不发生。两者齐了才生效，玩家全程零命令。
 
 其余约定：
 
-- 绑定存**角色 UUID**，不存角色名（角色有 30 天改名冷却与名称池，存名字会让改名静默打断绑定）；订阅 `profile.renamed` / `profile.deleted` / `account.purged` 跟随。
-- 一个 XUID 只绑一个角色、一个角色只绑一个 XUID；两个方向的唯一性都要处理「历史数据已冲突」的情况 —— 冲突时**不要任选一条**，一律拒绝并记日志。
+- 绑定存**角色 UUID**，不存角色名（角色有改名冷却与名称池，存名字会让改名静默打断绑定）；订阅 `profile.renamed` / `profile.deleted` / `account.purged` 跟随。
+- **角色被换下要释放占用**：多角色→单角色、或单模式换 ID 时核心发 `profile.reserved`（事务落定后），预留角色只是名字占位、不再是可用身份，绑定应随之删除、把 XUID 让出来；其余 ID 的绑定直接丢弃是明确语义，不要试图保留。
+- 一个 XUID 只绑一个角色、一个角色只绑一个 XUID；两个方向的唯一性都要处理「历史数据已冲突」的情况 —— 冲突时**不要任选一条**，一律拒绝并记日志。`pending` 阶段允许改主意（挪动申请），`active` 之后必须先解绑。
 - 解绑只允许网页侧（玩家本人）操作；服务器侧不许单方面解绑。
+- Java 侧准入（「仅限外置登录玩家」）走 `/hooks/verify`：伴生插件把玩家 GameProfile 里的 textures property（value + signature）发回，插件用 `ctx.site.publicKeyPem()` 验 RSA 签名并核对名字自洽 —— 只有本站签得出的才过。
 - 皮肤落地要分两个方向说清楚（此前这里写过「把 value/signature 塞进 profile properties 就够了」，**那半句是错的**，已订正）：
   - **Java 侧玩家看基岩绑定者的皮肤**：MCSTS 的 RSA 签名纹理输出走标准 textures property，伴生插件把绑定角色的 `value`/`signature` 塞进该连接的 GameProfile 即可，与其他外置登录皮肤同一条链路；
   - **基岩客户端自己穿戴站点皮肤与披风**：基岩版不渲染 Java 的 textures property（含其中的 CAPE），
