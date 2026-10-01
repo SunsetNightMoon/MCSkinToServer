@@ -1421,11 +1421,17 @@ claim 对「XUID 已 active 绑别人」「角色已 active 绑别 XUID」双向
   备用邮箱立即 429（且未知邮箱各算各的）、启动器 `authenticate`/`signout` 与网页同一口径共用账号桶。
   原有按邮箱隔离、按 IP 的 refresh/出题/角色名查询用例无一改动、无一回归。
 - 后端与前端 `tsc` 零错误，web 生产构建通过，`tests/repoHygiene.test.ts` 5/5。
-- **本轮未跑**：`npm test` 的 SQLite 基线与全门控、`tests/backupEmailLogin.test.ts` 里那条真库回归
-  （主/备邮箱解析出同一个账号 id）、面板的肉眼验收。根因是环境不是代码：本机 Node 已升到
-  **v24.14.1（ABI 137）**，而 `node_modules/better-sqlite3` 是 **ABI 127（Node 22）** 编的，
-  任何 `new Database()` 都 `ERR_DLOPEN_FAILED`，凡起 SQLite 的用例全灭。按用户口径**切回 Node 22 后复跑**；
-  在那之前这批只走 Dev 通道（供另一边的插件项目跟进），**不推 master、不发版**。
+- **基线复跑（延后到本节，数字为实际输出）**：本机系统 `node` 已是 **v24.14.1（ABI 137）**，而
+  `node_modules/better-sqlite3` 是 **ABI 127（Node 22）** 编的 —— 用系统 node 跑任何起库的用例都是
+  `ERR_DLOPEN_FAILED`。这台机器上其实另有 Node 22（`C:\Users\Sunset\.workbuddy\binaries\node\versions\22.22.2-3\node.exe`，
+  3010 上那个开发实例就是它起的），换它之后：
+  - SQLite 基线：**468 用例 / 361 pass / 0 fail / 107 skipped**（跳过项为 PG·Redis·Mailpit 门控）。
+  - 全门控（`INDEV/run-tests.cmd` 那套 env：PG 54329 + Redis 63799 + Mailpit 10259/18025）：
+    **468/468 pass / 0 fail / 0 skipped**。含本批 `tests/backupEmailLogin.test.ts` 新增的那条真库回归
+    （主邮箱与大小写混写的备用邮箱解析出**同一个账号 id**；未验证备用、不存在的地址、超长畸形值都返回 null）。
+  - 四语言 README 的全门控基线数字由 `408/408` 同步到 **468/468**。
+  - 教训沉淀：**验证用的 Node 版本要与 `node_modules` 的编译 ABI 同口径**，否则失败长得像代码坏了。
+    这不是站点的问题（`engines: node >=22` 仍成立），是本机测试环境的口径，所以只记在这里，不写进部署文档。
 
 ## P6 第八批：导入改为「贴仓库地址 + 版本自动识别」，并支持镜像前缀（Dev）
 

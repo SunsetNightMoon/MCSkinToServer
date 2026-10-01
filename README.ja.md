@@ -54,7 +54,7 @@ Windows では**インストール不要のポータブル版**（Node 実行環
 npm test          # SQLite ベースライン（外部サービス不要、ゲート付きケースは自動 skip）
 ```
 
-フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化します。現在のベースライン：**408/408 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
+フルスイートは `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` でゲートを有効化します。現在のベースライン：**468/468 pass / 0 fail / 0 skipped**（PG + Redis + Mailpit 全開）。
 
 ## ドキュメント
 
