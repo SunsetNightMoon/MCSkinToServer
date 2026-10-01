@@ -1361,6 +1361,28 @@ P6 第一~五批的插件框架：接口与框架（默认关、发现不等于�
 走完安装向导后 `GET /api/admin/plugins` 回 `501 NOT_IMPLEMENTED`；再用独立 vite（:5175）登录后
 确认该页渲染引导卡片、无红色 toast、无空卡片。
 
+## P6 第七批：`binding.issue` 开关与 `profile.reserved` 事件（v2-26.4.1 之后，Dev）
+
+bedrock_link 真机跑通签证与皮肤接管后，用户对着绑定页提了三件事：生成码按钮是噪音、
+XUID 唯一性要核实、多→单切换要丢弃失效绑定。落成两处框架能力：
+
+1. **`manifest.binding.issue:false`**（声明可核的又一项）：核心不再要求 `issue()`（登记了反而拒载——
+   路由被收成 501 后那是死代码），目录行加 `issuable`，绑定页据此收起「生成绑定码」与码指引，
+   管理面板端点台账按 `issuable/claimable` 动态摊行（连带补上了此前没摊的 `/binding/claim` 行）。
+   床站插件 v2.2.0 据此删掉了 `BIND_MODE`/`CODE_TTL_MINUTES`/`/hooks/bind` 整条码制链路，
+   伴生 jar v0.1.28 同步退役 `/bedrock link` 子命令。
+2. **`profile.reserved` 事件**：角色被换下（多→单 `decideKeepId`、单模式换 ID）转预留时发射。
+   预留角色只是名字占位，不再是可用身份——绑定跟着角色走，插件收到即删行、释放 XUID 供重绑；
+   不丢弃的话，一个进不了服的旧角色会永久占着别人的基岩身份（门控还会继续放行它）。
+   发射点都在事务落定之后，与 `profile.deleted` 同一口径。
+
+XUID 唯一性核实结论（无需改动）：床站表 `xuid PRIMARY KEY + profile_id UNIQUE` 双向锁死，
+claim 对「XUID 已 active 绑别人」「角色已 active 绑别 XUID」双向拒绝；pending 在被观测前可反悔挪动。
+
+夹具 `demo_binding_issue_off`（issue:false + claim + reserved 丢弃）与 `demo_binding_issue_off_handler`
+（反向：声明 false 还登记 issue → 拒载）；断言覆盖目录 issuable、issue 路由 501、事件送达后绑定清零。
+验证：双端 tsc 零错误；插件套件 SQLite 全绿；全门控数字见提交说明。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

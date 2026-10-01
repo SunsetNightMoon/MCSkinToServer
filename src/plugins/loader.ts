@@ -535,6 +535,9 @@ export class PluginHost {
             notReady(res);
             return;
           }
+          if (typeof handlers.issue !== 'function') {
+            throw new AppError('NOT_IMPLEMENTED', `插件 ${manifest.id} 未开放一次性码（binding.issue=false）`);
+          }
           const actor = await actorOf(req, String((req.body ?? {})['profileId'] ?? ''));
           const rl = await caps.authenticator.consumeRateLimit(
             manifest.id,
@@ -638,6 +641,7 @@ export class PluginHost {
         subject: item.manifest.binding.subject,
         revocable: typeof item.capabilities.bindingHandlers.revoke === 'function',
         claimable: typeof item.capabilities.bindingHandlers.claim === 'function',
+        issuable: item.manifest.binding.issue !== false,
         input: item.manifest.binding.input,
       });
     }
@@ -767,6 +771,8 @@ export interface PluginBindingCatalogEntry {
   subject: 'account' | 'profile';
   revocable: boolean;
   claimable: boolean;
+  /** manifest 写了 binding.issue:false 时为 false：issue 路由 501，绑定页收起生成码按钮 */
+  issuable: boolean;
   input?: PluginBindingInput;
 }
 

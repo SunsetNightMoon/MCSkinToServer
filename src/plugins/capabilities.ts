@@ -283,6 +283,20 @@ export function createCapabilities(deps: CapabilityDeps, manifest: PluginManifes
             '请加上 { "binding": { "subject": "…", "input": { "label": "…", "pattern": "…" } } } —— 玩家会在页面上看到输入框，超管必须能在启用前看清它。',
         );
       }
+      // issue 与声明双向对齐：没写 issue:false 就必须登记（绑定页默认有生成码按钮）；
+      // 写了 false 就不许再登记（否则路由被 501 挡住，处理器是永远跑不到的死代码）
+      if (manifest.binding.issue !== false && typeof handlers.issue !== 'function') {
+        throw new Error(
+          `[plugin:${manifest.id}] 的 binding 没有登记 issue()。` +
+            '一次性码是绑定契约的默认入口；确实不走码制（如纯申请制）请在 manifest 写 { "binding": { "issue": false } }。',
+        );
+      }
+      if (manifest.binding.issue === false && typeof handlers.issue === 'function') {
+        throw new Error(
+          `[plugin:${manifest.id}] 声明了 binding.issue=false，却登记了 issue() —— 声明与实际行为必须一致，` +
+            '要么去掉 manifest 里的 issue:false，要么删掉这个永远跑不到的处理器。',
+        );
+      }
       bindingHandlers = handlers;
     },
   };

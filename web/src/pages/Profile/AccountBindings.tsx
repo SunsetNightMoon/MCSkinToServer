@@ -23,6 +23,8 @@ interface BindingCatalogEntry {
   subject: 'account' | 'profile'
   revocable: boolean
   claimable?: boolean
+  /** false = 插件不走一次性码（manifest binding.issue:false）：收起生成码按钮与码指引 */
+  issuable?: boolean
   input?: BindingInput
 }
 
@@ -337,29 +339,36 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
           />
         )}
 
-        {!issued && showInstructions && (
-          <Typography.Paragraph
-            type="secondary"
-            style={{ fontSize: 13, marginBottom: 0 }}
-          >
-            {showInstructions.replaceAll('{{code}}', t('bindings.codePlaceholder'))}
-          </Typography.Paragraph>
-        )}
+        {entry.issuable !== false && (
+          <>
+            {!issued && showInstructions && (
+              <Typography.Paragraph
+                type="secondary"
+                style={{ fontSize: 13, marginBottom: 0 }}
+              >
+                {showInstructions.replaceAll('{{code}}', t('bindings.codePlaceholder'))}
+              </Typography.Paragraph>
+            )}
 
-        <Space wrap>
-          <Button
-            type="primary"
-            icon={<LinkOutlined />}
-            loading={busy}
-            disabled={entry.subject === 'profile' && !profileId}
-            onClick={() => void issue()}
-          >
-            {t('bindings.generate')}
-          </Button>
-          {rows !== null && rows.length === 0 && !busy && (
-            <Typography.Text type="secondary">{t('bindings.empty')}</Typography.Text>
-          )}
-        </Space>
+            <Space wrap>
+              <Button
+                type="primary"
+                icon={<LinkOutlined />}
+                loading={busy}
+                disabled={entry.subject === 'profile' && !profileId}
+                onClick={() => void issue()}
+              >
+                {t('bindings.generate')}
+              </Button>
+              {rows !== null && rows.length === 0 && !busy && (
+                <Typography.Text type="secondary">{t('bindings.empty')}</Typography.Text>
+              )}
+            </Space>
+          </>
+        )}
+        {entry.issuable === false && rows !== null && rows.length === 0 && (
+          <Typography.Text type="secondary">{t('bindings.empty')}</Typography.Text>
+        )}
 
         {entry.claimable && entry.input && (
           <Space.Compact style={{ width: '100%' }}>

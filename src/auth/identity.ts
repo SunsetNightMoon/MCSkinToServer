@@ -799,8 +799,10 @@ export class IdentityService {
       }
     }
 
+    const demoted: ProfileRow[] = [];
     await this.db.transaction(async () => {
       if (mode === 'single' && keep && profiles.length > 1) {
+        demoted.push(...profiles.filter((p) => p.id !== keep.id && p.status === 'active'));
         await this.profiles.setStatusForAllExcept(
           input.userId,
           keep.id,
@@ -815,6 +817,10 @@ export class IdentityService {
       }
       await this.users.decideMode(input.userId, mode, now);
     });
+    // 事务落定后再广播：绑定了这些角色的插件要据此丢弃绑定、释放外部身份
+    for (const p of demoted) {
+      emitPluginEvent('profile.reserved', { userId: input.userId, profileId: p.id, name: p.name });
+    }
 
     return this.getProfileModeState(input.userId);
   }
@@ -948,6 +954,14 @@ export class IdentityService {
         this.identityChangeStamp(target, now),
       );
     });
+    // 换下的旧角色同理会牵动插件绑定，事务落定后广播
+    if (current) {
+      emitPluginEvent('profile.reserved', {
+        userId,
+        profileId: current.id,
+        name: current.name,
+      });
+    }
 
     return this.getProfileModeState(userId);
   }

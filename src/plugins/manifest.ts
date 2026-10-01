@@ -174,6 +174,12 @@ export function validateManifest(raw: unknown, issues: ManifestIssue[]): Manifes
       if (typeof binding['subject'] !== 'string' || !BINDING_SUBJECTS.has(binding['subject'])) {
         fail('binding.subject', `必须是 ${[...BINDING_SUBJECTS].join(' / ')}`);
       }
+      // binding.issue=false：本插件不走「站点生码 → 游戏内消费」这条路。
+      // 核心不再要求 issue 处理器、POST …/binding/issue 回 501、目录里 issuable=false，
+      // 绑定页据此收起「生成绑定码」按钮（申请制插件的码 UI 是纯噪音）。
+      if (binding['issue'] !== undefined && typeof binding['issue'] !== 'boolean') {
+        fail('binding.issue', '须为布尔值（写 false 表示不提供一次性码模式）');
+      }
       const input = binding['input'];
       if (input !== undefined) {
         if (!isRecord(input)) {

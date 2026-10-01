@@ -1,0 +1,13 @@
+{
+  "id": "demo_binding_issue_off",
+  "name": "夹具：纯申请制（binding.issue=false）",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "main": "index.ts",
+  "description": "声明 issue:false：核心不要求 issue 处理器、issue 路由 501、目录 issuable=false；并订阅 profile.reserved 丢弃被换下角色的绑定",
+  "binding": {
+    "subject": "profile",
+    "issue": false,
+    "input": { "label": "远端身份（数字）", "pattern": "^[0-9]{6,21}$" }
+  }
+}

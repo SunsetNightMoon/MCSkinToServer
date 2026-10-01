@@ -114,7 +114,7 @@ export default setup;
 
 ### 事件是通知，不是拦截器
 
-`ctx.events.on(name, handler)` 收到的是「已经发生的事」：`user.registered`、`profile.renamed`、`profile.deleted`、`account.purged`。MCSTS **不 await** 你的处理结果，也不会因为你的返回值改变已完成的业务决定。
+`ctx.events.on(name, handler)` 收到的是「已经发生的事」：`user.registered`、`profile.renamed`、`profile.reserved`（角色被换下转预留）、`profile.deleted`、`account.purged`。MCSTS **不 await** 你的处理结果，也不会因为你的返回值改变已完成的业务决定。
 
 这是刻意的：可返回覆盖值的拦截器会让插件顺序影响结果，排查成本指数级上升。需要改变行为，请走显式入口。
 
@@ -152,10 +152,13 @@ ctx.binding({
   而不是无声 404。
 - `subject='profile'`：页面给角色选择器，核心把**验过归属**的 `profileId`/`profileName` 交给你的三个函数，
   缺了或不属于这个账号的请求根本到不了插件；`subject='account'` 时 `profileId` 恒为 null。
-- 核心提供的入口（面板的「对外入口」台账会替你把这三行摊出来）：
+- 核心提供的入口（面板的「对外入口」台账会按声明替你把实际存在的行摊出来）：
   `GET /api/plugins/<id>/binding`、`POST …/binding/issue`、`POST …/binding/revoke`，全部登录用户鉴权；
   声明了 `input` 并登记 `claim()` 再加一行 `POST …/binding/claim`；
-  另有 `GET /api/bindings` 供页面发现「哪些启用的插件有绑定能力」。
+  另有 `GET /api/bindings` 供页面发现「哪些启用的插件有绑定能力」（目录行含 `issuable/claimable/revocable`）。
+- **不走一次性码的插件写 `"binding": { "issue": false }`**：核心不再要求 `issue()`（登记了反而拒载——
+  那是永远跑不到的死代码），`POST …/binding/issue` 回 501，目录 `issuable:false`，
+  绑定页随之收起「生成绑定码」按钮。纯申请制（claim+远端观测签发）就该这么声明，别把码 UI 留给玩家迷惑。
 - **返回形态由核心校验**：`list()` 必须回 `{ bindings: [{ id, fields: [{label,value}], boundAt?, status? }], instructions? }`
   （`status` 可选 `'pending' | 'active'`，页面渲染成「待确认 / 已生效」），
   `issue()` 必须回 `{ code, expiresAt }`。不合契约直接报 `PLUGIN_BAD_RESULT` 并指名你的插件 ——
@@ -190,7 +193,11 @@ ctx.binding({
 - 没声明 `input` 就登记 `claim()` → **拒载**：输入框会出现在玩家页面上，超管必须先在 manifest 看到它。
 - 安全口径：申请只是**意愿**（站号主人想绑这个远端身份），进服观测才是**持有证明**；两者都齐才签发。
   残余风险是「知道别人 XUID 的人抢先申请」——把进服时观测到的游戏昵称一并记录并显示在绑定行上，
-  本人一眼可辨、可自助解绑；要绝对严格就只留 `issue` 码制（床站插件用 `BIND_MODE` 开关提供两档）。
+  本人一眼可辨、可自助解绑。
+- **绑定要跟随角色的存亡与身份变化**：订阅 `profile.renamed` 同步展示副本；
+  订阅 `profile.deleted` / `account.purged` 删行；还要订阅 `profile.reserved` ——
+  角色被换下（多→单切换、单模式下换 ID）时它不再是可用身份，绑定必须**丢弃**并释放对方身份，
+  否则一个进不了服的旧角色会一直占着别人的 XUID。
 
 ### `ctx.site.publicKeyPem()`：验「签证是否真实存在」
 

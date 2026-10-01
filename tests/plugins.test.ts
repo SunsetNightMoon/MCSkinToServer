@@ -33,6 +33,7 @@ import { PluginRegistry } from '../src/plugins/registry.js';
 import type { PluginManifest } from '../src/plugins/api.js';
 import { PluginImporter } from '../src/plugins/importer.js';
 import { canonicalString, sign } from '../src/plugins/hmac.js';
+import { emitPluginEvent } from '../src/plugins/events.js';
 import { goodRepo, startFakeGitHub } from './support/fakeGitHub.js';
 
 /**
@@ -648,11 +649,11 @@ for (const c of cases) {
     // PostgreSQL 用例共用同一个库：启停意图存在 system_settings 里，前面用例留下的
     // 「demo_link 已启用」会在本用例 boot 时自动加载进目录。开头先把要用的插件归零，
     // 结尾再复位 —— 断言「目录为空」才不是在赌这台机器上次跑干净了。
-    for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult', 'demo_binding_undeclared', 'demo_binding_claim_no_input']) {
+    for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult', 'demo_binding_undeclared', 'demo_binding_claim_no_input', 'demo_binding_issue_off', 'demo_binding_issue_off_handler']) {
       await ctx.host!.disable(id, admin.userId).catch(() => undefined);
     }
     t.after(async () => {
-      for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult']) {
+      for (const id of ['demo_link', 'demo_binding_missing', 'demo_binding_badresult', 'demo_binding_issue_off']) {
         await ctx.host!.disable(id, admin.userId).catch(() => undefined);
       }
     });
@@ -904,6 +905,58 @@ for (const c of cases) {
       String((claimNoInputEnable.json as { message?: string }).message ?? ''),
       /binding 没声明 input/,
       claimNoInputEnable.text,
+    );
+
+    // ---- binding.issue=false：纯申请制的完整契约 ----
+    const issueOffEnable = await call(ctx, '/api/admin/plugins/demo_binding_issue_off/enable', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+    });
+    assert.equal(issueOffEnable.status, 200, issueOffEnable.text);
+    const offCatalog = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
+    const offEntry = (offCatalog.json.bindings as Record<string, unknown>[]).find(
+      (item) => item.pluginId === 'demo_binding_issue_off',
+    );
+    assert.ok(offEntry, 'issue:false 的插件照样进目录（申请制入口还在）');
+    assert.equal(offEntry.issuable, false, '声明 issue:false → 目录 issuable=false，页面收起生成码按钮');
+    const offIssue = await call(ctx, '/api/plugins/demo_binding_issue_off/binding/issue', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId }),
+    });
+    assert.equal(offIssue.status, 501, 'issue:false 时核心路由必须 501，而不是跑到不存在的处理器');
+    const offClaim = await call(ctx, '/api/plugins/demo_binding_issue_off/binding/claim', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+      body: JSON.stringify({ profileId: admin.profileId, value: '6500001112223334' }),
+    });
+    assert.equal(offClaim.status, 200, offClaim.text);
+    const offListBefore = await call(
+      ctx,
+      `/api/plugins/demo_binding_issue_off/binding?profileId=${admin.profileId}`,
+      { headers: auth(admin.token) },
+    );
+    assert.equal(offListBefore.json.bindings.length, 1, 'claim 后应有一条待确认');
+    // 角色被换下（多→单 / 单模式换 ID）→ 插件收到事件丢弃绑定，XUID 释放
+    emitPluginEvent('profile.reserved', { userId: admin.userId, profileId: admin.profileId, name: admin.name });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const offListAfter = await call(
+      ctx,
+      `/api/plugins/demo_binding_issue_off/binding?profileId=${admin.profileId}`,
+      { headers: auth(admin.token) },
+    );
+    assert.equal(offListAfter.json.bindings.length, 0, 'profile.reserved 必须送达插件并丢弃该角色的绑定');
+
+    // 反向：声明了 issue:false 还登记 issue() → 死代码，拒载
+    const offHandlerEnable = await call(ctx, '/api/admin/plugins/demo_binding_issue_off_handler/enable', {
+      method: 'POST',
+      headers: { ...jsonHeaders, ...userAuth },
+    });
+    assert.equal(offHandlerEnable.status, 500, 'issue:false 却登记 issue() 必须拒载');
+    assert.match(
+      String((offHandlerEnable.json as { message?: string }).message ?? ''),
+      /issue:false/,
+      offHandlerEnable.text,
     );
     const catalogFinal = await call(ctx, '/api/bindings', { headers: auth(admin.token) });
     assert.ok(
