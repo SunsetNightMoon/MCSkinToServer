@@ -4,8 +4,8 @@
 
 Minecraft 外置登录 + 皮肤/披风素材服务器（Yggdrasil 协议兼容），`CatTavernSkins`(plan3) 的重制版。
 
-- **当前版本：`v2-26.4.2`**（读作 `26.4.2`）
-- 版本口径：`v2-26.4.2` 四段依次是 —— 重制版标头 `2`（`1` = 重制前旧版，`2` = 重制版）、年份 `26`（2026）、季度 `4`、季度内迭代序号 `2`（进入下一季度重置为 `1`）。书写与显示一律带 `v2-` 标头，只有包内 semver 字段存 `26.4.2`。
+- **当前版本：`v2-26.4.3`**（读作 `26.4.3`）
+- 版本口径：`v2-26.4.3` 四段依次是 —— 重制版标头 `2`（`1` = 重制前旧版，`2` = 重制版）、年份 `26`（2026）、季度 `4`、季度内迭代序号 `3`（进入下一季度重置为 `1`）。书写与显示一律带 `v2-` 标头，只有包内 semver 字段存 `26.4.3`。
 - 旧版源码：https://github.com/SunsetNightMoon/CatTavernSkins （重制分析基线 `b01f29a`，重制未修改旧版源码）
 
 ## 功能一览
@@ -54,7 +54,7 @@ Windows 用户可直接下载**免安装便携包**（不含 Node 运行环境�
 npm test          # SQLite 基线，无需外部服务，门控用例自动 skip
 ```
 
-全门控（PostgreSQL + Redis + Mailpit）用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 打开。当前基线：**469/469 pass / 0 fail / 0 skipped**。
+全门控（PostgreSQL + Redis + Mailpit）用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 打开。当前基线：**471/471 pass / 0 fail / 0 skipped**。
 
 ## 文档
 

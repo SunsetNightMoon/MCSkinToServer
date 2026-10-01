@@ -1626,6 +1626,15 @@ Host；BASE_URL 与 PUBLIC_BASE_URL 都没声明时只能吃兜底值。生产�
 并把旧的「子目录有唯一 manifest 却没填 → 被拒」断言改写为「→ 自动识别成功」，契约已反转）；
 双端 `tsc` 零错误。四语言 `importRepoHint` 补「只有一份插件时子目录也自动识别」，新增 `importDirAuto`。
 
+## 发版：v2-26.4.3 —— 导入连「子目录」也自动识别（同季度迭代 +1）
+
+`v2-26.4.2` → **`v2-26.4.3`**（包内 semver 存 `26.4.3`），九文件逐处锚定。本版只带上一节那一项能力：
+生产超管贴官方仓库地址导入时被「仓库根里没有 mcsts.plugin.json」拦住（26.4.2 要求手填子目录），
+与「贴地址就该全认出来」拧着，故子目录纳入自动识别。安装复用同一次 preview 的结论，预览与安装不会各认一边。
+
+验收：SQLite 基线 **471 用例 / 364 pass / 0 fail / 107 skipped**；全门控 **471/471 pass / 0 fail / 0 skipped**；
+真网络空子目录预览官方仓库 → `tag=v2.2.2、dir=site、dirAutoDetected=true、标记核对通过、3 个文件`。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

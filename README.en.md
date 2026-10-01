@@ -4,8 +4,8 @@
 
 A Minecraft external login (Yggdrasil-compatible) + skin/cape texture server. A rebuild of `CatTavernSkins` (plan3).
 
-- **Current version: `v2-26.4.2`** (read as `26.4.2`)
-- Versioning scheme: the four parts of `v2-26.4.2` are the rebuild header `2` (`1` = pre-rebuild, `2` = rebuilt), the year `26` (2026), the quarter `4`, and the iteration within that quarter `2` (reset to `1` in a new quarter). Written and displayed forms always keep the `v2-` header; only the semver field in the package files stores `26.4.2`.
+- **Current version: `v2-26.4.3`** (read as `26.4.3`)
+- Versioning scheme: the four parts of `v2-26.4.3` are the rebuild header `2` (`1` = pre-rebuild, `2` = rebuilt), the year `26` (2026), the quarter `4`, and the iteration within that quarter `3` (reset to `1` in a new quarter). Written and displayed forms always keep the `v2-` header; only the semver field in the package files stores `26.4.3`.
 - Legacy source: https://github.com/SunsetNightMoon/CatTavernSkins (analysis baseline `b01f29a`; the rebuild never modified the legacy code)
 
 ## Features
@@ -54,7 +54,7 @@ Windows users can download the **portable package** (bundled without a Node runt
 npm test          # SQLite baseline, no external services needed; gated cases auto-skip
 ```
 
-Enable gates with `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` for the full suite. Current baseline: **469/469 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+Enable gates with `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` for the full suite. Current baseline: **471/471 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 
