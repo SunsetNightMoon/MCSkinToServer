@@ -131,7 +131,10 @@ export interface ImportPreview {
   tag: string;
   /** tag 解析出来的 commit sha */
   sha: string;
+  /** 实际生效的插件目录（自动识别后可能与提交值不同） */
   dir: string;
+  /** 提交时子目录留空、由整棵树里唯一一份 manifest 反推出来的位置 */
+  dirAutoDetected: boolean;
   manifest: PluginManifest;
   marker: { path: string; ok: true } | { path: string; ok: false; reason: string };
   files: ImportFile[];
@@ -473,15 +476,30 @@ export class PluginImporter {
     const sha = release.sha;
     const entries = await this.tree(src.repo, sha);
 
-    const inDir = (path: string): boolean => (src.dir === '' ? true : path.startsWith(`${src.dir}/`));
+    // 子目录自动识别：留空且仓库根没有 manifest 时，整棵树里**恰好一份** mcsts.plugin.json
+    // 就认它 —— 与 tag 自动挑版本同一口径（「贴地址就该全认出来」）。多份是真正的 monorepo，
+    // 不猜，摊出来让人指定。
+    let dir = src.dir;
+    const dirAutoDetected = (() => {
+      if (dir !== '') return false;
+      if (entries.some((item) => item.type === 'blob' && item.path === MANIFEST_FILE)) return false;
+      const found = entries.filter(
+        (item) => item.type === 'blob' && item.path.endsWith(`/${MANIFEST_FILE}`),
+      );
+      if (found.length !== 1) return false;
+      dir = found[0]!.path.slice(0, -(MANIFEST_FILE.length + 1));
+      return true;
+    })();
+
+    const inDir = (path: string): boolean => (dir === '' ? true : path.startsWith(`${dir}/`));
     const blobs = entries.filter(
       (item) => item.type === 'blob' && !item.path.startsWith('.git/') && inDir(item.path),
     );
 
-    const manifestPath = joinPosix(src.dir, MANIFEST_FILE);
+    const manifestPath = joinPosix(dir, MANIFEST_FILE);
     const manifestEntry = blobs.find((item) => item.path === manifestPath);
     if (!manifestEntry) {
-      // 实测最容易撞的就是这一条：插件住在 monorepo 的子目录里（jar 伴生插件就是这种布局），
+      // 实测最容易撞的就是这一条：插件住在 monorepo 的多个子目录里（jar 伴生插件就是这种布局），
       // 而「插件目录里找不到 mcsts.plugin.json」不告诉人该填什么。清单已经整份在手，
       // 就直接把 manifest 的真实位置报出来，并给出「子目录」该填的值。
       const elsewhere = entries.filter(
@@ -491,16 +509,20 @@ export class PluginImporter {
       );
       if (elsewhere.length > 0) {
         fail(
-          `${src.dir === '' ? '仓库根里' : `子目录 ${src.dir}/ 里`}没有 ${MANIFEST_FILE}`,
+          `${dir === '' ? '仓库根里' : `子目录 ${dir}/ 里`}没有 ${MANIFEST_FILE}`,
           `它在：${elsewhere
             .slice(0, 3)
             .map((item) => item.path)
-            .join('、')} —— 把「子目录」填成 ${elsewhere[0]!.path.slice(0, -MANIFEST_FILE.length - 1) || '（留空）'} 再预览`,
+            .join('、')} —— ${
+            elsewhere.length === 1
+              ? `把「子目录」填成 ${elsewhere[0]!.path.slice(0, -MANIFEST_FILE.length - 1) || '（留空）'} 再预览`
+              : '仓库里有多份插件清单，把「子目录」填成其中一份所在的路径再预览'
+          }`,
         );
       }
       fail(
         `插件目录里找不到 ${MANIFEST_FILE}`,
-        src.dir === '' ? MANIFEST_FILE : `${src.dir}/${MANIFEST_FILE}`,
+        dir === '' ? MANIFEST_FILE : `${dir}/${MANIFEST_FILE}`,
       );
     }
 
@@ -546,7 +568,7 @@ export class PluginImporter {
     const rejected: string[] = [];
     for (const item of blobs) {
       if (item.path.startsWith(`${PLUGIN_MARKER_DIR}/`)) continue;
-      const local = src.dir === '' ? item.path : item.path.slice(src.dir.length + 1);
+      const local = dir === '' ? item.path : item.path.slice(dir.length + 1);
       if (local === '' || local.includes('..') || local.startsWith('/')) {
         rejected.push(`${item.path}（越出插件目录）`);
         continue;
@@ -580,7 +602,8 @@ export class PluginImporter {
       repo: src.repo,
       tag: release.tag,
       sha,
-      dir: src.dir,
+      dir,
+      dirAutoDetected,
       manifest,
       marker,
       files,

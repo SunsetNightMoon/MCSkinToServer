@@ -1611,6 +1611,21 @@ Host；BASE_URL 与 PUBLIC_BASE_URL 都没声明时只能吃兜底值。生产�
 验收：SQLite 基线 **469 用例 / 362 pass / 0 fail / 107 skipped**；全门控 **469/469 pass / 0 fail / 0 skipped**；
 后端与 web 双端 `tsc` 零错误。
 
+## P6 第八批补：导入连「子目录」也自动识别（v2-26.4.2 之后，Dev）
+
+官方插件 `bedrock_link` v2.2.1 起为躲开「dir 留空会把 jar 伴生线整个扫进纯文本白名单外」而搬进 `site/` 子目录，
+于是导入它**必须**手填子目录 `site` —— 用户实测贴地址直接撞「仓库根里没有 mcsts.plugin.json」。
+这与「贴地址就该全认出来」的改版方向拧着，故把子目录也纳入自动识别，与挑 tag 同一口径：
+
+- `dir` 留空且仓库根没有 manifest 时，扫整棵树：**恰好一份** `mcsts.plugin.json` 就认它所在的目录；
+  **多份是真正的 monorepo，不猜**，摊出候选（`skin/…`、`chat/…`）让人指明其一。
+- 预览新增 `dirAutoDetected`，面板摘要行随之显示「自动识别子目录 site」；`preview.dir` 回的是生效后的目录。
+- 官方仓库那种「插件住 `site/`、另有 `server/dist/*.jar`」的布局现在留空即可导入。
+
+验收：`pluginImport` **26/26**（原 24 + 新增「唯一一份自动识别」「多份不猜并列出候选」各一条，
+并把旧的「子目录有唯一 manifest 却没填 → 被拒」断言改写为「→ 自动识别成功」，契约已反转）；
+双端 `tsc` 零错误。四语言 `importRepoHint` 补「只有一份插件时子目录也自动识别」，新增 `importDirAuto`。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

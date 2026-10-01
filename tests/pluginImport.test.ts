@@ -390,7 +390,7 @@ test('导入：非法子目录路径仍拒', async () => {
   }
 });
 
-test('导入：manifest 在子目录里却没填子目录时，直接报出它的位置与该填什么', async () => {
+test('导入：manifest 只在子目录里有一份时，dir 留空自动识别它', async () => {
   const dir = await tempDir();
   const repo: FakeRepo = {
     files: {
@@ -405,13 +405,10 @@ test('导入：manifest 在子目录里却没填子目录时，直接报出它�
   };
   const { importer, close } = await makeImporter(repo, dir);
   try {
-    // 这是实测最容易撞的一屏：根目录没有 manifest，而人不知道插件住在 site/ 下
-    const message = await expectRejected(
-      () => importer.preview({ repoInput: 'acme/monorepo' }),
-      /仓库根里没有 mcsts\.plugin\.json/,
-    );
-    assert.match(message, /site\/mcsts\.plugin\.json/);
-    assert.match(message, /把「子目录」填成 site/);
+    const preview = await importer.preview({ repoInput: 'acme/monorepo' });
+    assert.equal(preview.dir, 'site');
+    assert.equal(preview.dirAutoDetected, true);
+    assert.deepEqual(preview.files.map((f) => f.local).sort(), ['index.ts', 'mcsts.plugin.json']);
   } finally {
     close();
   }
@@ -599,6 +596,64 @@ test('导入：下载内容与仓库清单不符就中止，不留半个插件�
       /内容与仓库清单不符/,
     );
     assert.equal((await readdir(dir)).length, 0, '中止后不该留下半个插件目录');
+  } finally {
+    close();
+  }
+});
+
+test('子目录自动识别：仓库里只有一份 manifest 时，dir 留空也认得（jar 共仓布局的痛点）', async () => {
+  const dir = await tempDir();
+  // 复刻 Bedrock-Link-Java：插件住 site/，仓库另有 jar 线（非 manifest 文件不参与判定）
+  const repo: FakeRepo = {
+    files: {
+      'site/mcsts.plugin.json': manifestJson('demo_site'),
+      'site/index.ts': IMPORT_ENTRY,
+      'README.md': '# demo\n',
+      'server/dist/BedrockLink-0.1.28.jar': 'BINARY-PLACEHOLDER',
+      [`${PLUGIN_MARKER_DIR}/demo_site.json`]: markerJson('demo_site', 'acme/demo-plugin'),
+    },
+    tags: { 'v0.1.0': 'a'.repeat(40), 'server-v0.1.28': 'b'.repeat(40) },
+    hits: [],
+  };
+  const { importer, close } = await makeImporter(repo, dir);
+  try {
+    const preview = await importer.preview({ repoInput: 'acme/demo-plugin' });
+    assert.equal(preview.dir, 'site', '唯一一份 manifest 在 site/ 下就该自动认出来');
+    assert.equal(preview.dirAutoDetected, true);
+    assert.deepEqual(preview.files.map((f) => f.local).sort(), ['index.ts', 'mcsts.plugin.json']);
+    const result = await importer.install({ repoInput: 'acme/demo-plugin' }, preview.sha, 'u', false);
+    assert.equal(result.dir, 'site');
+    assert.deepEqual((await readdir(join(dir, 'demo_site'))).sort(), ['.mcsts-import.json', 'index.ts', 'mcsts.plugin.json']);
+  } finally {
+    close();
+  }
+});
+
+test('子目录不猜：树里有多份 manifest 时留空被拒并列出候选，指明其一才继续', async () => {
+  const dir = await tempDir();
+  const repo: FakeRepo = {
+    files: {
+      'skin/mcsts.plugin.json': manifestJson('demo_skin'),
+      'skin/index.ts': IMPORT_ENTRY,
+      'chat/mcsts.plugin.json': manifestJson('demo_chat'),
+      'chat/index.ts': IMPORT_ENTRY,
+      [`${PLUGIN_MARKER_DIR}/demo_skin.json`]: markerJson('demo_skin', 'acme/monorepo'),
+      [`${PLUGIN_MARKER_DIR}/demo_chat.json`]: markerJson('demo_chat', 'acme/monorepo'),
+    },
+    tags: { 'v0.1.0': 'a'.repeat(40) },
+    hits: [],
+  };
+  const { importer, close } = await makeImporter(repo, dir);
+  try {
+    const message = await expectRejected(
+      () => importer.preview({ repoInput: 'acme/monorepo' }),
+      /多份插件清单/,
+    );
+    assert.match(message, /skin\/mcsts\.plugin\.json/);
+    assert.match(message, /chat\/mcsts\.plugin\.json/);
+    const picked = await importer.preview({ repoInput: 'acme/monorepo', dir: 'skin' });
+    assert.equal(picked.dir, 'skin');
+    assert.equal(picked.dirAutoDetected, false, '人指的路径不算自动识别');
   } finally {
     close();
   }

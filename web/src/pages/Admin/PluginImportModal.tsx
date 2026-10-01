@@ -46,6 +46,8 @@ interface PreviewResult {
   /** tag 解析出的 commit sha */
   sha: string
   dir: string
+  /** true = 提交时子目录留空，由整棵树里唯一一份 manifest 反推出来的位置 */
+  dirAutoDetected?: boolean
   manifest: {
     id: string
     name: string
@@ -240,6 +242,9 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
               </Typography.Text>
               {preview.tagsScanned !== undefined && (
                 <> · {t('plugins.importTagsScanned', { n: preview.tagsScanned })}</>
+              )}
+              {preview.dirAutoDetected && (
+                <> · {t('plugins.importDirAuto', { dir: preview.dir })}</>
               )}
               {' · '}
               {t('plugins.importFileCount', { files: preview.files.length, size: formatBytes(preview.totalBytes) })}
