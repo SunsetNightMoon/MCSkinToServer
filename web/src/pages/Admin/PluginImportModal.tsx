@@ -19,8 +19,12 @@ import { useTranslation } from 'react-i18next'
 /**
  * GitHub 导入弹窗（仅超级管理员）。
  *
+ * 只填一个**仓库地址**：版本号由后端从仓库的 tag 里自动识别（取最新的语义化版本），
+ * 不再手输 tag —— 手输正是「装错一份代码」的入口，而认不出语义化版本的仓库本来就该拒。
+ * 地址这一栏可以粘 clone 地址、网页地址、`owner/name`，或「镜像前缀 + 完整 GitHub 地址」。
+ *
  * 两步走：**先预览、再安装**。预览不写盘，把要装的东西整个摊出来 ——
- * manifest 摘要、文件清单、体积、tag 解析出的 commit sha，以及那份
+ * manifest 摘要、文件清单、体积、自动选中的 tag 与它解析出的 commit sha，以及那份
  * 「识别代号标记」的核对结果。标记不通过时安装按钮直接禁用：
  * 这不是可选警告，而是这个仓库凭什么被认成该插件的唯一凭据。
  *
@@ -37,7 +41,9 @@ interface EndpointSpec {
 
 interface PreviewResult {
   repo: string
+  /** 后端自动识别出来的发布 tag */
   tag: string
+  /** tag 解析出的 commit sha */
   sha: string
   dir: string
   manifest: {
@@ -52,11 +58,14 @@ interface PreviewResult {
   marker: { path: string; ok: boolean; reason?: string }
   files: { path: string; local: string; size: number; blobSha: string }[]
   totalBytes: number
+  /** 扫过多少个 tag（列表顺序不可信，全靠语义化比较挑） */
+  tagsScanned?: number
+  /** false = tag 与 manifest 里写的 version 对不上；只提示，不拦安装 */
+  versionMatchesManifest?: boolean
 }
 
 interface FormValues {
   repo: string
-  tag: string
   dir?: string
 }
 
@@ -181,21 +190,13 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
           <Form.Item
             name="repo"
             label={t('plugins.importRepo')}
-            rules={[
-              { required: true },
-              { pattern: /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, message: t('plugins.importRepoPattern') },
-            ]}
-            style={{ marginBottom: 8, minWidth: 260 }}
+            // 不在前端再写一套「什么算合法地址」：能认哪些形态由后端 parseRepoInput 说了算，
+            // 两处各写一份迟早漂移（历史上这类分叉都是靠测试才发现的）。
+            rules={[{ required: true, message: t('plugins.importRepoRequired') }]}
+            extra={t('plugins.importRepoHint')}
+            style={{ marginBottom: 8, minWidth: 380 }}
           >
-            <Input placeholder="owner/name" autoComplete="off" />
-          </Form.Item>
-          <Form.Item
-            name="tag"
-            label={t('plugins.importTag')}
-            rules={[{ required: true }]}
-            style={{ marginBottom: 8, minWidth: 160 }}
-          >
-            <Input placeholder="v1.0.0" autoComplete="off" />
+            <Input placeholder="https://github.com/owner/repo.git" autoComplete="off" />
           </Form.Item>
           <Form.Item name="dir" label={t('plugins.importDir')} style={{ marginBottom: 8, minWidth: 200 }}>
             <Input placeholder={t('plugins.importDirPlaceholder')} autoComplete="off" />
@@ -233,13 +234,27 @@ export function PluginImportModal(props: { open: boolean; onClose: () => void; o
               <Typography.Paragraph style={{ marginBottom: 0 }}>{preview.manifest.description}</Typography.Paragraph>
             )}
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {preview.repo}@{preview.tag} →{' '}
+              {t('plugins.importAutoVersion')}：{preview.repo}@{preview.tag} →{' '}
               <Typography.Text copyable style={{ fontSize: 12 }}>
                 {preview.sha}
               </Typography.Text>
+              {preview.tagsScanned !== undefined && (
+                <> · {t('plugins.importTagsScanned', { n: preview.tagsScanned })}</>
+              )}
               {' · '}
               {t('plugins.importFileCount', { files: preview.files.length, size: formatBytes(preview.totalBytes) })}
             </Typography.Text>
+            {preview.versionMatchesManifest === false && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 4 }}
+                message={t('plugins.importVersionMismatch', {
+                  tag: preview.tag,
+                  version: preview.manifest.version,
+                })}
+              />
+            )}
             {(preview.manifest.endpoints ?? []).length > 0 && (
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {t('plugins.importEndpoints')}:{' '}

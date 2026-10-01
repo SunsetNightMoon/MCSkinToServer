@@ -9,7 +9,8 @@ import type { RuntimeSettings } from '../../site/runtimeSettings.js';
 import type { RateLimiterPort } from '../../cache/types.js';
 import type { RateLimitSettings } from '../../config.js';
 import { requireAuth } from '../middleware.js';
-import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
+import { bodyField, clientIp, rateLimit } from '../rateLimit.js';
+import { authBucketKey } from '../authBucketKey.js';
 import { RateLimitKeys } from '../../cache/keys.js';
 import { AppError } from '../../errors.js';
 
@@ -70,8 +71,11 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
   const router = Router();
 
   /**
-   * 登录按邮箱限流（防定向撞库）；注册按来源 IP 限流（防批量注册）。
+   * 登录按**账号**限流（防定向撞库）；注册按来源 IP 限流（防批量注册）。
    * 未注入限流器时为空数组，路由行为与加限流前完全一致。
+   *
+   * 键的算法见 authBucketKey —— 备用邮箱参与登录后，按提交字符串取键会给同一个
+   * 账号两份配额。
    */
   const loginLimit: ReturnType<typeof rateLimit>[] =
     deps.rateLimiter && deps.rateLimit
@@ -79,7 +83,8 @@ export function createIdentityRouter(deps: IdentityRouteDependencies): Router {
           rateLimit({
             limiter: deps.rateLimiter,
             settings: deps.rateLimit,
-            keyOf: bodyKey('email', (v) => RateLimitKeys.webLogin(v)),
+            keyOf: (req) =>
+              authBucketKey(deps.identity, bodyField(req, 'email'), RateLimitKeys.webLogin),
             message: (seconds) => `登录尝试过于频繁，请在 ${seconds} 秒后重试`,
           }),
         ]

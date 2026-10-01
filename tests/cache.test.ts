@@ -341,6 +341,44 @@ test('限流中间件：keyOf 返回 null 时跳过，不消耗配额', async ()
   }
 });
 
+test('限流中间件：keyOf 允许异步（登录键要先查库解析账号）', async () => {
+  const limiter = new MemoryRateLimiter();
+  const app = express();
+  app.use(express.json());
+  app.use(
+    rateLimit({
+      limiter,
+      settings: { enabled: true, max: 1, windowMs: 60_000 },
+      keyOf: async (req) => {
+        await Promise.resolve();
+        const body = (req.body ?? {}) as { email?: string };
+        return body.email ? `e:${body.email}` : null;
+      },
+    }),
+  );
+  app.use((_req, res) => res.status(200).json({ ok: true }));
+  app.use(errorHandler);
+  const server = await listen(app);
+
+  try {
+    const first = await fetch(`${server.baseUrl}/`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'a@b.c' }),
+    });
+    assert.equal(first.status, 200);
+    const second = await fetch(`${server.baseUrl}/`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'a@b.c' }),
+    });
+    assert.equal(second.status, 429, '异步 keyOf 的计数不得丢失');
+  } finally {
+    await server.close();
+    await limiter.close();
+  }
+});
+
 test('限流中间件：计数器故障时 fail-open 放行并记 warning', async () => {
   const broken = {
     consume: async () => {
@@ -383,12 +421,21 @@ test('限流键：clientIp 优先取 req.ip，缺失时退化为 unknown', () =>
 /**
  * 用桩件装配真实路由：验证「限流器注入与否」决定路由是否挂限流，
  * 这正是让既有测试（大量重复登录调用）无需改动的原因。
+ *
+ * `resolveBucketUserId` 桩的是「提交标识 → 账号 id」这一步：真实解析口径（主邮箱 /
+ * 已验证备用邮箱 / 未验证 / 冲突）由 backupEmailLogin.test.ts 用真库钉住，这里只测接线。
  */
-function loginApp(rateLimiter?: RateLimiterPort, max = 3): Express {
+function loginApp(
+  rateLimiter?: RateLimiterPort,
+  max = 3,
+  resolveBucketUserId: (address: string) => Promise<string | null> = async () => null,
+): Express {
   const identity = {
     loginWeb: async () => {
       throw new AppError('INVALID_CREDENTIALS', '邮箱或密码不正确');
     },
+    resolveAuthBucketUserId: (address: unknown) =>
+      resolveBucketUserId(typeof address === 'string' ? address : ''),
   } as unknown as IdentityService;
 
   const app = express();
@@ -404,6 +451,18 @@ function loginApp(rateLimiter?: RateLimiterPort, max = 3): Express {
   app.use((_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
   app.use(errorHandler);
   return app;
+}
+
+/** 打一次网页登录，返回状态码 */
+async function loginCall(baseUrl: string, email: string): Promise<number> {
+  const res = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password: 'wrong-password' }),
+  });
+  const status = res.status;
+  await res.text();
+  return status;
 }
 
 test('POST /api/auth/login：注入限流器后按邮箱计数，第 4 次 429', async () => {
@@ -459,6 +518,46 @@ test('POST /api/auth/login：未注入限流器时行为与加限流前完全一
     }
   } finally {
     await server.close();
+  }
+});
+
+// ------------------------------------------------- 登录限流按账号（主/备邮箱同桶）
+
+/**
+ * 生产实测报回来的洞：限流键原先按**提交的字符串**取，而一个账号可以有主邮箱 +
+ * 一个已验证备用邮箱，两者都能登录 —— 于是同一个账号有两个互不相干的 5 次/5 分钟桶，
+ * 定向撞库的配额直接翻倍。
+ *
+ * 这里断言的是「同账号只有一个桶」，且解析不出账号时**不会**退化成「所有人共用一个桶」
+ * （那会把拼错邮箱、用临时邮箱的正常用户连坐拦死）。
+ */
+test('登录限流按账号取键：主邮箱打满后备用邮箱没有第二份配额', async () => {
+  const limiter = new MemoryRateLimiter();
+  const server = await listen(
+    loginApp(limiter, 3, async (address) =>
+      address === 'main@test.local' || address === 'backup@test.local'
+        ? 'same-user-id'
+        : null,
+    ),
+  );
+
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      assert.equal(
+        await loginCall(server.baseUrl, 'main@test.local'),
+        401,
+        `主邮箱第 ${i} 次应为凭据错误`,
+      );
+    }
+    assert.equal(await loginCall(server.baseUrl, 'backup@test.local'), 429);
+
+    // 解析不出账号的地址各用各的桶：不能被上面的账号桶连坐
+    assert.equal(await loginCall(server.baseUrl, 'someone-else@test.local'), 401);
+    // 也各用各的桶：随机邮箱洪水不会挤进同一个键
+    assert.equal(await loginCall(server.baseUrl, 'yet-another@test.local'), 401);
+  } finally {
+    await server.close();
+    await limiter.close();
   }
 });
 
@@ -582,6 +681,97 @@ test('POST /refresh：默认参数为 30 次 / 5 分钟（给启动器后台刷�
   assert.equal(DEFAULT_REFRESH_RATE_LIMIT.enabled, true);
   assert.equal(DEFAULT_REFRESH_RATE_LIMIT.max, 30);
   assert.equal(DEFAULT_REFRESH_RATE_LIMIT.windowMs, 5 * 60 * 1000);
+});
+
+// ------------------------------------------------- 启动器凭据限流（同一口径）
+
+/**
+ * Yggdrasil `username` 同样可以是备用邮箱，所以 authenticate / signout 必须和网页登录
+ * 用同一套「按账号取键」的口径 —— 否则补了网页侧、启动器侧仍是两份配额。
+ */
+function credentialApp(
+  rateLimiter?: RateLimiterPort,
+  max = 3,
+  resolveBucketUserId: (address: string) => Promise<string | null> = async () => null,
+): Express {
+  const identity = {
+    authenticateYggdrasil: async () => ({
+      accessToken: 'access-token',
+      clientToken: 'client-token',
+      availableProfiles: [],
+    }),
+    signoutYggdrasil: async () => undefined,
+    resolveAuthBucketUserId: (address: unknown) =>
+      resolveBucketUserId(typeof address === 'string' ? address : ''),
+  } as unknown as IdentityService;
+
+  const app = express();
+  app.use(express.json());
+  app.use(
+    createYggdrasilRouter({
+      identity,
+      sessions: {} as never,
+      profiles: {} as never,
+      textureBuilder: {} as never,
+      assetUrlResolver: {} as never,
+      rateLimiter,
+      rateLimit: { enabled: true, max, windowMs: 60_000 },
+    }),
+  );
+  app.use((_req, res) => res.status(404).json({ error: 'NOT_FOUND' }));
+  app.use(errorHandler);
+  return app;
+}
+
+async function authenticateCall(
+  baseUrl: string,
+  username: string,
+): Promise<number> {
+  const res = await fetch(`${baseUrl}/authenticate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password: 'password123' }),
+  });
+  const status = res.status;
+  await res.text();
+  return status;
+}
+
+test('启动器 authenticate / signout 共用一个账号桶，备用邮箱不额外配额', async () => {
+  const limiter = new MemoryRateLimiter();
+  const server = await listen(
+    credentialApp(limiter, 3, async (address) =>
+      address === 'main@test.local' || address === 'backup@test.local'
+        ? 'same-user-id'
+        : null,
+    ),
+  );
+
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      assert.equal(
+        await authenticateCall(server.baseUrl, 'main@test.local'),
+        200,
+        `第 ${i} 次应放行`,
+      );
+    }
+    assert.equal(await authenticateCall(server.baseUrl, 'backup@test.local'), 429);
+
+    // signout 走的是同一个中间件实例：同账号仍然同桶
+    const signout = await fetch(`${server.baseUrl}/signout`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'main@test.local', password: 'password123' }),
+    });
+    const signoutStatus = signout.status;
+    await signout.text();
+    assert.equal(signoutStatus, 429);
+
+    assert.equal(await authenticateCall(server.baseUrl, 'someone-else@test.local'), 200);
+  } finally {
+    await server.close();
+    await limiter.close();
+  }
 });
 
 // ------------------------------------------- 验证码出题端点限流（按来源地址）

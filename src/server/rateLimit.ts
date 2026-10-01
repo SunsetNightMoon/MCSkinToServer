@@ -26,8 +26,13 @@ export function clientIp(req: Request): string {
 export interface RateLimitMiddlewareOptions {
   limiter: RateLimiterPort;
   settings: RateLimitSettings;
-  /** 由请求推导限流键；返回 null 表示无法确定（跳过限流，如缺字段的畸形请求） */
-  keyOf: (req: Request) => string | null;
+  /**
+   * 由请求推导限流键；返回 null 表示无法确定（跳过限流，如缺字段的畸形请求）。
+   *
+   * 允许异步：登录限流需要先把「提交的标识」解析成账号 id —— 备用邮箱是同一个账号的
+   * 另一个登录入口，按提交字符串取键等于给那个账号两份配额。解析一次索引查询而已。
+   */
+  keyOf: (req: Request) => string | null | Promise<string | null>;
   /** 拒绝时的文案 */
   message?: (retryAfterSeconds: number) => string;
 }
@@ -52,7 +57,7 @@ export function rateLimit(
       next();
       return;
     }
-    const key = keyOf(req);
+    const key = await keyOf(req);
     if (!key) {
       next();
       return;
@@ -87,6 +92,17 @@ export function rateLimit(
 }
 
 /**
+ * 从请求体取一个字符串字段，trim 后为空或缺失返回 null。
+ * 供需要「先拿原始提交值、再自己决定键」的异步 keyOf 使用（如登录按账号取键）。
+ */
+export function bodyField(req: Request, field: string): string | null {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const raw = body[field];
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  return raw.trim();
+}
+
+/**
  * 从请求体里取字段做限流键。字段缺失时返回 null（畸形请求交给后续的参数校验报 400，
  * 不应占用限流配额）。
  */
@@ -95,9 +111,7 @@ export function bodyKey(
   normalize: (value: string) => string = (v) => v,
 ): (req: Request) => string | null {
   return (req: Request) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const raw = body[field];
-    if (typeof raw !== 'string' || raw.trim() === '') return null;
-    return normalize(raw.trim());
+    const raw = bodyField(req, field);
+    return raw === null ? null : normalize(raw);
   };
 }

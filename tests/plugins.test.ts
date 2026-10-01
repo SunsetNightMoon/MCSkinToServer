@@ -465,24 +465,25 @@ for (const c of cases) {
     const preview = await call(ctx, '/api/admin/plugins/import/preview', {
       method: 'POST',
       headers: { ...json, ...auth(admin.token) },
-      body: JSON.stringify({ repo: 'acme/demo-plugin', tag: 'v0.1.0' }),
+      body: JSON.stringify({ repo: 'https://github.com/acme/demo-plugin.git' }),
     });
     assert.equal(preview.status, 200, preview.text);
     assert.equal(preview.json.preview.manifest.id, 'import_e2e');
+    assert.equal(preview.json.preview.tag, 'v0.1.0', '请求里没有 tag 字段：版本要由后端自动识别');
     assert.equal(preview.json.preview.marker.ok, true, '识别代号标记应当核对通过');
 
     // 没带 sha 就不给装：预览与安装之间必须钉住同一份 commit
     const blind = await call(ctx, '/api/admin/plugins/import', {
       method: 'POST',
       headers: { ...json, ...auth(admin.token) },
-      body: JSON.stringify({ repo: 'acme/demo-plugin', tag: 'v0.1.0' }),
+      body: JSON.stringify({ repo: 'https://github.com/acme/demo-plugin.git' }),
     });
     assert.equal(blind.status, 400, '缺 sha 的安装请求要被拒');
 
     const install = await call(ctx, '/api/admin/plugins/import', {
       method: 'POST',
       headers: { ...json, ...auth(admin.token) },
-      body: JSON.stringify({ repo: 'acme/demo-plugin', tag: 'v0.1.0', sha: preview.json.preview.sha }),
+      body: JSON.stringify({ repo: 'https://github.com/acme/demo-plugin.git', sha: preview.json.preview.sha }),
     });
     assert.equal(install.status, 200, install.text);
     assert.equal(install.json.files, 3, 'manifest + 入口 + README');

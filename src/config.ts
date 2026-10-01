@@ -38,7 +38,13 @@ export interface AppConfig {
    * /api/plugins、面板不显示入口。目录默认在 `data/` 下（`data/` 已在 .gitignore 里），
    * 所以插件本体天然不进版本库。
    */
-  plugins?: { enabled: boolean; dir: string; githubToken?: string };
+  plugins?: {
+    enabled: boolean;
+    dir: string;
+    githubToken?: string;
+    /** 导入用的镜像前缀（`MCSTS_PLUGIN_MIRROR`），非法值按未设置处理 */
+    mirror?: string;
+  };
   /**
    * **素材**对外前缀（含静态挂载点，如 https://skin.example/uploads）。
    *
@@ -311,6 +317,31 @@ function envRedisUrl(
   return undefined;
 }
 
+/**
+ * 插件导入的镜像前缀（`MCSTS_PLUGIN_MIRROR`）归一。
+ *
+ * 形态是「把完整请求 URL 拼在前缀后面」的通用转发（gh-proxy 一类），例如
+ * `https://gh-proxy.com` → `https://gh-proxy.com/https://api.github.com/repos/...`。
+ * 给直连 GitHub 不畅的环境用。
+ *
+ * **只接受合法的 https 绝对地址**：它决定服务器主动往哪儿发请求，明文 http 或带
+ * 凭据的地址都不该被静悄悄采纳。填错时按「未设置」处理（不让一个可选旋钮把整站拦在
+ * 启动失败之外），但启动配置自检会点名这一项，所以不会无声无息地打着 github.com。
+ */
+export function normalizePluginMirror(raw: string | undefined): string | undefined {
+  const value = raw?.trim().replace(/\/+$/, '');
+  if (value === undefined || value === '') return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.hostname === '' || url.username !== '') {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return value;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // ---- 安装分流（P5 第十二批）----
   // setup.json 存在 → 库类型以记录为准（选定后不可更改）；
@@ -375,6 +406,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       // 只服务 GitHub 导入：公开仓库不填也能用，填了是为了私有仓库与撞限流。
       // 与 SMTP 口令同等待遇 —— 只从环境读，不进站点设置、不出现在任何接口响应里。
       githubToken: env['MCSTS_GH_TOKEN'] || undefined,
+      // 直连 GitHub 不畅时的转发前缀；非法值按未设置处理，由配置自检点名
+      mirror: normalizePluginMirror(env['MCSTS_PLUGIN_MIRROR']),
     },
     publicBaseUrl: env['PUBLIC_BASE_URL'] ?? 'http://localhost:3000/uploads',
     rsaPrivateKeyPath: resolve(

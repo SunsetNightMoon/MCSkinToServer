@@ -10,7 +10,12 @@ export const KEY_PREFIX = 'mcsts';
 
 /** 限流键 */
 export const RateLimitKeys = {
-  /** Yggdrasil authenticate / signout：按用户名（邮箱） */
+  /**
+   * Yggdrasil authenticate / signout。
+   *
+   * 实参通常是**账号 id**（提交备用邮箱时也归到同一个账号），解析不出账号时才退化成
+   * 提交的字符串本身 —— 见 `src/server/authBucketKey.ts`。
+   */
   yggdrasilAccount: (account: string): string =>
     `${KEY_PREFIX}:rl:yggdrasil:${account.toLowerCase()}`,
   /**

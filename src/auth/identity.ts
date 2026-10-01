@@ -326,6 +326,27 @@ export class IdentityService {
     return { user: match.user, viaBackup: match.slot === 'backup' };
   }
 
+  /**
+   * 登录限流用的「提交标识 → 账号 id」。
+   *
+   * 限流键如果按**提交的字符串**取，一个绑了备用邮箱的账号就有两个互不相干的桶：
+   * 主邮箱把 5 次/5 分钟打满，换备用邮箱继续，配额直接翻倍 —— 备用邮箱是**同一个账号**的
+   * 登录入口，不是第二个账号。启动器侧同理（`username` 也可以是备用邮箱）。
+   *
+   * 所以这里复用 `resolveLoginAccount` 的同一套解析口径（宁可重复一次索引查询，
+   * 也不另写一份「什么算同一个账号」的判断 —— 两份口径迟早会漂移）。
+   * 解析不出来时返回 null，由调用方回落到按提交值取键：否则随机邮箱的尝试会挤进
+   * 同一个桶，那才是真给用户关门的洞。
+   */
+  async resolveAuthBucketUserId(address: unknown): Promise<string | null> {
+    const text = typeof address === 'string' ? address.trim() : '';
+    // 上限与 assertValidEmail 的 254 同口径：超长串一定是伪造输入，不值得为它打一次
+    // 索引查询（限流器仍会按提交值计数，不会因此失去保护）。
+    if (text === '' || text.length > 254) return null;
+    const resolved = await this.resolveLoginAccount(text);
+    return resolved?.user.id ?? null;
+  }
+
   private async loadUserForAuth(
     email: string,
   ): Promise<{ user: UserRow; viaBackup: boolean }> {

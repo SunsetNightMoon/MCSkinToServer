@@ -31,16 +31,47 @@ export function blobSha(content: string): string {
   return createHash('sha1').update(`blob ${buf.length}\u0000`, 'utf8').update(buf).digest('hex');
 }
 
-export function startFakeGitHub(repo: FakeRepo): Promise<{ apiBase: string; rawBase: string; close: () => void }> {
+/**
+ * 起一个假 GitHub。
+ *
+ * `wrap: true` 时它扮演的是**镜像**：只接形如
+ * `https://<本服务>/https://api.github.com/repos/...` 的请求（导入器把完整 URL 拼在
+ * 前缀后面那种形态），剥掉前缀后按同一套路由回答。没被包住的请求一律 404 —— 否则
+ * 「镜像其实没生效」会考不出来。
+ */
+export function startFakeGitHub(
+  repo: FakeRepo,
+  opts: { wrap?: boolean } = {},
+): Promise<{ apiBase: string; rawBase: string; close: () => void }> {
   return new Promise((resolveStart) => {
     const server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      const path = url.pathname;
+      let path = url.pathname;
+      if (opts.wrap) {
+        const unwrapped = /^\/https?:\/\/(api\.github\.com|raw\.githubusercontent\.com)(\/.*)$/.exec(path);
+        if (!unwrapped) {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ message: 'not a wrapped github url' }));
+          return;
+        }
+        path = unwrapped[2]!;
+      }
       repo.hits.push(path);
       const send = (status: number, body: string, type = 'application/json') => {
         res.writeHead(status, { 'content-type': type });
         res.end(body);
       };
+
+      // /repos/{owner}/{name}/tags —— 版本自动识别读的就是这份列表。
+      // 顺序刻意按名字**倒序**给：真实 GitHub 的 /tags 也不是时间序，
+      // 「取第一个 / 取最后一个」这类写法在这儿一定会考砸。
+      const tagsRoute = /^\/repos\/([^/]+)\/([^/]+)\/tags$/.exec(path);
+      if (tagsRoute) {
+        const list = Object.entries(repo.tags)
+          .map(([name, sha]) => ({ name, sha }))
+          .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0));
+        return send(200, JSON.stringify(list));
+      }
 
       // /repos/{owner}/{name}/commits/{tag}
       const commit = /^\/repos\/([^/]+)\/([^/]+)\/commits\/(.+)$/.exec(path);

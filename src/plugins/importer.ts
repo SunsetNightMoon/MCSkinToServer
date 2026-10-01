@@ -15,8 +15,9 @@ import type { PluginManifest } from './api.js';
  *
  * 1. **来源可核对**：仓库里必须有一份标记文件（见 `PLUGIN_MARKER_DIR`），
  *    内容与 manifest 一致，证明这个仓库认领了这个识别代号；
- * 2. **版本可固定**：只接受 tag，并且把它解析成 commit sha 后再取文件 ——
- *    tag 可以被删掉重打，sha 不会；面板上记的就是那个 sha；
+ * 2. **版本可固定、且不用手输**：扫仓库的 tag，挑最新的**语义化版本**（`v1.2.3`），
+ *    再把它解析成 commit sha 取文件 —— tag 可以被删掉重打，sha 不会；面板上记的就是那个 sha。
+ *    认不出语义化版本就拒装（不再接受手输 tag / 分支 / 裸 sha：那正是「装错一份代码」的入口）；
  * 3. **落盘前可预览**：先列清单（文件、体积、manifest 摘要、标记核对结果）给超管过目，
  *    确认后才写盘；任何一项校验不过，磁盘上不会留下半个文件。
  *
@@ -57,11 +58,37 @@ const ALLOWED_EXTENSIONS = new Set([
 const REPO_PATTERN = /^([A-Za-z0-9_.-]{1,100})\/([A-Za-z0-9_.-]{1,100})$/;
 const TAG_PATTERN = /^[A-Za-z0-9_.-]{1,200}$/;
 
+/**
+ * 可自动识别的发布 tag：语义化版本，允许 `v` 前缀与预发布后缀（`v1.2.3`、`1.2.3-rc.1`）。
+ *
+ * 为什么按语义化版本筛，而不是「取列表里最后一个 tag」：GitHub 的 `/tags` 返回顺序不是
+ * 时间序，而仓库里常留着 `test`、`backup-2024`、`latest` 这类噪声 tag。装错一份代码是
+ * 会被 `import()` 进来的，所以认不出语义化版本时宁可拒绝、要求作者把 tag 规范好。
+ */
+const SEMVER_TAG =
+  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+
+/** 一页取多少个 tag（GitHub 的上限就是 100） */
+const TAGS_PER_PAGE = 100;
+/**
+ * 最多翻几页。3 页 = 300 个 tag，任何插件仓库都够；设上限是因为每页都要一次往返，
+ * 而「一个仓库几千个 tag」多半是粘错了仓库，不该让面板跟着干等。
+ */
+const TAGS_MAX_PAGES = 3;
+
 export interface ImportSource {
-  /** `owner/name` */
-  repo: string;
-  /** 只接受 tag；分支与裸 sha 都不给（见文件头说明） */
-  tag: string;
+  /**
+   * 仓库地址；**版本号由系统自动识别**，超管直接粘 clone 地址即可。
+   *
+   * 接受的形态见 `parseRepoInput`：`owner/name`、`https://github.com/o/r(.git)`、
+   * `git@github.com:o/r.git`、`ssh://git@github.com/o/r.git`，以及
+   * 「镜像前缀 + 完整 GitHub 地址」（`https://gh-proxy.com/https://github.com/o/r.git`）。
+   *
+   * 这个字段只决定「装哪个仓库」，**不决定往哪台主机发请求** —— 请求主机由部署侧的
+   * `MCSTS_PLUGIN_MIRROR` 决定。分界是有意的：让面板输入直接决定请求目标，等于给
+   * 超管账号开一个能打内网任意地址的探针（SSRF）。
+   */
+  repoInput: string;
   /** monorepo 里的子目录；仓库根就留空 */
   dir?: string;
 }
@@ -70,9 +97,19 @@ export interface ImporterDeps {
   /** 安装目标根目录（MCSTS_PLUGIN_DIR） */
   pluginDir: string;
   now: () => Date;
-  /** 测试注入用；默认打 GitHub 官方端点 */
+  /**
+   * 测试注入用的主机覆盖；默认打 GitHub 官方端点。
+   * 显式给了它们就**不再套 `mirror`**，免得测试里悄悄打到真实镜像。
+   */
   apiBase?: string;
   rawBase?: string;
+  /**
+   * 部署侧镜像前缀（`MCSTS_PLUGIN_MIRROR`）：把**每个**请求 URL 原样拼在它后面发出，
+   * 例如 `https://gh-proxy.com` → `https://gh-proxy.com/https://api.github.com/repos/...`。
+   * 给直连 GitHub 不畅的环境用；它必须同时转发 API 与 raw 两个域名，否则导入会在取清单
+   * 或取文件那一步失败，而错误文案会带上实际请求的主机，不至于让人对着「fetch failed」猜。
+   */
+  mirror?: string;
   /** 私有仓库或限流时才需要；站点设置里不存，只读环境变量 */
   token?: string;
   fetchImpl?: typeof fetch;
@@ -90,6 +127,7 @@ export interface ImportFile {
 
 export interface ImportPreview {
   repo: string;
+  /** 自动识别出来的发布 tag */
   tag: string;
   /** tag 解析出来的 commit sha */
   sha: string;
@@ -98,6 +136,17 @@ export interface ImportPreview {
   marker: { path: string; ok: true } | { path: string; ok: false; reason: string };
   files: ImportFile[];
   totalBytes: number;
+  /**
+   * 扫过的 tag 个数（翻到的那些，不是全仓库）。列表里混着 `test`/`latest` 这类噪声时，
+   * 超管需要看得见「它确实扫过多少个」才会信自动挑中的那一个。
+   */
+  tagsScanned: number;
+  /**
+   * 选中的 tag 去掉 `v` 前缀后是否等于 manifest 里写的 `version`。
+   * **只提示、不拦**：作者在 `v1.2.3` 与 `1.2.3` 之间漂移是常态，硬拦会把能用的仓库拒掉；
+   * 真正硬拦的是识别代号标记与逐字节 blob sha。不一致时面板上会看到一条警告。
+   */
+  versionMatchesManifest: boolean;
 }
 
 export interface ImportResult extends ImportPreview {
@@ -112,22 +161,154 @@ interface TreeEntry {
   size?: number;
 }
 
+/** `GET /repos/{repo}/tags` 的一项；sha 可能是 tag 对象（附注 tag），所以还要再解析成 commit */
+interface TagEntry {
+  name: string;
+  sha?: string;
+}
+
 function fail(message: string, detail?: string): never {
   throw new AppError('PLUGIN_IMPORT_REJECTED', detail ? `${message}：${detail}` : message);
 }
 
-function normalizeSource(source: ImportSource): { owner: string; name: string; repo: string; tag: string; dir: string } {
-  const matched = REPO_PATTERN.exec(String(source.repo ?? '').trim());
-  if (!matched) fail('仓库格式必须是 owner/name');
-  const tag = String(source.tag ?? '').trim();
-  if (!TAG_PATTERN.test(tag)) fail('tag 不合法', '只接受 tag 名称，且必须是 URL 安全字符');
+/**
+ * 完整（或嵌在镜像前缀里的）GitHub 仓库地址。
+ * 名字段**贪婪**吃到下一个 `/`、`?` 或 `#` 为止，`.git` 交给 toRepo 去尾 ——
+ * 用懒惰量词在这儿会栽：`demo-plugin` 会被截成 `d`。
+ */
+const GITHUB_REPO_URL = /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]{1,100})\/([^/?#\s]+)/i;
+/** `git@github.com:o/r(.git)` 与 `ssh://git@github.com/o/r(.git)` */
+const GITHUB_SSH_URL =
+  /^(?:ssh:\/\/)?git@github\.com[:/]([A-Za-z0-9_.-]{1,100})\/([^/?#\s]+)$/i;
+
+function toRepo(owner: string | undefined, name: string | undefined): string | null {
+  if (!owner || !name) return null;
+  const clean = name.replace(/\.git$/, '');
+  if (!REPO_PATTERN.test(`${owner}/${clean}`)) return null;
+  return `${owner}/${clean}`;
+}
+
+/** 从一个 URL 里取主机名；不是合法 URL 时返回 null */
+function urlHost(value: string): string | null {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** 错误文案用的「哪台主机」：带端口，测试里的假 GitHub 才分得清打在哪儿 */
+function hostOf(value: string): string | null {
+  try {
+    return new URL(value).host;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 把超管粘进面板的各种写法归一成 `owner/name`。
+ *
+ * ## 为什么对「不是 github.com 的域名」直接拒绝，而不是照样取 owner/name
+ *
+ * 请求主机只由部署配置决定，所以粘 `https://gitee.com/o/r` 并不会打到 Gitee ——
+ * 但那会被解析成 GitHub 上的同名仓库：**装回来的不是用户以为的那份代码**。
+ * 认错仓库比报错严重，所以宁可拒并点名主机。
+ *
+ * 直连 GitHub 不畅的正解是把镜像配在 `MCSTS_PLUGIN_MIRROR`（部署侧），
+ * 或者粘「镜像前缀 + 完整 GitHub 地址」这种形态 —— 后者照样能在这里挖出 github.com 段。
+ */
+export function parseRepoInput(input: unknown): string {
+  const raw = String(input ?? '').trim().replace(/\/+$/, '');
+  if (raw === '') fail('请填写插件仓库地址');
+
+  const bare = REPO_PATTERN.exec(raw);
+  const fromBare = toRepo(bare?.[1], bare?.[2]);
+  if (fromBare) return fromBare;
+
+  const https = GITHUB_REPO_URL.exec(raw);
+  const fromHttps = toRepo(https?.[1], https?.[2]);
+  if (fromHttps) return fromHttps;
+
+  const ssh = GITHUB_SSH_URL.exec(raw);
+  const fromSsh = toRepo(ssh?.[1], ssh?.[2]);
+  if (fromSsh) return fromSsh;
+
+  const host = urlHost(raw);
+  if (host) {
+    fail(
+      `只支持 GitHub 的插件仓库，这个地址的主机是 ${host}`,
+      '可以粘 https://github.com/owner/repo.git、git@github.com:owner/repo.git、owner/repo，' +
+        '或「镜像前缀 + 完整 GitHub 地址」；直连不畅请让运维把镜像配在 MCSTS_PLUGIN_MIRROR',
+    );
+  }
+  fail('认不出这个仓库地址', '请填写 owner/repo 或完整的 GitHub 仓库地址');
+}
+
+/** 语义化版本比较：a<b 返回 -1，a>b 返回 1，相等返回 0 */
+function compareSemver(a: RegExpExecArray, b: RegExpExecArray): number {
+  for (const i of [1, 2, 3] as const) {
+    const left = BigInt(a[i]!);
+    const right = BigInt(b[i]!);
+    if (left !== right) return left < right ? -1 : 1;
+  }
+  const preA = a[4];
+  const preB = b[4];
+  // 「正式版 > 预发布版」是 semver 的规矩：1.2.3 要比 1.2.3-rc.1 新
+  if (preA === undefined && preB === undefined) return 0;
+  if (preA === undefined) return 1;
+  if (preB === undefined) return -1;
+  const partsA = preA.split('.');
+  const partsB = preB.split('.');
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i += 1) {
+    const left = partsA[i];
+    const right = partsB[i];
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    const leftNum = /^\d+$/.test(left);
+    const rightNum = /^\d+$/.test(right);
+    if (leftNum && rightNum) {
+      const l = BigInt(left);
+      const r = BigInt(right);
+      if (l !== r) return l < r ? -1 : 1;
+      continue;
+    }
+    if (leftNum !== rightNum) return leftNum ? -1 : 1; // 数字标识符优先级低于字母标识符
+    if (left !== right) return left < right ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * 从 tag 列表里挑出**最新的语义化版本**。认不出任何一个时返回 null（调用方据此拒绝导入）。
+ *
+ * 导出来单独一层是为了可测：这一条决定了「装的是哪一份代码」，而它完全不看网络返回的
+ * 顺序 —— 拿真实 GitHub 数据没法稳定覆盖到 `1.2.10` vs `1.2.9`、`2.0.0-rc.1` vs `2.0.0`
+ * 这些边界。
+ */
+export function newestSemverTag(tags: TagEntry[]): TagEntry | null {
+  let best: TagEntry | null = null;
+  let bestMatch: RegExpExecArray | null = null;
+  for (const tag of tags) {
+    const matched = SEMVER_TAG.exec(String(tag.name ?? '').trim());
+    if (!matched) continue;
+    if (bestMatch === null || compareSemver(matched, bestMatch) > 0) {
+      best = tag;
+      bestMatch = matched;
+    }
+  }
+  return best;
+}
+
+function normalizeSource(source: ImportSource): { repo: string; dir: string } {
+  const repo = parseRepoInput(source.repoInput);
   const rawDir = String(source.dir ?? '')
     .trim()
     .replace(/^\/+|\/+$/g, '');
   if (rawDir.includes('..') || rawDir.includes('\\') || /[\x00-\x1f]/.test(rawDir)) {
     fail('子目录路径不合法');
   }
-  return { owner: matched![1]!, name: matched![2]!, repo: `${matched![1]}/${matched![2]}`, tag, dir: rawDir };
+  return { repo, dir: rawDir };
 }
 
 /** git 的 blob sha：`sha1("blob <len>\\0" + content)`，用来逐字节核对下载结果 */
@@ -148,10 +329,19 @@ function allowedExtension(path: string): boolean {
 export class PluginImporter {
   private readonly apiBase: string;
   private readonly rawBase: string;
+  /** 错误文案里点名「实际打的是哪台主机」：配了镜像却还写着 GitHub 会把人带偏 */
+  private readonly upstream: string;
 
   constructor(private readonly deps: ImporterDeps) {
-    this.apiBase = (deps.apiBase ?? API_BASE).replace(/\/+$/, '');
-    this.rawBase = (deps.rawBase ?? RAW_BASE).replace(/\/+$/, '');
+    // 镜像前缀把**完整请求 URL**（含协议与主机）拼在自己后面，这是 gh-proxy 一类的通用形态：
+    // https://gh-proxy.com/https://api.github.com/repos/... 。显式注入的 apiBase/rawBase 优先，
+    // 测试里打的都是假 GitHub 的本地地址，不该再被套进镜像前缀。
+    const mirror = (deps.mirror ?? '').trim().replace(/\/+$/, '');
+    const viaMirror = (base: string): string =>
+      mirror === '' ? base : `${mirror}/${base}`;
+    this.apiBase = (deps.apiBase ?? viaMirror(API_BASE)).replace(/\/+$/, '');
+    this.rawBase = (deps.rawBase ?? viaMirror(RAW_BASE)).replace(/\/+$/, '');
+    this.upstream = hostOf(this.apiBase) ?? this.apiBase;
   }
 
   private async send(url: string, notFound: string): Promise<Response> {
@@ -165,11 +355,11 @@ export class PluginImporter {
     try {
       res = await impl(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch (err) {
-      // 「问不到 GitHub」不是「你填错了仓库」：给 502 + 可重试的文案，
+      // 「问不到上游」不是「你填错了仓库」：给 502 + 可重试的文案，
       // 而不是让它冒成 500「内部错误」（实测面板上就只剩这四个字，看不出根因）
       throw new AppError(
         'PLUGIN_IMPORT_UNREACHABLE',
-        `无法访问 GitHub：${describeNetworkError(err)}`,
+        `无法访问 ${this.upstream}：${describeNetworkError(err)}`,
         { cause: err instanceof Error ? err : undefined },
       );
     }
@@ -177,10 +367,10 @@ export class PluginImporter {
     if (res.status === 403 || res.status === 429 || res.status >= 500) {
       throw new AppError(
         'PLUGIN_IMPORT_UNREACHABLE',
-        `GitHub 返回 ${res.status}（限流或上游故障），请稍后重试；私有仓库需要配 MCSTS_GH_TOKEN`,
+        `${this.upstream} 返回 ${res.status}（限流或上游故障），请稍后重试；私有仓库需要配 MCSTS_GH_TOKEN`,
       );
     }
-    if (!res.ok) fail(`GitHub 返回 ${res.status}`, url.replace(/^https?:\/\//, ''));
+    if (!res.ok) fail(`${this.upstream} 返回 ${res.status}`, url.replace(/^https?:\/\//, ''));
     return res;
   }
 
@@ -204,6 +394,53 @@ export class PluginImporter {
     return body.sha;
   }
 
+  /**
+   * 取 tag 列表（分页翻到没有为止，最多 `TAGS_MAX_PAGES` 页）。
+   * 顺序**刻意不信任**：GitHub 的 `/tags` 返回顺序不是时间序，挑版本全靠语义化比较。
+   */
+  private async listTags(repo: string): Promise<TagEntry[]> {
+    const collected: TagEntry[] = [];
+    for (let page = 1; page <= TAGS_MAX_PAGES; page += 1) {
+      const body = await this.json<TagEntry[]>(
+        `${this.apiBase}/repos/${repo}/tags?per_page=${TAGS_PER_PAGE}&page=${page}`,
+        `GitHub 上取不到 ${repo} 的 tag 列表（仓库不存在、改名了，或私有而没配 MCSTS_GH_TOKEN）`,
+      );
+      if (!Array.isArray(body)) break;
+      collected.push(...body);
+      if (body.length < TAGS_PER_PAGE) break;
+    }
+    return collected;
+  }
+
+  /**
+   * 自动识别发布版本：列 tag → 挑最新的语义化版本 → 解析成 commit sha。
+   *
+   * 认不出任何一个语义化 tag 就**拒绝**，并列出扫到的那些让作者知道该改什么。
+   * 这里不给「用默认分支 HEAD」的口子：分支会往前走，而导入的承诺是
+   * 「预览看到的那一份 = 装进磁盘的那一份」，只有 tag→sha 撑得住这句话。
+   */
+  private async pickRelease(repo: string): Promise<{ tag: string; sha: string; scanned: number }> {
+    const tags = await this.listTags(repo);
+    const chosen = newestSemverTag(tags);
+    if (!chosen) {
+      fail(
+        tags.length === 0
+          ? `仓库 ${repo} 一个 tag 都没有`
+          : `仓库 ${repo} 没有可识别的语义化版本 tag（形如 v1.2.3）`,
+        tags.length === 0
+          ? '插件按 tag 发布，才能保证预览与安装拿到同一份代码；请先在插件仓库打一个语义化版本 tag'
+          : `扫过的 tag：${tags
+              .slice(0, 8)
+              .map((item) => item.name)
+              .join('、')}${tags.length > 8 ? '…' : ''}`,
+      );
+    }
+    if (!TAG_PATTERN.test(chosen.name)) {
+      fail(`识别到的 tag「${chosen.name}」不能安全地用于请求`, 'tag 名只能含字母、数字、点、下划线和连字符');
+    }
+    return { tag: chosen.name, sha: await this.resolveTag(repo, chosen.name), scanned: tags.length };
+  }
+
   private async tree(repo: string, sha: string): Promise<TreeEntry[]> {
     const body = await this.json<{ tree?: TreeEntry[]; truncated?: boolean }>(
       `${this.apiBase}/repos/${repo}/git/trees/${sha}?recursive=1`,
@@ -222,7 +459,8 @@ export class PluginImporter {
    */
   async preview(source: ImportSource): Promise<ImportPreview> {
     const src = normalizeSource(source);
-    const sha = await this.resolveTag(src.repo, src.tag);
+    const release = await this.pickRelease(src.repo);
+    const sha = release.sha;
     const entries = await this.tree(src.repo, sha);
 
     const inDir = (path: string): boolean => (src.dir === '' ? true : path.startsWith(`${src.dir}/`));
@@ -310,13 +548,17 @@ export class PluginImporter {
 
     return {
       repo: src.repo,
-      tag: src.tag,
+      tag: release.tag,
       sha,
       dir: src.dir,
       manifest,
       marker,
       files,
       totalBytes: total,
+      tagsScanned: release.scanned,
+      // 只把 `v` 前缀去掉就比：作者普遍在 tag 上写 v1.2.3、manifest 里写 1.2.3
+      versionMatchesManifest:
+        release.tag.replace(/^v/i, '') === String(manifest.version ?? '').trim(),
     };
   }
 
@@ -330,8 +572,9 @@ export class PluginImporter {
     const plan = await this.preview(source);
     if (plan.sha !== expectedSha) {
       fail(
-        'tag 指向的 commit 与预览时不一致',
-        `预览 ${expectedSha.slice(0, 10)}，现在 ${plan.sha.slice(0, 10)}；请重新预览后再安装`,
+        '仓库的发布版本在预览之后变了',
+        `预览时是 ${expectedSha.slice(0, 10)}（自动选中的 tag 也可能换了），现在是 ${plan.sha.slice(0, 10)}；` +
+          '请重新预览后再安装 —— 要装的就该是预览里看过的那一份',
       );
     }
     if (!plan.marker.ok) fail('识别代号标记未通过，不能安装', plan.marker.reason);

@@ -1383,6 +1383,107 @@ claim 对「XUID 已 active 绑别人」「角色已 active 绑别 XUID」双向
 （反向：声明 false 还登记 issue → 拒载）；断言覆盖目录 issuable、issue 路由 501、事件送达后绑定清零。
 验证：双端 tsc 零错误；插件套件 SQLite 全绿；全门控数字见提交说明。
 
+## 生产回单修复：登录限流归一到账号 + 启动配置自检（v2-26.4.1 之后，Dev）
+
+### 动机
+
+生产端复查回单里的两项，一项是上一批明确「只记录不实现」的限流缺口，一项是配置面没有回声：
+
+1. **同一个账号有两份登录配额**。限流键按**提交的字符串**取，而备用邮箱参与认证后，
+   主邮箱把 5 次/5 分钟打满、换备用邮箱接着试就翻倍 —— 定向撞库的靶心恰好是「绑了备用邮箱的账号」。
+2. **缺配置时只有一句「能跑」**。`MCSTS_SECRET` 没配 → 凭据明文落库；`TRUST_PROXY` 没配 →
+   按来源 IP 的限流把反代后面的全网算成一个桶（表现为「一部分用户莫名 429」，日志里看不出根因）。
+   这些都有合法缺省，不能拦启动，但「静默吃缺省」和「运维知道自己没用缺省」是两回事。
+
+### 落地
+
+- **按账号取桶**：`IdentityService.resolveAuthBucketUserId`（复用 `resolveLoginAccount` 的解析口径，
+  不另写一份「什么算同一个账号」）+ 新的 `src/server/authBucketKey.ts`（网页登录与 Yggdrasil
+  `authenticate`/`signout` 共用同一份键算法）。解析不出账号（地址不存在、跨列冲突、超长畸形值）
+  时**回落到按提交值取键** —— 否则随机邮箱的尝试会挤进同一个桶，那才是真给用户关门的洞。
+- `rateLimit` 的 `keyOf` 允许返回 Promise（取键要查一次索引），另把「从请求体取原始字段」抽成
+  `bodyField`，`bodyKey` 改为在它之上组合。异步 keyOf 抛错**不额外兜底**：它查的就是登录本身要查的
+  那条索引，数据库出问题时登录也会一样失败，在这里假装 fail-open 只会掩盖根因。
+- **`src/server/configCheck.ts`**：纯函数 `checkConfigGaps` + `logConfigGaps`，装配末尾打一次，
+  覆盖 `MCSTS_SECRET` / `TRUST_PROXY` / `BASE_URL`（后台设置，靠 `SiteUrlResolver.isOriginDeclared()` 判）/
+  `RATE_LIMIT_DISABLED` / `SMTP_ALLOW_SELF_SIGNED`，每项都写成「缺了会看到什么症状 + 能不能忽略」。
+  原先 `bootstrap.ts` 里那句单独的「未设置 MCSTS_SECRET」warning 删掉了 —— 同一个缺项在日志里出现
+  两种措辞，运维就分不清哪个是权威说法。**特别写进提示**：补上主密钥不会追溯加密历史明文，
+  要进后台把 `SMTP_PASS`、`EXTERNAL_CAPTCHA_SECRET` 各自重存一次。
+- 文档：`docs/deployment.md` 新增「登录限流按账号」与「启动配置自检」两节；
+  `docs/account-emails.md` 的「已知缺口」一节改为已实现口径；`MCSTS_SECRET` 小节补上重存要求。
+
+### 验收（数字均为实际输出）
+
+- `tests/configCheck.test.ts` 新增 **11 项全绿**（含「一切就绪时一个字都不打」「空白值按未设置处理」
+  「镜像填错才点名」）。
+- `tests/cache.test.ts` 新增 **3 项全绿**：`keyOf` 异步计数不丢、`POST /api/auth/login` 主邮箱打满后
+  备用邮箱立即 429（且未知邮箱各算各的）、启动器 `authenticate`/`signout` 与网页同一口径共用账号桶。
+  原有按邮箱隔离、按 IP 的 refresh/出题/角色名查询用例无一改动、无一回归。
+- 后端与前端 `tsc` 零错误，web 生产构建通过，`tests/repoHygiene.test.ts` 5/5。
+- **本轮未跑**：`npm test` 的 SQLite 基线与全门控、`tests/backupEmailLogin.test.ts` 里那条真库回归
+  （主/备邮箱解析出同一个账号 id）、面板的肉眼验收。根因是环境不是代码：本机 Node 已升到
+  **v24.14.1（ABI 137）**，而 `node_modules/better-sqlite3` 是 **ABI 127（Node 22）** 编的，
+  任何 `new Database()` 都 `ERR_DLOPEN_FAILED`，凡起 SQLite 的用例全灭。按用户口径**切回 Node 22 后复跑**；
+  在那之前这批只走 Dev 通道（供另一边的插件项目跟进），**不推 master、不发版**。
+
+## P6 第八批：导入改为「贴仓库地址 + 版本自动识别」，并支持镜像前缀（Dev）
+
+### 动机
+
+上一批的导入面板要填两项（`owner/name` 与 `tag`），实际用起来两处别扭：
+
+- 超管手边只有 clone 地址（网页上那个「Code」按钮复制出来的），还得自己拆出 `owner/name`；
+- 版本号要人输。而手输 tag 正是「装错一份代码」的入口 —— 打错一个字、或随手填个分支名式的
+  tag，装回来的就不是作者发布的那一份。
+
+用户口径：以 git clone 的方式导入、自识别版本、免除手动输入版本号，并保留「这是不是皮肤站能用的
+插件」的可识别格式。经拍板：仍走 GitHub API（不引入 `git` 可执行文件依赖，逐文件 blob sha 字节核对
+与体积/扩展名上限都保得住），把「手输 tag」换成「自动挑」；**一个可识别的 tag 都没有就拒**，不给
+默认分支 HEAD 的口子。
+
+### 落地
+
+- **地址归一** `parseRepoInput`：`owner/name`、`https://github.com/o/r(.git)`、`www`、仓库网页的
+  `/releases/tag/…` 与 `/tree/<branch>` 尾段、`git@github.com:o/r.git`、`ssh://git@github.com/o/r.git`、
+  以及「镜像前缀 + 完整 GitHub 地址」都收。**非 GitHub 主机点名拒绝**而不是照样取 `owner/name`：
+  请求主机本来就由部署配置决定，静默把 `gitee.com/o/r` 解析成 GitHub 上的同名仓库，装回来的不是
+  用户以为的那一份 —— 认错仓库比报错严重。
+- **版本自动识别**：`GET /repos/{repo}/tags` 分页（最多 3 页）→ `newestSemverTag` 按**语义化比较**挑
+  最新的 `v?MAJOR.MINOR.PATCH`（含预发布，正式版优先）→ 解析成 commit sha 后所有取文件都按 sha 走。
+  不信列表顺序（GitHub 的 `/tags` 不是时间序，字典序还会把 `v1.10.0` 排在 `v1.2.0` 前），
+  噪声 tag（`latest`、`snapshot-0930`、两段号）一律不算发布版本；挑不出就 400 拒，并把扫到的 tag 名
+  列进文案，让作者立刻知道该改什么。预览新增 `tagsScanned` 与 `versionMatchesManifest`
+  （tag 去 `v` 与 manifest 的 `version` 对不上时**只给警告**：作者在 `v1.2.3`/`1.2.3` 之间漂移是常态，
+  硬拦会把能用的仓库拒掉；硬闸仍是识别代号标记与逐字节核对）。
+- **`MCSTS_PLUGIN_MIRROR`**：`normalizePluginMirror` 只收合法 https 绝对地址（明文 http、带凭据的、
+  相对值按未设置），前缀形态是「把完整请求 URL 拼在后面」（gh-proxy 一类）。填错由上一节的配置自检
+  点名。面板输入**只决定装哪个仓库，不决定往哪儿发请求**，这条分界挡住了「超管账号被拿去探内网任意
+  地址」。上游失败文案不再写死「GitHub」而是点名实际主机（配了镜像时打的是镜像域名）。
+- 安装时的比对文案改为「仓库的发布版本在预览之后变了」并提示重新预览 —— 现在多了「期间又发了新 tag」
+  这一种触发路径。
+- 面板：一栏「仓库地址」+ 子目录，删掉 tag 输入；`extra` 说明版本自动识别与可粘的形态；摘要行显示
+  自动选中的 tag、扫过的 tag 数、commit sha 与版本不一致警告。四语言文案同步（删 `importTag`/
+  `importRepoPattern`，加 5 个键，由键位一致守卫兜住）。
+- 文档：`docs/plugin-api-guide.md` §8 的「打 tag」改写为发布规范（作者必须按语义化版本打 tag 才能被
+  导入，这就是「可识别格式」的一部分），补地址形态与镜像说明，常见失败表补两行；
+  `docs/deployment.md` 新增「直连 GitHub 不畅时，插件导入走镜像」；`.env.example` 补
+  `MCSTS_PLUGIN_MIRROR`（含「必须同时转发 api 与 raw 两个域名」这条硬要求）。
+
+### 验收（数字均为实际输出）
+
+- `tests/pluginImport.test.ts` **22/22 全绿**（原 14 项 → 22 项）：新增地址形态 11 种逐一归一、
+  非 GitHub 主机/内网地址/畸形值点名拒、语义化挑版（含 `v1.10.0` 胜 `v1.2.0`、列表倒序不影响、
+  正式版胜 `-rc`、两段号与 `latest` 不算）、无 tag 与无可用 tag 的两种拒绝文案、自动选中并核 sha、
+  版本一致/不一致两种比对结果、镜像包裹（假 GitHub 只接被包住的请求，没包住一律 404，所以
+  「配了镜像其实没走镜像」在这里必然考砸）、失败点名实际主机。
+- 夹具假 GitHub 补 `/repos/{o}/{n}/tags` 端点，并支持 `wrap` 模式扮演镜像。
+- `tests/plugins.test.ts` 的导入 e2e 请求体改为新形态（只贴 clone 地址），并断言 `preview.tag`
+  是后端自动识别出来的那一个；本轮因 SQLite 环境未跑，随上一批一起在切回 Node 22 后复跑。
+- 后端与前端 `tsc` 零错误，web 生产构建通过，`tests/repoHygiene.test.ts` 5/5（含四语言键位一致、
+  后端读取的环境变量必须全部出现在 `.env.example` —— 新增的 `MCSTS_PLUGIN_MIRROR` 正是被它逼着登记的）。
+- 待另一边按新规范改造插件仓库（语义化 tag + `.mcsts-plugin/<id>.json`）后，再走一次真仓库端到端确认。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

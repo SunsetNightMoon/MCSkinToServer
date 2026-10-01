@@ -86,9 +86,11 @@ export function createPluginRouter(deps: PluginRouteDependencies): Router {
 
   const sourceOf = (body: unknown): ImportSource => {
     const record = (body ?? {}) as Record<string, unknown>;
+    // 只有仓库地址与子目录两项：版本号由导入器从 tag 里自动识别（见 importer.ts）。
+    // 面板那一栏仍叫 `repo`，但语义放宽成「仓库地址」：owner/name、clone 地址、
+    // 网页地址、镜像前缀 + 完整地址都认，认不出才报错。
     return {
-      repo: String(record['repo'] ?? ''),
-      tag: String(record['tag'] ?? ''),
+      repoInput: String(record['repo'] ?? ''),
       dir: record['dir'] === undefined ? undefined : String(record['dir']),
     };
   };

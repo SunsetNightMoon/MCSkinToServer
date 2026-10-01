@@ -13,7 +13,8 @@ import {
 import { illegalArgument } from '../../yggdrasil/errors.js';
 import { normalizeUuid, toShortUuid } from '../../yggdrasil/uuid.js';
 import { buildForProfile } from '../../yggdrasil/buildForProfile.js';
-import { bodyKey, clientIp, rateLimit } from '../rateLimit.js';
+import { bodyField, clientIp, rateLimit } from '../rateLimit.js';
+import { authBucketKey } from '../authBucketKey.js';
 import { RateLimitKeys } from '../../cache/keys.js';
 
 /**
@@ -74,8 +75,10 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
   const now = deps.now ?? (() => new Date());
 
   /**
-   * 凭据类端点限流（authenticate / signout）。按用户名（邮箱）计数，
-   * 与 plan3 的行为对齐：5 次 / 5 分钟。未注入限流器时返回恒放行的空中间件。
+   * 凭据类端点限流（authenticate / signout）。按**账号**计数（5 次 / 5 分钟），
+   * 与网页登录同一口径：启动器的 `username` 同样可以是备用邮箱，按提交字符串取键
+   * 会给同一个账号两份配额。键的算法见 authBucketKey。
+   * 未注入限流器时返回恒放行的空中间件。
    */
   const credentialLimit: ReturnType<typeof rateLimit>[] =
     deps.rateLimiter && deps.rateLimit
@@ -83,7 +86,12 @@ export function createYggdrasilRouter(deps: YggdrasilRouteDependencies): Router 
           rateLimit({
             limiter: deps.rateLimiter,
             settings: deps.rateLimit,
-            keyOf: bodyKey('username', (v) => RateLimitKeys.yggdrasilAccount(v)),
+            keyOf: (req) =>
+              authBucketKey(
+                deps.identity,
+                bodyField(req, 'username'),
+                RateLimitKeys.yggdrasilAccount,
+              ),
             message: (seconds) =>
               `请求过于频繁，请在 ${seconds} 秒后重试`,
           }),

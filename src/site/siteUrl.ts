@@ -181,6 +181,14 @@ export class SiteUrlResolver {
     return this.origin;
   }
 
+  /**
+   * 站点根是否为**显式声明**的值（后台 BASE_URL 或部署 PUBLIC_BASE_URL）。
+   * false 表示 origin 只是兜底猜测 —— 启动配置自检用它提醒「邮件链接会跟着请求 Host 走」。
+   */
+  isOriginDeclared(): boolean {
+    return this.originDeclared;
+  }
+
   /** 素材前缀（无尾斜杠），同步读缓存；供 StoragePort.publicUrl 使用 */
   assetBaseUrlSync(): string {
     return this.assetBase;

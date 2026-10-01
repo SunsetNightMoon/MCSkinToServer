@@ -223,6 +223,36 @@ for (const c of cases) {
     );
   });
 
+  test(`backupLogin: 限流键按账号解析 —— 主/备邮箱落进同一个桶（${c.label}）`, { skip: c.skip }, async (t) => {
+    const env = await c.setup(t);
+    const { primary, backup, userId } = await seedAccount(env, c.prefix, 'a1rl');
+
+    // 这就是 authBucketKey 依赖的口径：两个提交值解析出同一个账号 id，才算同一个桶
+    assert.equal(await env.identity.resolveAuthBucketUserId(primary), userId);
+    assert.equal(
+      await env.identity.resolveAuthBucketUserId(backup.toUpperCase()),
+      userId,
+      '备用邮箱（含大小写混写）必须解析到同一个账号 id',
+    );
+
+    // 解析不出账号时返回 null，由调用方回落到按提交值取键（否则随机邮箱会共用一个桶）
+    assert.equal(
+      await env.identity.resolveAuthBucketUserId('nobody@test.local'),
+      null,
+    );
+    // 畸形超长值不值得为它打一次索引查询，也不该整坨进限流键
+    assert.equal(
+      await env.identity.resolveAuthBucketUserId(`${'a'.repeat(300)}@test.local`),
+      null,
+    );
+    assert.equal(await env.identity.resolveAuthBucketUserId('   '), null);
+    assert.equal(await env.identity.resolveAuthBucketUserId(undefined), null);
+
+    // 「绑上但没验证」的备用邮箱不算登录入口，因此也不该参与归桶
+    await env.users.markBackupEmailVerified(userId, false, env.clock);
+    assert.equal(await env.identity.resolveAuthBucketUserId(backup), null);
+  });
+
   test(`backupLogin: 未验证的备用邮箱不参与认证（${c.label}）`, { skip: c.skip }, async (t) => {
     const env = await c.setup(t);
     const { backup } = await seedAccount(env, c.prefix, 'a2');

@@ -14,7 +14,7 @@ import { runMigrations } from '../migrate/runner.js';
 import { createStoragePort } from '../storage/index.js';
 import { SiteUrlResolver } from '../site/siteUrl.js';
 import { RuntimeSettings } from '../site/runtimeSettings.js';
-import { SecretBox, MASTER_SECRET_ENV } from '../util/secretBox.js';
+import { SecretBox } from '../util/secretBox.js';
 import { AccountTokenRepository } from '../repositories/accountTokenRepository.js';
 import { EmailChangeRepository } from '../repositories/emailChangeRepository.js';
 import { CaptchaRepository } from '../repositories/captchaRepository.js';
@@ -43,6 +43,7 @@ import { TextureProfileBuilder } from '../yggdrasil/textures.js';
 import { AssetUrlResolver } from '../storage/assetUrl.js';
 import { loadOrCreateKeyPair } from '../yggdrasil/keys.js';
 import { recordExistingEnvironment } from '../setup/setupService.js';
+import { logConfigGaps } from './configCheck.js';
 import { createApp } from './app.js';
 import { PluginHost } from '../plugins/loader.js';
 import { buildForProfile } from '../yggdrasil/buildForProfile.js';
@@ -144,12 +145,9 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     settings: settingRepository,
   });
   // ---- P5：注册开关 / 邮箱验证 / 邮件发送 ----
+  // 主密钥缺失不再在这里单独打 warning：改由下面的配置自检统一提示（见 configCheck.ts）。
+  // 同一个缺项在日志里出现两种措辞，运维就分不清哪个是权威说法。
   const secretBox = SecretBox.fromEnv();
-  if (!secretBox) {
-    console.warn(
-      `[mcsts] 未设置 ${MASTER_SECRET_ENV}：SMTP 密码将以明文存入 system_settings`,
-    );
-  }
   const runtimeSettings = new RuntimeSettings({
     settings: settingRepository,
     secretBox,
@@ -222,6 +220,14 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     );
   }
 
+  // 配置自检放在装配末尾：此时站点根（BASE_URL 设置）已从库里读出来，判断才有依据。
+  // 只打日志、不阻断 —— 这些项都有合法的缺省，让站起不来反而是更大的事故。
+  logConfigGaps({
+    config,
+    env: process.env,
+    siteOriginDeclared: siteUrlResolver.isOriginDeclared(),
+  });
+
   // ---- 插件系统（默认关闭；MCSTS_PLUGINS 未设时连对象都不建）----
   const pluginHost = config.plugins?.enabled
     ? new PluginHost({
@@ -251,6 +257,7 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
         pluginDir: config.plugins.dir,
         now: () => new Date(),
         token: config.plugins.githubToken,
+        mirror: config.plugins.mirror,
       })
     : undefined;
 
