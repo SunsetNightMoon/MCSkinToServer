@@ -54,7 +54,7 @@ Windows 用户可直接下载**免安装便携包**（不含 Node 运行环境�
 npm test          # SQLite 基线，无需外部服务，门控用例自动 skip
 ```
 
-全门控（PostgreSQL + Redis + Mailpit）用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 打开。当前基线：**468/468 pass / 0 fail / 0 skipped**。
+全门控（PostgreSQL + Redis + Mailpit）用 `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` 打开。当前基线：**469/469 pass / 0 fail / 0 skipped**。
 
 ## 文档
 

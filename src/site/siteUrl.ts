@@ -31,7 +31,17 @@ import type { SettingRepository } from '../repositories/settingRepository.js';
  */
 
 const DEFAULT_TTL_MS = 30 * 1000;
-const FALLBACK_ORIGIN = 'http://localhost:3000';
+const DEFAULT_FALLBACK_PORT = 3000;
+/**
+ * 未声明站点根时的兜底：跟随实际监听端口。
+ *
+ * 写死 3000 会让换端口跑的实例（本地 rig、包内冒烟）签出指向别处的素材 URL ——
+ * 签名是本站的、图却去另一个端口拉，基岩伴生插件与网页预览都会静默失败。
+ */
+function fallbackOrigin(port?: number): string {
+  const p = typeof port === 'number' && Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_FALLBACK_PORT;
+  return `http://localhost:${p}`;
+}
 /** 静态资源挂载点，与 server/app.ts 的 express.static 挂载路径必须一致 */
 export const ASSET_MOUNT_PATH = '/uploads';
 
@@ -68,12 +78,12 @@ export function normalizeOrigin(raw: string): string | undefined {
  */
 export function originFromAssetBase(assetBase: string): string {
   const trimmed = stripTrailingSlash(assetBase.trim());
-  if (trimmed === '') return FALLBACK_ORIGIN;
+  if (trimmed === '') return fallbackOrigin();
   if (trimmed.endsWith(ASSET_MOUNT_PATH)) {
     const stripped = stripTrailingSlash(
       trimmed.slice(0, -ASSET_MOUNT_PATH.length),
     );
-    return stripped === '' ? FALLBACK_ORIGIN : stripped;
+    return stripped === '' ? fallbackOrigin() : stripped;
   }
   return trimmed;
 }
@@ -87,6 +97,8 @@ export interface SiteUrlResolverDependencies {
   envSkinDomains?: string[];
   /** 缓存 TTL（毫秒）；0 = 每次读取都查库 */
   ttlMs?: number;
+  /** 实际监听端口；只在站点根从未声明时用于兜底（见 fallbackOrigin） */
+  listenPort?: number;
   /** 时钟可注入（测试） */
   now?: () => number;
 }
@@ -97,6 +109,7 @@ export class SiteUrlResolver {
   private readonly envSkinDomains: string[];
   private readonly ttlMs: number;
   private readonly now: () => number;
+  private readonly listenPort: number | undefined;
 
   private origin: string;
   private assetBase: string;
@@ -114,13 +127,14 @@ export class SiteUrlResolver {
     this.envSkinDomains = deps.envSkinDomains ?? [];
     this.ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
     this.now = deps.now ?? (() => Date.now());
+    this.listenPort = deps.listenPort;
 
     // 构造时先用环境变量给出可用值，保证 refresh() 之前 getter 也不返回 undefined
     this.originDeclared = this.envAssetBaseUrl !== '';
     this.origin =
       this.envAssetBaseUrl !== ''
         ? originFromAssetBase(this.envAssetBaseUrl)
-        : FALLBACK_ORIGIN;
+        : fallbackOrigin(this.listenPort);
     this.assetBase = this.computeAssetBase(this.origin);
     // loadedAt = 0 让首次 ensureFresh() 必定查库
     this.loadedAt = 0;
@@ -173,7 +187,7 @@ export class SiteUrlResolver {
     if (this.envAssetBaseUrl !== '') {
       return originFromAssetBase(this.envAssetBaseUrl);
     }
-    return FALLBACK_ORIGIN;
+    return fallbackOrigin(this.listenPort);
   }
 
   /** 站点根（无尾斜杠），同步读缓存 */

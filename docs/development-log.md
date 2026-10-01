@@ -1562,6 +1562,39 @@ HMAC 回调。脚本留在 `tmp/harness-start.sh` / `tmp/harness-e2e.mjs`（`tmp
 **一处值得记的实测现象（不是缺陷）**：harness 与 rig 都没配 Redis，限流走进程内存，连跑脚本会先撞
 注册配额（5/5min）与 hooks 配额（60/min/插件+IP）—— 429 是限流器在干活，重跑前等窗口或重启进程即可。
 
+## 联线实测逼出的兜底缺陷：未声明站点根时素材 URL 写死 3000 端口（Dev）
+
+### 现象
+
+jar 伴生插件（#3，v0.1.28）每分钟两条 `站点皮肤获取失败（不影响签证门控）：null`；解码站点签出的
+textures property 一看，SKIN/CAPE 的 url 全是 `http://localhost:3000/uploads/…`，而签它的站跑在
+**:3010**，:3000 此刻根本没进程 —— 签名是本站的、图却去另一个端口拉，`ECONNREFUSED` 被 jar 收成
+message 为 null 的异常。网页侧同因：rig 上前端的皮肤预览也指向一个不存在的实例。
+
+### 根因
+
+`src/site/siteUrl.ts` 的兜底站点根写死 `http://localhost:3000`。纹理 property 的素材前缀走
+`StoragePort.publicUrl()`，那是**同步**方法（Yggdrasil builder 等大量同步路径在用），拿不到触发请求的
+Host；BASE_URL 与 PUBLIC_BASE_URL 都没声明时只能吃兜底值。生产站声明了 BASE_URL 所以从未暴露，
+换端口跑的实例（本地 rig、包内冒烟）则必中。
+
+### 修法
+
+兜底跟随**实际监听端口**：`SiteUrlResolver` 新增 `listenPort` 依赖（bootstrap 传 `PORT`，缺省 3000），
+未声明站点根时兜底为 `http://localhost:<监听端口>`；声明过的值（BASE_URL / PUBLIC_BASE_URL）永远压过它。
+新增用例「未声明站点根时兜底跟随监听端口」，并断言声明值优先。
+
+这不改变任何已声明站点的行为，也不替代「该设 BASE_URL 还是要设」—— 启动配置自检照旧点名未声明的
+站点根，邮件链接在反代后面仍需要它。
+
+### 验收（真机）
+
+修完重启 rig，`/hooks/skin` 签出的 url 变成 `http://localhost:3010/uploads/…` 且 PNG 200；给在线的
+两个角色（基岩 brow40hj、Java JavaCeShi）各上传并装备一张新皮肤后，#3 日志下一轮监视器即
+`已取到站点皮肤（角色 …，含披风）` → `已向自己直发 trusted PlayerSkinPacket` →
+`皮肤监视器：检测到 … 换肤，已重播全部视角` → Geyser `SessionSkinApplyEvent 已应用站点皮肤`。
+至此 jar ↔ 站点四条链路（lookup/confirm/verify/skin）在真服务器上全部走通。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

@@ -54,7 +54,7 @@ Windows users can download the **portable package** (bundled without a Node runt
 npm test          # SQLite baseline, no external services needed; gated cases auto-skip
 ```
 
-Enable gates with `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` for the full suite. Current baseline: **468/468 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
+Enable gates with `TEST_DATABASE_URL` / `TEST_REDIS_URL` / `TEST_SMTP_URL` / `TEST_SMTP_API_URL` for the full suite. Current baseline: **469/469 pass / 0 fail / 0 skipped** (PG + Redis + Mailpit all on).
 
 ## Documentation
 

@@ -98,6 +98,9 @@ export async function buildInstalledApp(config: AppConfig): Promise<InstalledHan
     settings: settingRepository,
     envPublicBaseUrl: explicitAssetBaseUrl,
     envSkinDomains: config.skinDomains,
+    // 站点根从未声明时兜底跟随实际监听端口：写死 3000 会让换端口跑的实例
+    // 签出指向别处的素材 URL（签名是本站的、图却去另一个端口拉）。
+    listenPort: Number(process.env['PORT'] ?? 3000),
   });
   await siteUrlResolver.refresh();
 

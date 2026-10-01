@@ -46,6 +46,23 @@ test('siteUrl: 无设置无环境变量时用 localhost 兜底', async () => {
   assert.deepEqual(resolver.skinDomains(), ['localhost']);
 });
 
+test('siteUrl: 未声明站点根时兜底跟随监听端口', async () => {
+  // 换端口跑的实例（本地 rig、包内冒烟）若兜底写死 3000，签出的纹理 URL 会指向
+  // 另一个端口：签名是本站的、图却去别处拉，伴生插件与网页预览都静默失败。
+  const resolver = new SiteUrlResolver({ listenPort: 3010 });
+  await resolver.refresh();
+  assert.equal(resolver.originSync(), 'http://localhost:3010');
+  assert.equal(resolver.assetBaseUrlSync(), `http://localhost:3010${ASSET_MOUNT_PATH}`);
+  // 声明过的值永远压过端口兜底
+  const declared = new SiteUrlResolver({
+    settings: fakeSettings({ BASE_URL: 'https://skin.example.com' }),
+    listenPort: 3010,
+    ttlMs: 0,
+  });
+  await declared.refresh();
+  assert.equal(declared.originSync(), 'https://skin.example.com');
+});
+
 test('siteUrl: 只有 PUBLIC_BASE_URL 时由它反推站点根', async () => {
   const resolver = new SiteUrlResolver({
     envPublicBaseUrl: 'https://cdn.example.com/uploads',
