@@ -938,6 +938,11 @@ for (const c of cases) {
       { headers: auth(admin.token) },
     );
     assert.equal(offListBefore.json.bindings.length, 1, 'claim 后应有一条待确认');
+    assert.equal(
+      ((offListBefore.json.bindings[0]?.fields ?? [])[0] as Record<string, unknown>)?.secret,
+      true,
+      'fields[].secret=true 必须由核心校验放行并透传给页面（默认打码的数据源）',
+    );
     // 角色被换下（多→单 / 单模式换 ID）→ 插件收到事件丢弃绑定，XUID 释放
     emitPluginEvent('profile.reserved', { userId: admin.userId, profileId: admin.profileId, name: admin.name });
     await new Promise((resolve) => setTimeout(resolve, 150));

@@ -1,7 +1,7 @@
 import { compatFetch as fetch } from '../../utils/apiCompat'
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Input, Popconfirm, Select, Space, Spin, Tag, Typography, message } from 'antd'
-import { LinkOutlined, ReloadOutlined } from '@ant-design/icons'
+import { EyeInvisibleOutlined, EyeOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/authStore'
 
@@ -31,6 +31,8 @@ interface BindingCatalogEntry {
 interface BindingField {
   label: string
   value: string
+  /** 插件声明的敏感值：默认整串打星，点眼睛自行查看（如 XUID，泄露即可被抢注申请） */
+  secret?: boolean
 }
 
 interface BindingRow {
@@ -139,6 +141,7 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
   const [issued, setIssued] = useState<{ code: string; expiresAt: string } | null>(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [claimValue, setClaimValue] = useState('')
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
 
   // 角色被删/换页后 profileId 可能失效：回到第一个可用角色，而不是抱着旧 id 发请求
   useEffect(() => {
@@ -416,14 +419,28 @@ function BindingCard({ entry, profiles }: { entry: BindingCatalogEntry; profiles
                     {row.status === 'pending' ? t('bindings.statusPending') : t('bindings.statusActive')}
                   </Tag>
                 )}
-                {row.fields.map((field, i) => (
-                  <span key={i} style={{ fontSize: 13 }}>
-                    <Typography.Text type="secondary">{field.label}：</Typography.Text>
-                    <Typography.Text strong copyable={{ text: field.value }}>
-                      {field.value}
-                    </Typography.Text>
-                  </span>
-                ))}
+                {row.fields.map((field, i) => {
+                  const key = `${row.id}:${i}`
+                  const shown = !field.secret || revealed[key] === true
+                  return (
+                    <span key={i} style={{ fontSize: 13 }}>
+                      <Typography.Text type="secondary">{field.label}：</Typography.Text>
+                      <Typography.Text strong copyable={shown ? { text: field.value } : false}>
+                        {shown ? field.value : '*'.repeat(8)}
+                      </Typography.Text>
+                      {field.secret && (
+                        <Button
+                          aria-label={shown ? t('bindings.hideSecret') : t('bindings.showSecret')}
+                          icon={shown ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                          size="small"
+                          style={{ marginLeft: 4 }}
+                          type="text"
+                          onClick={() => setRevealed((prev) => ({ ...prev, [key]: shown !== true }))}
+                        />
+                      )}
+                    </span>
+                  )
+                })}
               </Space>
               {row.boundAt && (
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>

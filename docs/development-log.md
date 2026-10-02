@@ -1635,6 +1635,17 @@ Host；BASE_URL 与 PUBLIC_BASE_URL 都没声明时只能吃兜底值。生产�
 验收：SQLite 基线 **471 用例 / 364 pass / 0 fail / 107 skipped**；全门控 **471/471 pass / 0 fail / 0 skipped**；
 真网络空子目录预览官方仓库 → `tag=v2.2.2、dir=site、dirAutoDetected=true、标记核对通过、3 个文件`。
 
+## P6 第八批补二：绑定字段 `secret` 默认打码（v2-26.4.3 之后，Dev）
+
+申请制的残余风险是「知道别人 XUID 的人抢先申请」，而绑定页把 XUID 明文常显——
+旁观屏幕/截图都会泄露这个可抢注的坐标。契约加 `fields[].secret?: boolean`
+（插件声明哪个值是敏感的，核心校验放行并透传），绑定页对 secret 字段默认整串
+`********`，旁边一个眼睛按钮自行显隐；打码态同时收起复制按钮（防误拷出）。
+床站插件 v2.3.2 把 XUID 字段标为 secret。夹具 `demo_binding_issue_off` 断言透传。
+
+验收：双端 tsc 零错误；`plugins.test.ts`（Node 22 便携版跑）8 pass / 0 fail；
+rig 肉眼验收（打码/显隐/暗色）见插件 v2.3.2 联测。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。

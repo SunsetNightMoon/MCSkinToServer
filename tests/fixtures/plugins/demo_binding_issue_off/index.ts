@@ -26,7 +26,7 @@ const setup: PluginSetup = async (ctx) => {
       return {
         bindings: rows.map((r) => ({
           id: String(r.remote),
-          fields: [{ label: '远端身份', value: String(r.remote) }],
+          fields: [{ label: '远端身份', value: String(r.remote), secret: true }],
           status: (r.status === 'pending' ? 'pending' : 'active') as 'pending' | 'active',
         })),
       };

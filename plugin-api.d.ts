@@ -74,6 +74,8 @@ export interface PluginBindingActor {
 export interface PluginBindingField {
   label: string;
   value: string;
+  /** 敏感值（如 XUID——申请制下泄露即可被抢注）：页面默认整串打星，玩家点眼睛自行查看 */
+  secret?: boolean;
 }
 
 /** 绑定列表里的一行。id 是解绑句柄，必须在本插件内唯一（例如 XUID） */

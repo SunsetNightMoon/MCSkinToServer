@@ -1324,6 +1324,8 @@
     "claimDone": "申請已提交",
     "claimInvalid": "輸入格式不正確",
     "statusPending": "待確認",
-    "statusActive": "已生效"
+    "statusActive": "已生效",
+    "showSecret": "顯示該值",
+    "hideSecret": "隱藏該值"
   }
 }

@@ -1324,6 +1324,8 @@
     "claimDone": "申請を送信しました",
     "claimInvalid": "入力形式が正しくありません",
     "statusPending": "確認待ち",
-    "statusActive": "有効"
+    "statusActive": "有効",
+    "showSecret": "この値を表示",
+    "hideSecret": "この値を隠す"
   }
 }

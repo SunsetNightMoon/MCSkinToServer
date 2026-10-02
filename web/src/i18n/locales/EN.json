@@ -1324,6 +1324,8 @@
     "claimDone": "Request submitted",
     "claimInvalid": "Input format is invalid",
     "statusPending": "Pending",
-    "statusActive": "Active"
+    "statusActive": "Active",
+    "showSecret": "Show value",
+    "hideSecret": "Hide value"
   }
 }

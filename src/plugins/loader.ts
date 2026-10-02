@@ -810,7 +810,11 @@ function assertBindingListResult(pluginId: string, value: unknown): PluginBindin
       if (typeof label !== 'string' || typeof val !== 'string') {
         bad(`bindings[${i}].fields[${j}] 必须是 { label: string, value: string }`);
       }
-      return { label, value: val };
+      const secret = f['secret'];
+      if (secret !== undefined && typeof secret !== 'boolean') {
+        bad(`bindings[${i}].fields[${j}].secret 必须是布尔值（true = 页面默认打码）`);
+      }
+      return secret === true ? { label, value: val, secret: true } : { label, value: val };
     });
     const boundAtRaw = raw['boundAt'];
     const boundAt = typeof boundAtRaw === 'string' ? { boundAt: boundAtRaw } : {};
