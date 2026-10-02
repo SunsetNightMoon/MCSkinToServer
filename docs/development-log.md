@@ -1646,6 +1646,22 @@ Host；BASE_URL 与 PUBLIC_BASE_URL 都没声明时只能吃兜底值。生产�
 验收：双端 tsc 零错误；`plugins.test.ts`（Node 22 便携版跑）8 pass / 0 fail；
 rig 肉眼验收（打码/显隐/暗色）见插件 v2.3.2 联测。
 
+## 发版：v2-26.4.4 —— 绑定字段 secret 打码合入 master（同季度迭代 +1）
+
+`v2-26.4.3` → **`v2-26.4.4`**（包内 semver 存 `26.4.4`），九文件逐处锚定。本版带进 master 的是上一节
+那项能力（`fields[].secret` 默认打码 + 眼睛显隐 + 打码态收起复制），以及配套的指南同步
+（§5 补 secret 的语义与边界、§9/§10 改成「子目录留空即认」）。床站插件对应版本 `v2.3.2` 已打 tag 并推到远端。
+
+### 本轮验收的诚实边界
+
+- 复跑并通过：后端与 web 双端 `tsc` 零错误、`tests/repoHygiene.test.ts` 5/5（不碰数据库）。
+- **未复跑**：SQLite 基线、全门控与包内冒烟。原因 = 本机那份便携 Node 22
+  （`~/.workbuddy/binaries/node/versions/22.22.2-3`）目录已消失，系统 Node 是 24，而 `better-sqlite3`
+  按 ABI 127（Node 22）编译 → 任何碰 SQLite 的用例直接 `ERR_DLOPEN_FAILED`。
+  `plugins.test.ts` 的 8/8 是上一节作者在自己那台 Node 22 上跑出来的，本轮沿用该结论。
+- 因此本版**只推 master + tag**；便携包与 Release 等 Node 22 恢复、基线与包内冒烟复跑绿之后再出。
+  不要用 `npm rebuild better-sqlite3` 迁就 Node 24 —— 那会把 Node-24 原生模块打进按 Node 22 发行的发布包。
+
 ## 背景：重制动机（原 README「结论摘要」）
 
 plan3 已经具备可运行产品的主要功能：Yggdrasil 认证兼容、Web 注册登录、角色管理、皮肤和披风上传、审核、公开素材库、收藏、OAuth、Turnstile、Redis 缓存、S3 存储和 Docker 部署。
