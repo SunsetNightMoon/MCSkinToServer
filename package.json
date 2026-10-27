@@ -20,7 +20,7 @@
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.10.0",
     "express": "^5.1.0",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^10.2.1",
     "pg": "^8.13.0",
     "redis": "^6.2.1",
     "sharp": "^0.35.5"
@@ -30,7 +30,6 @@
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
-    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
