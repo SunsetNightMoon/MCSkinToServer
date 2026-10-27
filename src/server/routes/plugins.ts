@@ -137,9 +137,9 @@ export function createPluginRouter(deps: PluginRouteDependencies): Router {
   });
 
   // 只重载单个插件（重读 manifest + 重跑 setup），不重启站点。
-  // 注意 `staleCode`：入口文件在内存里那份模块被导入之后又改过，而运行时（tsx）
-  // 会把 URL 上的版本参数归一掉，模块换不下来 —— 这时「重载成功」只重跑了 setup，
-  // 代码还是旧的，必须回给面板一个可信的说法。
+  // 注意 `staleCode`：入口文件在那份模块被导入之后又改过，而运行时能不能绕开 ESM
+  // 缓存因版本而异（有的模块换得下来，有的换不下来）。换不下来时「重载成功」只重跑了
+  // setup，代码还是旧的，必须回给面板一个可信的说法。
   router.post('/api/admin/plugins/:id/reload', auth, superAdmin, async (req, res) => {
     const host = requireHost();
     const status = await host.reload(String(req.params['id'] ?? ''), req.context!.userId);

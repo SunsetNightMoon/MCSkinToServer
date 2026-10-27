@@ -387,14 +387,15 @@ for (const c of cases) {
   });
 
   /**
-   * 「重载」到底能做什么：重跑 setup 可以，换掉已导入的模块不行。
+   * 「重载能不能把磁盘上的新代码换进进程」取决于运行时的 ESM 缓存能不能被绕开：
+   * query 被归一掉的运行时换不掉，query 生效的运行时换得掉 —— 两种都现实存在，
+   * 所以这里不预设结果，而是拿一个**只有新代码才会出现的标记**去反证内存里跑的
+   * 是哪一份，再要求 `staleCode` 与它一致。
    *
-   * tsx 的解析器会把 `file:` URL 上的 query / hash 归一掉（实测 `?v=1` 与不带 query
-   * 拿到同一个模块对象），所以磁盘上的代码改了也换不进正在运行的进程。
-   * 面板不能在这种情况下报「重载成功」—— 那会让人以为新代码已经生效。
-   * 这里用「入口 mtime 变了、而 import 回来的还是同一个模块」判定 stale。
+   * 要钉住的错只有一个：面板在内存里仍是旧代码时报「重载成功」，那会让人以为
+   * 新代码已经生效。反过来把「确实换掉了」误报成 stale 也一样是错。
    */
-  test(`plugins: 重载只重跑 setup，换不掉模块时必须标 stale（${c.label}）`, { skip: c.skip }, async (t) => {
+  test(`plugins: 重载的 stale 标记必须与「代码到底换没换」一致（${c.label}）`, { skip: c.skip }, async (t) => {
     const db = await c.setup(t);
     // 改文件必须在临时副本上做：夹具目录是 git 里的资产
     const dir = await mkdtemp(join(tmpdir(), 'mcsts-plugin-reload-'));
@@ -411,7 +412,15 @@ for (const c of cases) {
     assert.equal(enable.status, 200, enable.text);
 
     const entry = join(copy, 'demo_link', 'index.ts');
-    await writeFile(entry, `${await readFile(entry, 'utf8')}\n// 重载用例改过的一行\n`, 'utf8');
+    // 给 /ping 的响应加一个只有新代码才带的字段：注释改动是反证不出来的
+    await writeFile(
+      entry,
+      (await readFile(entry, 'utf8')).replace(
+        'plugin: ctx.pluginId,',
+        "plugin: ctx.pluginId,\n      reloadMarker: 'v2',",
+      ),
+      'utf8',
+    );
     // mtime 显式推到未来，不靠「写入总该比导入晚几毫秒」这种时序运气
     const future = new Date(Date.now() + 60_000);
     await utimes(entry, future, future);
@@ -421,13 +430,26 @@ for (const c of cases) {
       headers: { 'content-type': 'application/json', ...auth(admin.token) },
     });
     assert.equal(reload.status, 200, reload.text);
-    assert.equal(reload.json.staleCode, true, '磁盘代码已变而模块没换，要标 stale 而不是重载成功');
+
+    // 标记出现 = 新模块确实进了进程；没出现 = 内存里跑的还是旧代码
+    const pinged = await call(ctx, '/api/plugins/demo_link/ping');
+    assert.equal(pinged.status, 200, pinged.text);
+    const swapped = pinged.json.reloadMarker === 'v2';
+    assert.equal(
+      reload.json.staleCode,
+      !swapped,
+      `staleCode 与内存中实际跑的代码不一致：标记${swapped ? '已出现（新代码在跑）' : '未出现（旧代码在跑）'}，却报 stale=${reload.json.staleCode}`,
+    );
 
     const again = await call(ctx, '/api/admin/plugins/demo_link/reload', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...auth(admin.token) },
     });
-    assert.equal(again.json.staleCode, true, '连续重载不能把 stale 标记洗掉');
+    assert.equal(
+      again.json.staleCode,
+      reload.json.staleCode,
+      '连续重载不能改变判定：换不进代码时 stale 标记不能被洗掉，换得进时也不该凭空出现',
+    );
 
     // 但插件确实还活着：setup 重跑过，入口照常服务
     assert.equal((await call(ctx, '/api/plugins/demo_link/ping')).status, 200);

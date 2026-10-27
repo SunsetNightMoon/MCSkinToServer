@@ -332,7 +332,8 @@ export class PluginHost {
       const entry = resolve(dir, manifest.main);
       const entryMtimeMs = (await stat(entry)).mtimeMs;
       // Windows 下裸路径不能被 import() 接受，必须 file:// URL。
-      // 这个 query 在纯 node 下确实能拿到新模块；在 tsx 下会被解析器归一掉，等于没有。
+      // 这个 query 能不能绕开 ESM 缓存取决于运行时：有的（实测 tsx 4.23 + Node 24）
+      // 会拿到一个新模块对象，有的会把 query 归一掉、返回同一个对象。两种都当成可能。
       const entryUrl =
         this.reloadSeq > 0
           ? `${pathToFileURL(entry).href}?mcsts-reload=${this.reloadSeq}`
@@ -340,9 +341,8 @@ export class PluginHost {
       const imported = (await import(entryUrl)) as PluginEntry;
       /**
        * 「代码到底换没换」不靠猜运行时：入口文件 mtime 变了，而 `import()` 回来的
-       * 还是**同一个模块对象**，就说明缓存没被绕开 —— 内存里跑的仍是旧代码。
-       * （实测 tsx 会把 URL 上的 query / hash 归一掉，正是这种情况；纯 node 会拿到
-       * 一个新命名空间对象，于是这里自动判为「已换代码」。）
+       * 还是**同一个模块对象**，就说明缓存没被绕开 —— 内存里跑的仍是旧代码；
+       * 拿到的是新对象则代码真的换了，此时不能报 stale。
        */
       const staleCode =
         prior !== undefined && prior.entryMtimeMs !== entryMtimeMs && prior.entryModule === imported;
