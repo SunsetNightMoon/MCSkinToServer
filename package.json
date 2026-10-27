@@ -23,7 +23,7 @@
     "nodemailer": "^7.0.13",
     "pg": "^8.13.0",
     "redis": "^6.2.1",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
